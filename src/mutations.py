@@ -11,7 +11,7 @@ class MutType(Enum):
 class Mutation(object):
 
     def __init__(self):
-        self.type = list()
+        self.type = []
         self.number = 0
         self.is_final = False
 

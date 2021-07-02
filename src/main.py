@@ -2,34 +2,36 @@ from z3 import *
 from mutations import *
 import sys
 
+time_limit = int(1e4)
+
 
 def get_seed(argv):
     """Return the parsed seeds given by files in smt2-format"""
 
-    seeds = list()
-    seed_num = len(argv)
-    for i in range(seed_num):
-        seed = z3.parse_smt2_file(argv[i])
-        seeds.append(seed)
+    seeds = [
+        z3.parse_smt2_file(seed)
+        for seed in argv
+    ]
     return seeds
 
 
 def check_equ(seeds, mut_seeds):
     """Return True if the test suites have the same satisfiability and False otherwise"""
 
-    s1 = SolverFor("HORN")
+    s1 = SolverFor('HORN')
     s1.set('engine', 'spacer')
-    s2 = SolverFor("HORN")
+    s1.set('timeout', time_limit)
+    s2 = SolverFor('HORN')
     s2.set('engine', 'spacer')
+    s2.set('timeout', time_limit)
 
-    seed_num = len(seeds)
-    for i in range(seed_num):
-        s1.add(seeds[i])
+    for seed in seeds:
+        s1.add(seed)
     old_res = s1.check()
     assert old_res != unknown, s1.reason_unknown()
 
-    for i in range(len(mut_seeds)):
-        s2.add(mut_seeds[i])
+    for mut_seed in mut_seeds:
+        s2.add(mut_seed)
     new_res = s2.check()
     assert new_res != unknown, s2.reason_unknown()
     return old_res == new_res
@@ -41,7 +43,7 @@ def main(argv):
     assert seed_num > 0, 'Seeds not found'
     seeds = get_seed(argv)
 
-    mut_seeds = list()
+    mut_seeds = []
     mut_seeds.append(seeds)
     mut = Mutation()
 
@@ -58,6 +60,7 @@ def main(argv):
         i += 1
     if not found_err:
         print('No problems found')
+    print()
 
 
 if __name__ == '__main__':
