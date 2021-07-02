@@ -1,3 +1,3 @@
-def mutate(seeds, seed_num):
+def mutate(seeds):
     #TODO
     return seeds
