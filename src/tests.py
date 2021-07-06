@@ -27,6 +27,21 @@ def test_relational():
         main(['spacer-benchmarks/relational/' + file])
 
 
+def test_mut_conn():
+    sets = [
+        ['inc-loop-1.smt2', 'unsafe_self_comp.smt2'],
+        ['inc-loop-2.smt2', 'point-location-nr.49.smt2'],
+        ['inc-loop-5.smt2', 'point-location-nr.50.smt2', 'unsafe_self_comp.smt2'],
+        ['mccarthy-monotone.smt2', 'point-location-nr.51.smt2', 'unsafe_self_comp.smt2'],
+        ['mccarthy-equivalent.smt2', 'point-location-nr.52.smt2', 'unsafe_self_comp.smt2']
+    ]
+    for files in sets:
+        argv = []
+        for file in files:
+            argv.append('spacer-benchmarks/relational/' + file)
+        main(argv)
+
+
 def test_all():
     """Run all tests from the /spacer-benchmarks/relational"""
 
@@ -45,6 +60,8 @@ def test_all():
 def test(argv):
     if len(argv) == 0:
         test_relational()
+    elif argv[0] == '-conn':
+        test_mut_conn()
     elif argv[0] == '-all':
         test_all()
 
