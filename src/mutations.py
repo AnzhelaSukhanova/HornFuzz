@@ -1,5 +1,6 @@
 import random
 from enum import Enum
+from collections import defaultdict
 from z3 import *
 
 
@@ -7,6 +8,8 @@ class MutType(Enum):
     # no mutations yet
     ID = 1
     CONNECT = 2
+    SWAP_AND = 3
+    SWAP_OR = 4
     #TODO
 
 
@@ -21,12 +24,17 @@ class Mutation(object):
         """Return mutated seeds"""
         self.next_mutation(seeds)
         cur_type = self.type[-1]
-        if cur_type == 1:
+        if cur_type == MutType.ID:
             self.is_final = True
             return seeds
-        elif cur_type == 2:
-            self.is_final = True
+        elif cur_type == MutType.CONNECT:
             return self.connect_chc(seeds)
+        elif cur_type == MutType.SWAP_AND:
+            #TODO
+            return seeds
+        elif cur_type == MutType.SWAP_OR:
+            #TODO
+            return seeds
         else:
             #TODO
             assert False
@@ -35,20 +43,22 @@ class Mutation(object):
         """Return the next mutation based on the seeds, type of the previous mutation etc"""
         self.number += 1
         if len(seeds) > 1:
-            self.type.append(2)
+            self.type.append(MutType.CONNECT)
         else:
             # the choice of the next mutation is random yet
-            next_type = random.randint(1, len(MutType))
+            value = random.randint(1, len(MutType))
+            next_type = MutType(value)
             self.type.append(next_type)
 
     def connect_chc(self, seeds):
         """Return connected seeds if they don't depend on each other"""
-        vars = dict()
+        vars = defaultdict(set)
         mut_seeds = AstVector()
         can_be_conn = True
 
+        if len(seeds) == 1:
+            return seeds
         for i, seed in enumerate(seeds):
-            vars.update({i: set()})
             clause = seed[0]
             for j in range(clause.num_vars()):
                 var = clause.var_name(j)
@@ -75,10 +85,10 @@ class Mutation(object):
         print('[', end='')
         for i in range(to):
             if i == fr:
-                print(MutType(self.type[i]).name + ']', end='')
+                print(self.type[i].name + ']', end='')
             else:
-                print(MutType(self.type[i]).name, end='')
+                print(self.type[i].name, end='')
             if i is not to - 1:
-                print('->')
+                print('->', end='')
             else:
                 print()

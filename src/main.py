@@ -1,5 +1,6 @@
 from mutations import *
 import sys
+import time
 
 time_limit = int(1e5)
 
@@ -14,13 +15,14 @@ def get_seed(argv):
     return seeds
 
 
-def check_equ(seeds, mut_seeds):
+def check_equ(seeds, mut_num1, mut_seeds, mut_num2):
     """Return True if the test suites have the same satisfiability and False otherwise"""
 
     solver = SolverFor('HORN')
     solver.set('engine', 'spacer')
     solver.set('timeout', time_limit)
 
+    seed_st_time = time.perf_counter()
     for seed in seeds:
         solver.add(seed)
         old_res = solver.check()
@@ -28,11 +30,20 @@ def check_equ(seeds, mut_seeds):
         assert old_res != unknown, solver.reason_unknown()
         if old_res == unsat:
             break
+    seed_time = time.perf_counter() - seed_st_time
 
+    mut_st_time = time.perf_counter()
     solver.add(mut_seeds)
     new_res = solver.check()
+    mut_time = time.perf_counter() - mut_st_time
     assert new_res != unknown, solver.reason_unknown()
-    print(old_res, new_res)
+
+    if mut_num1 == 0:
+        print('Seeds', end='')
+    else:
+        print('Mutated seeds #' + str(mut_num1), end='')
+    print(':', str(old_res) + ',', 'time(sec):', seed_time)
+    print('Mutated seeds #' + str(mut_num2) + ':', str(new_res) + ',', 'time(sec):', mut_time)
     return old_res == new_res
 
 
@@ -50,14 +61,14 @@ def main(argv):
     while not mut.is_final:
         mut_seeds.append(mut.apply(seeds))
         for j in range(i):
-            if not check_equ(mut_seeds[j], mut_seeds[i]):
+            if not check_equ(mut_seeds[j], j, mut_seeds[i], i):
                 if not found_err:
-                    print('Found a problem in these chains of mutations:')
+                    print('\nFound a problem in these chains of mutations:')
                     found_err = True
                 mut.print_chain(j, i)
         i += 1
     if not found_err:
-        print('No problems found')
+        print('\nNo problems found')
     print()
 
 
