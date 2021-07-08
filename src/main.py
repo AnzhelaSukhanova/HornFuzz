@@ -15,7 +15,7 @@ def get_seed(argv):
     return seeds
 
 
-def check_equ(seeds, mut_num1, mut_seeds, mut_num2):
+def check_equ(seeds, mut_seeds, mut_num):
     """Return True if the test suites have the same satisfiability and False otherwise"""
 
     solver = SolverFor('HORN')
@@ -30,7 +30,9 @@ def check_equ(seeds, mut_num1, mut_seeds, mut_num2):
         assert old_res != unknown, solver.reason_unknown()
         if old_res == unsat:
             break
-    seed_time = time.perf_counter() - seed_st_time
+    if mut_num == 1:
+        seed_time = time.perf_counter() - seed_st_time
+        print('Seeds:', str(old_res) + ',', 'time(sec):', seed_time)
 
     mut_st_time = time.perf_counter()
     solver.add(mut_seeds)
@@ -38,12 +40,7 @@ def check_equ(seeds, mut_num1, mut_seeds, mut_num2):
     mut_time = time.perf_counter() - mut_st_time
     assert new_res != unknown, solver.reason_unknown()
 
-    if mut_num1 == 0:
-        print('Seeds', end='')
-    else:
-        print('Mutated seeds #' + str(mut_num1), end='')
-    print(':', str(old_res) + ',', 'time(sec):', seed_time)
-    print('Mutated seeds #' + str(mut_num2) + ':', str(new_res) + ',', 'time(sec):', mut_time)
+    print('Mutated seeds #' + str(mut_num) + ':', str(new_res) + ',', 'time(sec):', mut_time)
     return old_res == new_res
 
 
@@ -51,6 +48,7 @@ def main(argv):
     print(' '.join(argv))
     seed_num = len(argv)
     assert seed_num > 0, 'Seeds not found'
+    enable_trace("spacer")
     seeds = get_seed(argv)
 
     mut_seeds = [seeds]
@@ -60,12 +58,11 @@ def main(argv):
     found_err = False
     while not mut.is_final:
         mut_seeds.append(mut.apply(seeds))
-        for j in range(i):
-            if not check_equ(mut_seeds[j], j, mut_seeds[i], i):
-                if not found_err:
-                    print('\nFound a problem in these chains of mutations:')
-                    found_err = True
-                mut.print_chain(j, i)
+        if not check_equ(seeds, mut_seeds[i], i):
+            if not found_err:
+                print('\nFound a problem in these chains of mutations:')
+                found_err = True
+            mut.print_chain(i)
         i += 1
     if not found_err:
         print('\nNo problems found')

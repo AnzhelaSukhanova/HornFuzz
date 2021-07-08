@@ -77,18 +77,11 @@ class Mutation(object):
                     mut_seeds.push(clause)
         return mut_seeds
 
-    def print_chain(self, fr, to):
-        """
-        Return the mutation chain that caused the satisfiability mismatch.
-        Highlight the mutation on which the mismatch occurs.
-        """
-        print('[', end='')
-        for i in range(to):
-            if i == fr:
-                print(self.type[i].name + ']', end='')
-            else:
-                print(self.type[i].name, end='')
-            if i is not to - 1:
+    def print_chain(self, mut_num):
+        """Return the mutation chain that caused the satisfiability mismatch."""
+        for i in range(mut_num):
+            print(self.type[i].name, end='')
+            if i is not mut_num - 1:
                 print('->', end='')
             else:
                 print()
