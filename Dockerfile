@@ -1,27 +1,24 @@
-FROM ubuntu
+FROM archlinux
 
 MAINTAINER Anzhela Sukhanova <bidelya@gmail.com>
 
-RUN apt-get update \
+ENV Z3_VERSION "4.8.11"
 
 # preinstall
- && apt-get install -y g++ \
-                       make \
-                       git \
-                       python \
-                       python3 \
-                       pip \
+RUN pacman -Syy \
+ && yes | pacman -S wget \
+                    git \
+                    python \
+                    python-pip
                        
-# download, compile and install Z3
- && git clone https://github.com/Z3Prover/z3.git \
- && cd z3 && python scripts/mk_make.py --python \
- && cd build && make && make install && cd ../../ \
- && pip install z3-solver \
- 
-# download this project
- && git clone https://github.com/AnzhelaSukhanova/fuzzing_of_spacer.git \
+# download and install Z3
+RUN wget -qO- https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/z3-solver-${Z3_VERSION}.0.tar.gz | tar -xz \
+ && pip install z3-solver
  
 # download benchmarks
- && git clone https://github.com/dvvrd/spacer-benchmarks.git \
+RUN git clone https://github.com/dvvrd/spacer-benchmarks.git \
  && git clone https://github.com/chc-comp/chc-comp21-benchmarks.git
- 
+  
+# add project-files
+COPY . .
+

@@ -12,7 +12,7 @@ Or you can use the Dockerfile (`docker build -t spacer/fuzz .`).
 * `python src/tests.py spacer-benchmarks[/<subdir>]` — to check all benchmarks from _/spacer-benchmarks_ or _/spacer-benchmarks/\<subdirectory\>_.  
 * `python src/tests.py chc-comp<year>-benchmarks[/<subdir>]` — to check all benchmarks from _/chc-comp\<year\>-benchmarks_ or _/chc-comp\<year\>-benchmarks/\<subdirectory\>_.  
 
-`docker run spacer/fuzz python3 fuzzing_of_spacer/...` if you are using docker.
+`docker run spacer/fuzz python ...` if you are using docker.
 
 ## Seeds
 Download benchmarks from
