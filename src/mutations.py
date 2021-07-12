@@ -57,7 +57,19 @@ class Mutation(object):
         mut_seed = []
 
         for clause in seed:
-            expr = clause.body()
+            is_forall = False
+            if is_quantifier(clause) and clause.is_forall():
+                is_forall = True
+                expr = clause.body()
+            elif is_not(clause):
+                child = clause.children()[0]
+                if is_quantifier(child) and child.is_exists():
+                    expr = child.body()
+                else:
+                    assert False, 'Invalid input (not CHC)'
+            else:
+                assert False, 'Invalid input (not CHC)'
+
             children = []
             for child in expr.children():
                 is_and_expr = self.cur_type() == MutType.SWAP_AND and is_and(child)
@@ -71,11 +83,19 @@ class Mutation(object):
                         children.append(Or(subexpr))
                 else:
                     children.append(child)
-            if len(children) == 2:
+            if is_implies(expr):
                 mut_body = Implies(children[0], children[1])
-            else:
+            elif is_not(expr) and is_or(expr.children()[0]):
                 mut_body = Not(children[0])
-            mut_clause = ForAll(vars, mut_body)
+            elif is_and(expr):
+                mut_body = And(children)
+            else:
+                assert False, 'Invalid input (not CHC)'
+
+            if is_forall:
+                mut_clause = ForAll(vars, mut_body)
+            else:
+                mut_clause = Not(Exists(vars, mut_body))
             mut_seed.append(mut_clause)
         return mut_seed
 
@@ -121,6 +141,8 @@ def get_bound_vars(seed):
 
     vars = set()
     for expr in seed:
+        if is_not(expr):
+            expr = expr.children()[0]
         assert expr.is_forall() or expr.is_exists(), 'А quantifier-free expression is given'
         for i in range(expr.num_vars()):
             name = expr.var_name(i)

@@ -44,23 +44,12 @@ def check_equ(seeds, mut_seeds, mut_num):
     return old_res == new_res
 
 
-def check_input(seeds):
-    for seed in seeds:
-        for clause in seed:
-            assert clause.is_forall(), 'Invalid input (not CHC)'
-            expr = clause.body()
-            assert is_implies(expr) or \
-                   (is_not(expr) and is_or(expr.children()[0])), 'Invalid input (not CHC)'
-            # TODO
-
-
 def main(argv):
     print(' '.join(argv))
     seed_num = len(argv)
     assert seed_num > 0, 'Seeds not found'
     enable_trace("spacer")
     seeds = get_seed(argv)
-    check_input(seeds)
 
     mut_seeds = [seeds]
     mut = Mutation()
@@ -75,6 +64,8 @@ def main(argv):
                 found_err = True
             mut.print_chain(i)
         i += 1
+        if mut.number > 4:
+            mut.is_final = True
     if not found_err:
         print('\nNo problems found')
     print()
