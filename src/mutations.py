@@ -125,6 +125,11 @@ def get_bound_vars(seed):
         for i in range(expr.num_vars()):
             name = expr.var_name(i)
             sort = expr.var_sort(i)
-            constr = getattr(z3, str(sort))
-            vars.add(constr(name))
+            method_name = str(sort)
+            if method_name[:5] == 'Array':
+                constr = getattr(z3, 'Array')
+                vars.add(constr(name, sort.domain(), sort.range()))
+            else:
+                constr = getattr(z3, method_name)
+                vars.add(constr(name))
     return list(vars)
