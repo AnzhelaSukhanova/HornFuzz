@@ -2,7 +2,7 @@ from mutations import *
 import sys
 import time
 
-time_limit = int(1e5)
+time_limit = int(1e6)
 
 
 def get_seed(argv):
@@ -15,7 +15,7 @@ def get_seed(argv):
     return seeds
 
 
-def check_equ(seeds, mut_seeds, mut_num):
+def check_equ(seeds, mut_seeds, mut_num, mut_type):
     """Return True if the test suites have the same satisfiability and False otherwise"""
 
     solver = SolverFor('HORN')
@@ -40,7 +40,7 @@ def check_equ(seeds, mut_seeds, mut_num):
     mut_time = time.perf_counter() - mut_st_time
     assert new_res != unknown, solver.reason_unknown()
 
-    print('Mutated seeds #' + str(mut_num) + ':', str(new_res) + ',', 'time(sec):', mut_time)
+    print('Mutated seeds #' + str(mut_num) + ' (' + str(mut_type.name) + '):', str(new_res) + ',', 'time(sec):', mut_time)
     return old_res == new_res
 
 
@@ -58,7 +58,7 @@ def main(argv):
     found_err = False
     while not mut.is_final:
         mut_seeds.append(mut.apply(seeds))
-        if not check_equ(seeds, mut_seeds[i], i):
+        if not check_equ(seeds, mut_seeds[i], i, mut.cur_type()):
             if not found_err:
                 print('\nFound a problem in these chains of mutations:')
                 found_err = True
