@@ -11,7 +11,7 @@ class MutType(Enum):
     SWAP_AND = 3
     SWAP_OR = 4
     DUPL_AND = 5
-    DUPL_OR = 5
+    DUPL_OR = 6
     #TODO
 
 
@@ -61,7 +61,8 @@ class Mutation(object):
 
         for clause in seed:
             expr = clause.body()
-            if self.cur_type() == MutType.SWAP_AND or self.cur_type() == MutType.DUPL_AND:
+            cur_type = self.cur_type()
+            if cur_type == MutType.SWAP_AND or cur_type == MutType.DUPL_AND:
                 num += count_expr(expr, Z3_OP_AND)
             else:
                 num += count_expr(expr, Z3_OP_OR)
