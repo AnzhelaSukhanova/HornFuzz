@@ -45,6 +45,7 @@ def check_equ(seeds, mut_seeds, mut_num, mut_type):
 
 
 def main(argv):
+    # help_simplify()
     print(' '.join(argv))
     seed_num = len(argv)
     assert seed_num > 0, 'Seeds not found'
