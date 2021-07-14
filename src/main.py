@@ -1,8 +1,10 @@
 from mutations import *
 import sys
 import time
+import logging
 
 time_limit = int(1e6)
+logging.basicConfig(format='%(message)s', filename='logfile', level=logging.INFO)
 
 
 def get_seed(argv):
@@ -32,7 +34,10 @@ def check_equ(seeds, mut_seeds, mut_num, mut_type):
             break
     if mut_num == 1:
         seed_time = time.perf_counter() - seed_st_time
-        print('Seeds:', str(old_res) + ',', 'time(sec):', seed_time)
+        logging.info("%s %s %s %s",
+                     'Seeds:',
+                     str(old_res) + ',',
+                     'time(sec):', seed_time)
 
     mut_st_time = time.perf_counter()
     solver.add(mut_seeds)
@@ -40,13 +45,18 @@ def check_equ(seeds, mut_seeds, mut_num, mut_type):
     mut_time = time.perf_counter() - mut_st_time
     assert new_res != unknown, solver.reason_unknown()
 
-    print('Mutated seeds #' + str(mut_num) + ' (' + str(mut_type.name) + '):', str(new_res) + ',', 'time(sec):', mut_time)
+    logging.info("%s %s %s %s",
+                 'Mutated seeds #' + str(mut_num) + ' (' + str(mut_type.name) + '):',
+                 str(new_res) + ',',
+                 'time(sec):', mut_time)
     return old_res == new_res
 
 
 def main(argv):
     # help_simplify()
-    print(' '.join(argv))
+    filenames = ' '.join(argv)
+    print(filenames)
+    logging.info(filenames)
     seed_num = len(argv)
     assert seed_num > 0, 'Seeds not found'
     enable_trace("spacer")
@@ -58,18 +68,19 @@ def main(argv):
     i = 1
     found_err = False
     while not mut.is_final:
-        mut_seeds.append(mut.apply(seeds))
+        mut_seeds.append(mut.apply(mut_seeds[i - 1]))
         if not check_equ(seeds, mut_seeds[i], i, mut.cur_type()):
             if not found_err:
-                print('\nFound a problem in these chains of mutations:')
+                print('Found a problem in these chains of mutations:')
                 found_err = True
             mut.print_chain(i)
         i += 1
         if mut.number > 4:
             mut.is_final = True
     if not found_err:
-        print('\nNo problems found')
+        print('No problems found')
     print()
+    logging.info('\n')
 
 
 if __name__ == '__main__':

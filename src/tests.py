@@ -19,7 +19,6 @@ def test_relational():
         #'copy-array.smt2', #has output
         'mccarthy-equivalent.smt2',
         'point-location-nr.51.smt2',
-        'unsafe_self_comp.smt2',
         'point-location-nr.49.smt2',
         'inc-loop-2.smt2',
         'inc-loop-5.smt2'
@@ -88,6 +87,11 @@ def test(argv):
         test_relational()
     elif argv[0] == '-conn':
         test_mut_conn()
+    elif argv[0] == '-all':
+        dir_path = os.path.abspath(os.getcwd()) + '/spacer-benchmarks/'
+        test_spacer_benchmarks(dir_path)
+        dir_path = os.path.abspath(os.getcwd()) + '/chc-comp21-benchmarks/'
+        test_chc_comp(dir_path)
     else:
         dirs = argv[0].split('/')
         if dirs[0] == 'spacer-benchmarks':

@@ -22,3 +22,5 @@ RUN git clone https://github.com/dvvrd/spacer-benchmarks.git \
 # add project-files
 COPY . .
 
+# run fuzzing
+CMD ["python", "src/tests.py", "-all"]
