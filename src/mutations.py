@@ -11,17 +11,17 @@ class MutType(Enum):
     """And(a, b) -> And(a, b, a)"""
     DUPL_AND = 3
     """
-       And(a, b, c) -> And(a, And(b, c))
-       And(a, b) -> And(a, And(a, b))
-       """
+    And(a, b, c) -> And(a, And(b, c))
+    And(a, b) -> And(a, And(a, b))
+    """
     BREAK_AND = 4
 
     SWAP_OR = 5
     DUPL_OR = 6
     BREAK_OR = 7
 
-    CONNECT = 8
-    #TODO
+    # TODO
+    # CONNECT = 8
 
 
 class Mutation(object):
@@ -37,62 +37,58 @@ class Mutation(object):
     def cur_type(self):
         return self.type_seq[-1]
 
-    def apply(self, seeds):
-        """Return mutated seeds"""
-        self.next_mutation(seeds)
+    def apply(self, examples):
+        """Return mutated examples"""
+        self.next_mutation(examples)
         cur_type = self.cur_type()
         if cur_type == MutType.ID:
             self.is_final = True
-            return seeds
-
-        elif cur_type == MutType.CONNECT:
-            return self.connect_chc(seeds)
+            return examples
 
         elif cur_type == MutType.SWAP_AND or cur_type == MutType.SWAP_OR or \
                 cur_type == MutType.DUPL_AND or cur_type == MutType.DUPL_OR or \
                 cur_type == MutType.BREAK_AND or cur_type == MutType.BREAK_OR:
-            system = seeds[0] if isinstance(seeds[0], AstVector) else seeds
-            return self.transform_rand(system)
+            return self.transform_rand(examples)
+
+        # TODO
+        # elif cur_type == MutType.CONNECT:
+        #     return self.connect_chc(examples)
 
         else:
             assert False
 
-    def next_mutation(self, seeds):
-        """Return the next mutation based on the seeds, type of the previous mutation etc"""
+    def next_mutation(self, example):
+        """Return the next mutation based on the example, type of the previous mutation etc"""
         self.number += 1
-        if len(seeds) > 1 and isinstance(seeds[0], AstVector):
-            self.type_seq.append(MutType.CONNECT)
-        else:
-            self.and_num = self.or_num = 0
-            system = seeds[0] if isinstance(seeds[0], AstVector) else seeds
-            for clause in system:
-                if is_quantifier(clause) and clause.is_forall():
-                    expr = clause.body()
-                elif is_not(clause):
-                    child = clause.children()[0]
-                    if is_quantifier(child) and child.is_exists():
-                        expr = child.body()
-                    else:
-                        assert False, 'Invalid input (not CHC): ' + clause.sexpr()
+        self.and_num = self.or_num = 0
+        for clause in example:
+            if is_quantifier(clause) and clause.is_forall():
+                expr = clause.body()
+            elif is_not(clause):
+                child = clause.children()[0]
+                if is_quantifier(child) and child.is_exists():
+                    expr = child.body()
                 else:
                     assert False, 'Invalid input (not CHC): ' + clause.sexpr()
-
-                self.and_num += count_expr(expr, Z3_OP_AND)
-                self.or_num += count_expr(expr, Z3_OP_OR)
-            if self.and_num > 0 and self.or_num > 0:
-                value = random.randint(2, len(MutType) - 1)
-            elif self.and_num > 0:
-                value = random.randint(2, 4)
-            elif self.or_num > 0:
-                value = random.randint(5, 7)
             else:
-                value = 1
-            next_type = MutType(value)
-            self.type_seq.append(next_type)
+                assert False, 'Invalid input (not CHC): ' + clause.sexpr()
 
-    def transform_rand(self, seed):
+            self.and_num += count_expr(expr, Z3_OP_AND)
+            self.or_num += count_expr(expr, Z3_OP_OR)
+        if self.and_num > 0 and self.or_num > 0:
+            value = random.randint(2, len(MutType))
+        elif self.and_num > 0:
+            value = random.randint(2, 4)
+        elif self.or_num > 0:
+            value = random.randint(5, len(MutType))
+        else:
+            value = 1
+        next_type = MutType(value)
+        self.type_seq.append(next_type)
+
+    def transform_rand(self, example):
         """Transform random and/or-expression"""
-        mut_seed = []
+        mut_example = []
         is_and_mut = False
         cur_type = self.cur_type()
         if cur_type == MutType.SWAP_AND or \
@@ -105,7 +101,7 @@ class Mutation(object):
         if num > 0:
             self.trans_n = random.randint(1, num)
 
-        for clause in seed:
+        for clause in example:
             vars = get_bound_vars(clause)
             is_forall = False
             if is_quantifier(clause):
@@ -123,8 +119,8 @@ class Mutation(object):
                     mut_clause = Not(Exists(vars, mut_body))
             else:
                 mut_clause = clause
-            mut_seed.append(mut_clause)
-        return mut_seed
+            mut_example.append(mut_clause)
+        return mut_example
 
     def transform_nth(self, expr, is_and_mut):
         """Transform nth and/or-expression in dfs-order"""
@@ -162,17 +158,17 @@ class Mutation(object):
             children.append(mut_child)
         return update_expr(expr, children)
 
-    def connect_chc(self, seeds):
-        # TODO
-        """Return connected seeds if they don't depend on each other"""
+    # TODO
+    def connect_chc(self, examples):
+        """Return connected examples if they don't depend on each other"""
         vars = defaultdict(set)
-        mut_seeds = AstVector()
+        mut_examples = AstVector()
         can_be_conn = True
 
-        if len(seeds) == 1:
-            return seeds
-        for i, seed in enumerate(seeds):
-            clause = seed[0]
+        if len(examples) == 1:
+            return examples
+        for i, example in enumerate(examples):
+            clause = example[0]
             for j in range(clause.num_vars()):
                 var = clause.var_name(j)
                 vars[i].add(var)
@@ -182,21 +178,19 @@ class Mutation(object):
                     can_be_conn = False
                     break
             if not can_be_conn:
-                mut_seeds = seeds
+                mut_examples = examples
                 break
             else:
-                for clause in seed:
-                    mut_seeds.push(clause)
-        return mut_seeds
+                for clause in example:
+                    mut_examples.push(clause)
+        return mut_examples
 
-    def print_chain(self, mut_num):
+    def print_chain(self):
         """Return the mutation chain that caused the satisfiability mismatch."""
-        for i in range(mut_num):
+        for i in range(self.number - 1):
             print(self.type_seq[i].name, end='')
-            if i is not mut_num - 1:
-                print('->', end='')
-            else:
-                print()
+            print('->', end='')
+        print(self.type_seq[self.number - 1].name)
 
 
 def get_bound_vars(expr):

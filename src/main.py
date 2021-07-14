@@ -7,6 +7,15 @@ time_limit = int(1e6)
 logging.basicConfig(format='%(message)s', filename='logfile', level=logging.INFO)
 
 
+class Example(object):
+
+    def __init__(self, filename, chc, mut):
+        self.filename = filename
+        self.chc = chc
+        self.satis = unknown
+        self.mutation = mut
+
+
 def get_seed(argv):
     """Return the parsed seeds given by files in smt2-format"""
 
@@ -17,70 +26,73 @@ def get_seed(argv):
     return seeds
 
 
-def check_equ(seeds, mut_seeds, mut_num, mut_type):
+def check_equ(example, mut_example):
     """Return True if the test suites have the same satisfiability and False otherwise"""
 
     solver = SolverFor('HORN')
     solver.set('engine', 'spacer')
     solver.set('timeout', time_limit)
 
-    seed_st_time = time.perf_counter()
-    for seed in seeds:
-        solver.add(seed)
-        old_res = solver.check()
+    mut = example.mutation
+    if mut.number == 1:
+        st_time = time.perf_counter()
+        solver.add(example.chc)
+        example.satis = solver.check()
         solver.reset()
-        assert old_res != unknown, solver.reason_unknown()
-        if old_res == unsat:
-            break
-    if mut_num == 1:
-        seed_time = time.perf_counter() - seed_st_time
+        assert example.satis != unknown, solver.reason_unknown()
+        check_time = time.perf_counter() - st_time
         logging.info("%s %s %s %s",
-                     'Seeds:',
-                     str(old_res) + ',',
-                     'time(sec):', seed_time)
+                     'Seed:',
+                     str(example.satis) + ',',
+                     'time(sec):', check_time)
 
     mut_st_time = time.perf_counter()
-    solver.add(mut_seeds)
-    new_res = solver.check()
+    solver.add(mut_example.chc)
+    mut_example.satis = solver.check()
     mut_time = time.perf_counter() - mut_st_time
-    assert new_res != unknown, solver.reason_unknown()
+    assert mut_example.satis != unknown, solver.reason_unknown()
 
     logging.info("%s %s %s %s",
-                 'Mutated seeds #' + str(mut_num) + ' (' + str(mut_type.name) + '):',
-                 str(new_res) + ',',
+                 'Mutant #' + str(mut.number) + ' (' + str(mut.cur_type().name) + '):',
+                 str(mut_example.satis) + ',',
                  'time(sec):', mut_time)
-    return old_res == new_res
+    return example.satis == mut_example.satis
 
 
 def main(argv):
     # help_simplify()
-    filenames = ' '.join(argv)
-    print(filenames)
-    logging.info(filenames)
     seed_num = len(argv)
     assert seed_num > 0, 'Seeds not found'
     enable_trace("spacer")
     seeds = get_seed(argv)
 
-    mut_seeds = [seeds]
-    mut = Mutation()
+    queue = []
+    for i, seed in enumerate(seeds):
+        example = Example(argv[i], seed, Mutation())
+        queue.append(example)
+    used = []
 
-    i = 1
-    found_err = False
-    while not mut.is_final:
-        mut_seeds.append(mut.apply(mut_seeds[i - 1]))
-        if not check_equ(seeds, mut_seeds[i], i, mut.cur_type()):
-            if not found_err:
-                print('Found a problem in these chains of mutations:')
-                found_err = True
-            mut.print_chain(i)
-        i += 1
-        if mut.number > 4:
-            mut.is_final = True
-    if not found_err:
-        print('No problems found')
-    print()
-    logging.info('\n')
+    while True:
+        cur_example = queue.pop(0)
+        used.append(cur_example)
+        cur_name = cur_example.filename
+        print(cur_name)
+        logging.info(cur_name)
+        mut = cur_example.mutation
+        mut_chc = mut.apply(cur_example.chc)
+        mut_example = Example(cur_name, mut_chc, mut)
+        res = True
+        try:
+            res = check_equ(cur_example, mut_example)
+        except AssertionError as err:
+            print(repr(err) + '\n')
+        if not res:
+            print('Found a problem in this chain of mutations:')
+            mut.print_chain()
+        elif mut_example.satis != unknown:
+            queue.append(mut_example)
+        print()
+        logging.info('\n')
 
 
 if __name__ == '__main__':
