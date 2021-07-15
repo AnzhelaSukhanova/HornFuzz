@@ -185,12 +185,14 @@ class Mutation(object):
                     mut_examples.push(clause)
         return mut_examples
 
-    def print_chain(self):
-        """Return the mutation chain that caused the satisfiability mismatch."""
+    def get_chain(self):
+        """Return the full mutation chain."""
+        chain = ''
         for i in range(self.number - 1):
-            print(self.type_seq[i].name, end='')
-            print('->', end='')
-        print(self.type_seq[self.number - 1].name)
+            chain += self.type_seq[i].name
+            chain += '->'
+        chain += self.type_seq[self.number - 1].name
+        return chain
 
 
 def get_bound_vars(expr):

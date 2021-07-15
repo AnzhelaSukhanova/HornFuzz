@@ -87,10 +87,15 @@ def main(argv):
         except AssertionError as err:
             print(repr(err) + '\n')
         if not res:
+            chain = mut.get_chain()
             print('Found a problem in this chain of mutations:')
-            mut.print_chain()
+            print(chain)
+            logging.info("%s\n%s",
+                         'Found a problem in this chain of mutations:',
+                         chain)
         elif mut_example.satis != unknown:
             queue.append(mut_example)
+            logging.info('No problems found')
         print()
         logging.info('\n')
 
