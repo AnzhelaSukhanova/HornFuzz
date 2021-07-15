@@ -3,8 +3,8 @@ import sys
 import time
 import logging
 
-time_limit = int(1e6)
-logging.basicConfig(format='%(message)s', filename='logfile', level=logging.INFO)
+time_limit = int(2 * 1e3)
+logging.basicConfig(format='%(message)s', filename='logfile', level=logging.ERROR)
 
 
 class Example(object):
@@ -72,7 +72,7 @@ def main(argv):
         queue.append(example)
     used = []
 
-    while True:
+    while True and queue:
         cur_example = queue.pop(0)
         used.append(cur_example)
         cur_name = cur_example.filename
@@ -86,13 +86,13 @@ def main(argv):
             res = check_equ(cur_example, mut_example)
         except AssertionError as err:
             print(repr(err) + '\n')
+            logging.error(repr(err))
         if not res:
             chain = mut.get_chain()
-            print('Found a problem in this chain of mutations:')
-            print(chain)
-            logging.info("%s\n%s",
-                         'Found a problem in this chain of mutations:',
-                         chain)
+            print('Found a problem in this chain of mutations:\n', chain)
+            logging.error("%s\n%s",
+                          'Found a problem in this chain of mutations:',
+                          chain)
         elif mut_example.satis != unknown:
             queue.append(mut_example)
             logging.info('No problems found')
