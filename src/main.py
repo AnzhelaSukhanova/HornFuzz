@@ -4,16 +4,17 @@ import time
 import logging
 
 time_limit = int(2 * 1e3)
-logging.basicConfig(format='%(message)s', filename='logfile', level=logging.ERROR)
+logging.basicConfig(format='%(message)s', filename='logfile', level=logging.INFO)
 
 
 class Example(object):
 
-    def __init__(self, filename, chc, mut):
+    def __init__(self, filename, chc, mut, time):
         self.filename = filename
         self.chc = chc
         self.satis = unknown
         self.mutation = mut
+        self.time = time
 
 
 def get_seed(argv):
@@ -39,23 +40,23 @@ def check_equ(example, mut_example):
         solver.add(example.chc)
         example.satis = solver.check()
         solver.reset()
+        example.time.append(time.perf_counter() - st_time)
         assert example.satis != unknown, solver.reason_unknown()
-        check_time = time.perf_counter() - st_time
         logging.info("%s %s %s %s",
                      'Seed:',
                      str(example.satis) + ',',
-                     'time(sec):', check_time)
+                     'time(sec):', example.time[0])
 
     mut_st_time = time.perf_counter()
     solver.add(mut_example.chc)
     mut_example.satis = solver.check()
-    mut_time = time.perf_counter() - mut_st_time
+    mut_example.time.append(time.perf_counter() - mut_st_time)
     assert mut_example.satis != unknown, solver.reason_unknown()
 
     logging.info("%s %s %s %s",
                  'Mutant #' + str(mut.number) + ' (' + str(mut.cur_type().name) + '):',
                  str(mut_example.satis) + ',',
-                 'time(sec):', mut_time)
+                 'time(sec):', mut_example.time[-1])
     return example.satis == mut_example.satis
 
 
@@ -68,7 +69,7 @@ def main(argv):
 
     queue = []
     for i, seed in enumerate(seeds):
-        example = Example(argv[i], seed, Mutation())
+        example = Example(argv[i], seed, Mutation(), [])
         queue.append(example)
     used = []
 
@@ -80,18 +81,31 @@ def main(argv):
         logging.info(cur_name)
         mut = cur_example.mutation
         mut_chc = mut.apply(cur_example.chc)
-        mut_example = Example(cur_name, mut_chc, mut)
+        mut_example = Example(cur_name, mut_chc, mut, cur_example.time)
         res = True
         try:
             res = check_equ(cur_example, mut_example)
         except AssertionError as err:
-            print(repr(err) + '\n')
-            logging.error(repr(err))
+            if err == 'timeout' or cur_example.satis == unknown:
+                print(repr(err))
+                logging.info(repr(err))
+                if cur_example.satis != unknown:
+                    logging.info("%s %s\n%s %s",
+                                 'Seed\'s time(sec):',
+                                 mut_example.time[0],
+                                 'Mutant\'s time(sec):',
+                                 mut_example.time[-1])
+            else:
+                print('Problem --', repr(err))
+                logging.error("%s -- %s",
+                              'Problem',
+                              repr(err))
+
         if not res:
             chain = mut.get_chain()
-            print('Found a problem in this chain of mutations:\n', chain)
+            print('Problem in this chain of mutations:\n', chain)
             logging.error("%s\n%s",
-                          'Found a problem in this chain of mutations:',
+                          'Problem in this chain of mutations:',
                           chain)
         elif mut_example.satis != unknown:
             queue.append(mut_example)
