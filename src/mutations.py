@@ -33,6 +33,7 @@ class Mutation(object):
         self.and_num = 0
         self.or_num = 0
         self.trans_n = 0
+        self.trans_clause_id = 0
 
     def cur_type(self):
         return self.type_seq[-1]
@@ -101,7 +102,7 @@ class Mutation(object):
         if num > 0:
             self.trans_n = random.randint(1, num)
 
-        for clause in example:
+        for i, clause in enumerate(example):
             vars = get_bound_vars(clause)
             is_forall = False
             if is_quantifier(clause):
@@ -111,12 +112,13 @@ class Mutation(object):
                 child = clause.children()[0]
                 expr = child.body()
 
-            if num > 0:
+            if num > 0 and self.trans_n > 0:
                 mut_body = self.transform_nth(expr, is_and_mut)
                 if is_forall:
                     mut_clause = ForAll(vars, mut_body)
                 else:
                     mut_clause = Not(Exists(vars, mut_body))
+                self.trans_clause_id = i
             else:
                 mut_clause = clause
             mut_example.append(mut_clause)

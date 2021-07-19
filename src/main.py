@@ -107,6 +107,10 @@ def main(argv):
             logging.error("%s\n%s",
                           'Problem in this chain of mutations:',
                           chain)
+            problem_id = mut.trans_clause_id
+            logging.error("%s\n->\n%s",
+                          cur_example.chc[problem_id].sexpr(),
+                          mut_example.chc[problem_id].sexpr())
         elif mut_example.satis != unknown:
             queue.append(mut_example)
             logging.info('No problems found')

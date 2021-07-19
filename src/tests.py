@@ -27,9 +27,9 @@ def test_relational():
     main(seeds)
 
 
-def test_spacer_benchmarks(dir_path):
+def get_spacer_benchmarks(dir_path):
     """
-    Run all tests from the /spacer-benchmarks
+    Return all tests from the /spacer-benchmarks
     or /spacer-benchmarks/<subdir>
     """
     seeds = []
@@ -39,26 +39,35 @@ def test_spacer_benchmarks(dir_path):
                 path = os.path.join(root, file)
                 subpath = 'spacer-' + path.split("/spacer-")[1]
                 seeds.append(subpath)
-    main(seeds)
+    return seeds
 
 
-def test_chc_comp(dir_path):
+def extract(files, root):
+    """Extract files from given archives and return their paths"""
+    ext_files = []
+    for file in files:
+        if file.endswith('.gz'):
+            ext_file = file[:-3]
+            if ext_file not in files:
+                path = os.path.join(root, file)
+                subprocess.run(['gzip -d ' + path], shell=True)
+            path = os.path.join(root, ext_file)
+            ext_files.append(path)
+    return ext_files
+
+
+def get_chc_comp(dir_path):
     """
-    Run all tests from the /chc-comp<year>-benchmarks
+    Return all tests from the /chc-comp<year>-benchmarks
     or /chc-comp<year>-benchmarks/<subdir>
     """
     seeds = []
     for root, subdirs, files in os.walk(dir_path):
-        for file in files:
-            if file.endswith('.gz'):
-                ext_file = file[:-3]
-                path = os.path.join(root, file)
-                if ext_file not in files:
-                    subprocess.run(['gzip -d ' + path], shell=True)
-                    path = path[:-3]
-                subpath = 'chc-comp' + path.split("/chc-comp")[1]
-                seeds.append(subpath)
-    main(seeds)
+        ext_files = extract(files, root)
+        for path in ext_files:
+            subpath = 'chc-comp' + path.split("/chc-comp")[1]
+            seeds.append(subpath)
+    return seeds
 
 
 def test(argv):
@@ -66,17 +75,21 @@ def test(argv):
         test_relational()
     elif argv[0] == '-all':
         dir_path = os.path.abspath(os.getcwd()) + '/spacer-benchmarks/'
-        test_spacer_benchmarks(dir_path)
+        seeds = get_spacer_benchmarks(dir_path)
         dir_path = os.path.abspath(os.getcwd()) + '/chc-comp21-benchmarks/'
-        test_chc_comp(dir_path)
+        seeds += get_chc_comp(dir_path)
+        random.shuffle(seeds)
+        main(seeds)
     else:
         dirs = argv[0].split('/')
         if dirs[0] == 'spacer-benchmarks':
             dir_path = os.path.abspath(os.getcwd()) + '/' + argv[0] + '/'
-            test_spacer_benchmarks(dir_path)
+            seeds = get_spacer_benchmarks(dir_path)
+            main(seeds)
         elif dirs[0][:8] == 'chc-comp':
             dir_path = os.path.abspath(os.getcwd()) + '/' + argv[0] + '/'
-            test_chc_comp(dir_path)
+            seeds = get_chc_comp(dir_path)
+            main(seeds)
 
 
 if __name__ == '__main__':
