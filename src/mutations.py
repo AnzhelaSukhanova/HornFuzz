@@ -30,10 +30,8 @@ class Mutation(object):
         self.type_seq = []
         self.number = 0
         self.is_final = False
-        self.and_num = 0
-        self.or_num = 0
         self.trans_n = 0
-        self.trans_clause_id = 0
+        self.trans_clause_ind = 0
 
     def cur_type(self):
         return self.type_seq[-1]
@@ -61,7 +59,8 @@ class Mutation(object):
     def next_mutation(self, example):
         """Return the next mutation based on the example, type of the previous mutation etc"""
         self.number += 1
-        self.and_num = self.or_num = 0
+        is_there_and = False
+        is_there_or = False
         for clause in example:
             if is_quantifier(clause) and clause.is_forall():
                 expr = clause.body()
@@ -74,13 +73,13 @@ class Mutation(object):
             else:
                 assert False, 'Invalid input (not CHC): ' + clause.sexpr()
 
-            self.and_num += count_expr(expr, Z3_OP_AND)
-            self.or_num += count_expr(expr, Z3_OP_OR)
-        if self.and_num > 0 and self.or_num > 0:
+            is_there_and |= is_there_expr(expr, Z3_OP_AND)
+            is_there_or |= is_there_expr(expr, Z3_OP_OR)
+        if is_there_and and is_there_or:
             value = random.randint(2, len(MutType))
-        elif self.and_num > 0:
+        elif is_there_and:
             value = random.randint(2, 4)
-        elif self.or_num > 0:
+        elif is_there_or:
             value = random.randint(5, len(MutType))
         else:
             value = 1
@@ -96,32 +95,39 @@ class Mutation(object):
                 cur_type == MutType.DUPL_AND or \
                 cur_type == MutType.BREAK_AND:
             is_and_mut = True
-            num = self.and_num
+            kind = Z3_OP_AND
         else:
-            num = self.or_num
-        if num > 0:
-            self.trans_n = random.randint(1, num)
+            kind = Z3_OP_OR
 
-        for i, clause in enumerate(example):
-            vars = get_bound_vars(clause)
-            is_forall = False
-            if is_quantifier(clause):
-                is_forall = True
-                expr = clause.body()
-            else:
-                child = clause.children()[0]
-                expr = child.body()
+        clause_num = len(example)
+        ind = [i for i in range(clause_num)]
+        i = random.choice(ind)
+        while not is_there_expr(example[i], kind):
+            ind.remove(i)
+            i = random.choice(ind)
+        clause = example[i]
+        vars = get_bound_vars(clause)
+        is_forall = False
+        if is_quantifier(clause):
+            is_forall = True
+            expr = clause.body()
+        else:
+            child = clause.children()[0]
+            expr = child.body()
 
-            if num > 0 and self.trans_n > 0:
-                mut_body = self.transform_nth(expr, is_and_mut)
-                if is_forall:
-                    mut_clause = ForAll(vars, mut_body)
-                else:
-                    mut_clause = Not(Exists(vars, mut_body))
-                self.trans_clause_id = i
+        num = count_expr(expr, kind)
+        self.trans_n = random.randint(1, num)
+        mut_body = self.transform_nth(expr, is_and_mut)
+        if is_forall:
+            mut_clause = ForAll(vars, mut_body)
+        else:
+            mut_clause = Not(Exists(vars, mut_body))
+        self.trans_clause_ind = i
+        for j, clause in enumerate(example):
+            if j == i:
+                mut_example.append(mut_clause)
             else:
-                mut_clause = clause
-            mut_example.append(mut_clause)
+                mut_example.append(example[j])
         return mut_example
 
     def transform_nth(self, expr, is_and_mut):
@@ -223,6 +229,19 @@ def update_expr(expr, children):
     for i in range(len(children)):
         upd_expr = substitute(upd_expr, (old_children[i], children[i]))
     return upd_expr
+
+
+def is_there_expr(expr, kind):
+    """Return if there is a subexpression of the specific kind"""
+    stack = [expr]
+    while len(stack):
+        cur_expr = stack.pop()
+        if not is_var(expr) and not is_const(expr):
+            if is_app(cur_expr) and cur_expr.decl().kind() == kind:
+                return True
+            for child in cur_expr.children():
+                stack.append(child)
+    return False
 
 
 def count_expr(expr, kind):
