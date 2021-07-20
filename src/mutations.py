@@ -69,9 +69,9 @@ class Mutation(object):
                 if is_quantifier(child) and child.is_exists():
                     expr = child.body()
                 else:
-                    assert False, 'Invalid input (not CHC): ' + clause.sexpr()
+                    expr = clause
             else:
-                assert False, 'Invalid input (not CHC): ' + clause.sexpr()
+                expr = clause
 
             is_there_and |= is_there_expr(expr, Z3_OP_AND)
             is_there_or |= is_there_expr(expr, Z3_OP_OR)
@@ -108,20 +108,30 @@ class Mutation(object):
         clause = example[i]
         vars = get_bound_vars(clause)
         is_forall = False
-        if is_quantifier(clause):
+        is_not_exists = False
+        if is_quantifier(clause) and clause.is_forall():
             is_forall = True
             expr = clause.body()
-        else:
+        elif is_not(clause):
             child = clause.children()[0]
-            expr = child.body()
+            if is_quantifier(child) and child.is_exists():
+                is_not_exists = True
+                child = clause.children()[0]
+                expr = child.body()
+            else:
+                expr = clause
+        else:
+            expr = clause
 
         num = count_expr(expr, kind)
         self.trans_n = random.randint(1, num)
         mut_body = self.transform_nth(expr, is_and_mut)
         if is_forall:
             mut_clause = ForAll(vars, mut_body)
-        else:
+        elif is_not_exists:
             mut_clause = Not(Exists(vars, mut_body))
+        else:
+            update_expr(expr, mut_body)
         self.trans_clause_ind = i
         for j, clause in enumerate(example):
             if j == i:
