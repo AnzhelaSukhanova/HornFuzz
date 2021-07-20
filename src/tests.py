@@ -47,7 +47,6 @@ def extract(files, root):
     ext_files = []
     for file in files:
         path = os.path.join(root, file)
-        print(path)
         if file.endswith('.gz'):
             subprocess.run(['gzip -d ' + path], shell=True)
             path = path[:-3]
