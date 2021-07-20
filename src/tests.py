@@ -46,13 +46,14 @@ def extract(files, root):
     """Extract files from given archives and return their paths"""
     ext_files = []
     for file in files:
+        path = os.path.join(root, file)
+        print(path)
         if file.endswith('.gz'):
-            ext_file = file[:-3]
-            if ext_file not in files:
-                path = os.path.join(root, file)
-                subprocess.run(['gzip -d ' + path], shell=True)
-            path = os.path.join(root, ext_file)
-            ext_files.append(path)
+            subprocess.run(['gzip -d ' + path], shell=True)
+            path = path[:-3]
+        elif not file.endswith('.smt2'):
+            break
+        ext_files.append(path)
     return ext_files
 
 

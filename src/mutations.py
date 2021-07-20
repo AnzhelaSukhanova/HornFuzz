@@ -227,10 +227,13 @@ def update_expr(expr, children):
 
 def count_expr(expr, kind):
     """Return the number of subexpressions of the specific kind"""
-
-    if is_var(expr) or is_const(expr):
-        return 0
-    num = 1 if expr.decl().kind() == kind else 0
-    for child in expr.children():
-        num += count_expr(child, kind)
-    return num
+    expr_num = 0
+    stack = [expr]
+    while len(stack):
+        cur_expr = stack.pop()
+        if not is_var(expr) and not is_const(expr):
+            if is_app(cur_expr) and cur_expr.decl().kind() == kind:
+                expr_num += 1
+            for child in cur_expr.children():
+                stack.append(child)
+    return expr_num
