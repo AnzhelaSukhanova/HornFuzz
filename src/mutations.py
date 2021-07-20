@@ -131,7 +131,7 @@ class Mutation(object):
         elif is_not_exists:
             mut_clause = Not(Exists(vars, mut_body))
         else:
-            update_expr(expr, mut_body)
+            mut_clause = update_expr(expr, mut_body)
         self.trans_clause_ind = i
         for j, clause in enumerate(example):
             if j == i:
