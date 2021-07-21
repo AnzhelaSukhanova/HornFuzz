@@ -86,17 +86,17 @@ def main(argv):
     rep_counter = 0
     prev_name = ''
     while True and queue.queue:
-        if rep_counter < 10:
-            _, cur_example = queue.queue[0]
-        else:
+        i = 0
+        _, cur_example = queue.queue[i]
+        if rep_counter > 10:
             queue_len = len(queue.queue)
-            _, cur_example = queue.queue[0]
-            i = 1
+            i += 1
             while cur_example.filename == prev_name and i < queue_len:
                 _, cur_example = queue.queue[i]
                 i += 1
             if i == queue_len:
                 break
+        queue.queue.pop(i)
         cur_name = cur_example.filename
         print(cur_name)
         logging.info(cur_name)
