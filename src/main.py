@@ -2,6 +2,7 @@ from mutations import *
 import sys
 import time
 import logging
+from queue import PriorityQueue
 
 time_limit = int(2 * 1e3)
 logging.basicConfig(format='%(message)s', filename='logfile', level=logging.INFO)
@@ -15,6 +16,10 @@ class Example(object):
         self.satis = unknown
         self.mutation = mut
         self.time = time
+        self.exec_len = 0
+
+    def __lt__(self, other):
+        return self.mutation.number < other.mutation.number
 
 
 def get_seed(argv):
@@ -30,6 +35,7 @@ def get_seed(argv):
 def check_equ(example, mut_example):
     """Return True if the test suites have the same satisfiability and False otherwise"""
 
+    global exec_way
     solver = SolverFor('HORN')
     solver.set('engine', 'spacer')
     solver.set('timeout', time_limit)
@@ -38,7 +44,10 @@ def check_equ(example, mut_example):
     if mut.number == 1:
         st_time = time.perf_counter()
         solver.add(example.chc)
+        exec_way.clear()
+        sys.setprofile(tracefunc)
         example.satis = solver.check()
+        example.exec_len = len(exec_way)
         solver.reset()
         example.time.append(time.perf_counter() - st_time)
         assert example.satis != unknown, solver.reason_unknown()
@@ -49,7 +58,10 @@ def check_equ(example, mut_example):
 
     mut_st_time = time.perf_counter()
     solver.add(mut_example.chc)
+    sys.setprofile(tracefunc)
+    exec_way.clear()
     mut_example.satis = solver.check()
+    mut_example.exec_len = len(exec_way)
     mut_example.time.append(time.perf_counter() - mut_st_time)
     assert mut_example.satis != unknown, solver.reason_unknown()
 
@@ -67,15 +79,13 @@ def main(argv):
     enable_trace("spacer")
     seeds = get_seed(argv)
 
-    queue = []
+    queue = PriorityQueue()
     for i, seed in enumerate(seeds):
         example = Example(argv[i], seed, Mutation(), [])
-        queue.append(example)
-    used = []
+        queue.put((i, example))
 
-    while True and queue:
-        cur_example = queue.pop(0)
-        used.append(cur_example)
+    while True and queue.queue:
+        _, cur_example = queue.get()
         cur_name = cur_example.filename
         print(cur_name)
         logging.info(cur_name)
@@ -111,7 +121,12 @@ def main(argv):
                           cur_example.chc,
                           mut_example.chc)
         elif mut_example.satis != unknown:
-            queue.append(mut_example)
+            cur_exec_len = cur_example.exec_len
+            mut_exec_len = mut_example.exec_len
+            if cur_exec_len < mut_exec_len:
+                queue.put((mut_exec_len, mut_example))
+            else:
+                queue.put((cur_exec_len, cur_example))
             logging.info('No problems found')
         print()
         logging.info('\n')
