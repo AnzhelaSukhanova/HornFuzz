@@ -58,7 +58,6 @@ def check_equ(example, mut_example):
 
     mut_st_time = time.perf_counter()
     solver.add(mut_example.chc)
-    sys.setprofile(tracefunc)
     exec_way.clear()
     mut_example.satis = solver.check()
     mut_example.exec_len = len(exec_way)

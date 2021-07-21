@@ -4,6 +4,7 @@ exec_way = set()
 
 
 def tracefunc(frame, event, arg):
+    """Add the name of the called function to the global set"""
     global exec_way
     if event == "call":
         exec_way.add(frame.f_code.co_name)
