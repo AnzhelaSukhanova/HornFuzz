@@ -83,8 +83,20 @@ def main(argv):
         example = Example(argv[i], seed, Mutation(), [])
         queue.put((i, example))
 
+    rep_counter = 0
+    prev_name = ''
     while True and queue.queue:
-        _, cur_example = queue.get()
+        if rep_counter < 10:
+            _, cur_example = queue.queue[0]
+        else:
+            queue_len = len(queue.queue)
+            _, cur_example = queue.queue[0]
+            i = 1
+            while cur_example.filename == prev_name and i < queue_len:
+                _, cur_example = queue.queue[i]
+                i += 1
+            if i == queue_len:
+                break
         cur_name = cur_example.filename
         print(cur_name)
         logging.info(cur_name)
@@ -122,13 +134,16 @@ def main(argv):
         elif mut_example.satis != unknown:
             cur_exec_len = cur_example.exec_len
             mut_exec_len = mut_example.exec_len
-            if cur_exec_len < mut_exec_len:
-                queue.put((mut_exec_len, mut_example))
+            if mut_exec_len == cur_exec_len and prev_name == cur_name:
+                rep_counter += 1
             else:
-                queue.put((cur_exec_len, cur_example))
+                rep_counter = 0
+            queue.put((mut_example.exec_len, mut_example))
+            queue.put((cur_example.exec_len, cur_example))
             logging.info('No problems found')
         print()
         logging.info('\n')
+        prev_name = cur_name
 
 
 if __name__ == '__main__':
