@@ -3,6 +3,7 @@ import sys
 import time
 import logging
 from queue import PriorityQueue
+from coverage import Coverage
 
 TIME_LIMIT = int(2 * 1e3)
 logging.basicConfig(format='%(message)s', filename='logfile', level=logging.INFO)
@@ -18,9 +19,10 @@ class Example(object):
         self.time = time
         self.exec_len = 0
         self.repeat_limit = 10 * len(self.chc)
+        self.coverage = 0
 
     def __lt__(self, other):
-        return self.mutation.number < other.mutation.number
+        return self.coverage < other.coverage
 
 
 def get_seed(argv):
@@ -37,6 +39,7 @@ def check_equ(example, mut_example):
     """Return True if the test suites have the same satisfiability and False otherwise"""
 
     global exec_way
+    cov = Coverage()
     solver = SolverFor('HORN')
     solver.set('engine', 'spacer')
     solver.set('timeout', TIME_LIMIT)
@@ -45,10 +48,13 @@ def check_equ(example, mut_example):
     if mut.number == 1:
         st_time = time.perf_counter()
         solver.add(example.chc)
-        exec_way.clear()
         sys.setprofile(tracefunc)
+        cov.start()
+        exec_way.clear()
         example.satis = solver.check()
         example.exec_len = len(exec_way)
+        cov.stop()
+        example.coverage = cov.report(file=io.StringIO())
         solver.reset()
         example.time.append(time.perf_counter() - st_time)
         assert example.satis != unknown, solver.reason_unknown()
@@ -59,9 +65,12 @@ def check_equ(example, mut_example):
 
     mut_st_time = time.perf_counter()
     solver.add(mut_example.chc)
+    cov.start()
     exec_way.clear()
     mut_example.satis = solver.check()
     mut_example.exec_len = len(exec_way)
+    cov.stop()
+    mut_example.coverage = cov.report(file=io.StringIO())
     mut_example.time.append(time.perf_counter() - mut_st_time)
     assert mut_example.satis != unknown, solver.reason_unknown()
 
@@ -141,8 +150,8 @@ def main(argv):
                 repeat_counter += 1
             else:
                 repeat_counter = 2
-            queue.put((mut_example.exec_len, mut_example))
-            queue.put((cur_example.exec_len, cur_example))
+            queue.put((mut_exec_len, mut_example))
+            queue.put((cur_exec_len, cur_example))
             logging.info('No problems found')
 
         print()

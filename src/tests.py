@@ -1,9 +1,10 @@
 from main import *
-import os
+from os import walk
+from os.path import dirname, join
 import subprocess
 
 
-def test_relational():
+def test_relational(directory):
     """
     Run tests from the /spacer-benchmarks/relational
     that don't return 'unknown' and don't work long
@@ -23,7 +24,9 @@ def test_relational():
         'inc-loop-2.smt2',
         'inc-loop-5.smt2'
     ]
-    seeds = ['spacer-benchmarks/relational/' + file for file in files]
+    seeds = [directory +
+             'spacer-benchmarks/relational/' +
+             file for file in files]
     main(seeds)
 
 
@@ -33,12 +36,11 @@ def get_spacer_benchmarks(dir_path):
     or /spacer-benchmarks/<subdir>
     """
     seeds = []
-    for root, subdirs, files in os.walk(dir_path):
+    for root, subdirs, files in walk(dir_path):
         for file in files:
             if file.endswith('.smt2'):
-                path = os.path.join(root, file)
-                subpath = 'spacer-' + path.split("/spacer-")[1]
-                seeds.append(subpath)
+                path = join(root, file)
+                seeds.append(path)
     return seeds
 
 
@@ -46,7 +48,7 @@ def extract(files, root):
     """Extract files from given archives and return their paths"""
     ext_files = []
     for file in files:
-        path = os.path.join(root, file)
+        path = join(root, file)
         if file.endswith('.gz'):
             subprocess.run(['gzip -d ' + path], shell=True)
             path = path[:-3]
@@ -61,36 +63,36 @@ def get_chc_comp(dir_path):
     Return all tests from the /chc-comp<year>-benchmarks
     or /chc-comp<year>-benchmarks/<subdir>
     """
-    seeds = []
-    for root, subdirs, files in os.walk(dir_path):
-        ext_files = extract(files, root)
-        for path in ext_files:
-            subpath = 'chc-comp' + path.split("/chc-comp")[1]
-            seeds.append(subpath)
-    return seeds
+    ext_files = []
+    for root, subdirs, files in walk(dir_path):
+        ext_files += extract(files, root)
+    return ext_files
 
 
-def test(argv):
+def test(argv, directory):
     if len(argv) == 0:
-        test_relational()
+        test_relational(directory)
     elif argv[0] == '-all':
-        dir_path = os.path.abspath(os.getcwd()) + '/spacer-benchmarks/'
+        dir_path = directory + 'spacer-benchmarks/'
         seeds = get_spacer_benchmarks(dir_path)
-        dir_path = os.path.abspath(os.getcwd()) + '/chc-comp21-benchmarks/'
+        dir_path = directory + 'chc-comp21-benchmarks/'
         seeds += get_chc_comp(dir_path)
         random.shuffle(seeds)
         main(seeds)
     else:
         dirs = argv[0].split('/')
         if dirs[0] == 'spacer-benchmarks':
-            dir_path = os.path.abspath(os.getcwd()) + '/' + argv[0] + '/'
+            dir_path = directory + argv[0] + '/'
             seeds = get_spacer_benchmarks(dir_path)
             main(seeds)
         elif dirs[0][:8] == 'chc-comp':
-            dir_path = os.path.abspath(os.getcwd()) + '/' + argv[0] + '/'
+            dir_path = directory + argv[0] + '/'
             seeds = get_chc_comp(dir_path)
             main(seeds)
 
 
 if __name__ == '__main__':
-    test(sys.argv[1:])
+    directory = dirname(dirname(sys.argv[0]))
+    if directory:
+        directory += '/'
+    test(sys.argv[1:], directory)
