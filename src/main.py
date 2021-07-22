@@ -4,7 +4,7 @@ import time
 import logging
 from queue import PriorityQueue
 
-time_limit = int(2 * 1e3)
+TIME_LIMIT = int(2 * 1e3)
 logging.basicConfig(format='%(message)s', filename='logfile', level=logging.INFO)
 
 
@@ -17,6 +17,7 @@ class Example(object):
         self.mutation = mut
         self.time = time
         self.exec_len = 0
+        self.repeat_limit = 10 * len(self.chc)
 
     def __lt__(self, other):
         return self.mutation.number < other.mutation.number
@@ -38,7 +39,7 @@ def check_equ(example, mut_example):
     global exec_way
     solver = SolverFor('HORN')
     solver.set('engine', 'spacer')
-    solver.set('timeout', time_limit)
+    solver.set('timeout', TIME_LIMIT)
 
     mut = example.mutation
     if mut.number == 1:
@@ -83,19 +84,17 @@ def main(argv):
         example = Example(argv[i], seed, Mutation(), [])
         queue.put((i, example))
 
-    rep_counter = 0
+    repeat_counter = 0
     prev_name = ''
     while True and queue.queue:
         i = 0
         _, cur_example = queue.queue[i]
-        if rep_counter > 10:
+        if repeat_counter == cur_example.repeat_limit:
             queue_len = len(queue.queue)
-            i += 1
-            while cur_example.filename == prev_name and i < queue_len:
-                _, cur_example = queue.queue[i]
-                i += 1
+            i = cur_example.repeat_limit
             if i == queue_len:
                 break
+            _, cur_example = queue.queue[i]
         queue.queue.pop(i)
         cur_name = cur_example.filename
         print(cur_name)
@@ -104,6 +103,7 @@ def main(argv):
         mut_chc = mut.apply(cur_example.chc)
         mut_example = Example(cur_name, mut_chc, mut, cur_example.time)
         res = True
+
         try:
             res = check_equ(cur_example, mut_example)
         except AssertionError as err:
@@ -121,6 +121,7 @@ def main(argv):
                 logging.error("%s -- %s",
                               'Problem',
                               repr(err))
+            repeat_counter = 2
 
         if not res:
             chain = mut.get_chain()
@@ -131,16 +132,19 @@ def main(argv):
             logging.error("%s\n->\n%s",
                           cur_example.chc,
                           mut_example.chc)
+            repeat_counter = 2
+
         elif mut_example.satis != unknown:
             cur_exec_len = cur_example.exec_len
             mut_exec_len = mut_example.exec_len
             if mut_exec_len == cur_exec_len and prev_name == cur_name:
-                rep_counter += 1
+                repeat_counter += 1
             else:
-                rep_counter = 0
+                repeat_counter = 2
             queue.put((mut_example.exec_len, mut_example))
             queue.put((cur_example.exec_len, cur_example))
             logging.info('No problems found')
+
         print()
         logging.info('\n')
         prev_name = cur_name
