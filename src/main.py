@@ -1,31 +1,33 @@
-from mutations import *
 import sys
-import time
 import logging
-from queue import PriorityQueue
-from coverage import Coverage
+import time
+from os.path import dirname
+
+from mutations import *
+from seeds import get_seeds
 
 TIME_LIMIT = int(2 * 1e3)
+INSTANCE_ID = 0
+STATS_NUMBER = 1e2
+stats = TransMatrix()
 logging.basicConfig(format='%(message)s', filename='logfile', level=logging.INFO)
 
 
-class Example(object):
+class Instance(object):
 
     def __init__(self, filename, chc, mut, time):
+        global INSTANCE_ID
+        self.id = INSTANCE_ID
+        INSTANCE_ID += 1
         self.filename = filename
         self.chc = chc
         self.satis = unknown
         self.mutation = mut
         self.time = time
-        self.exec_len = 0
         self.repeat_limit = 10 * len(self.chc)
-        self.coverage = 0
-
-    def __lt__(self, other):
-        return self.coverage < other.coverage
 
 
-def get_seed(argv):
+def parse_seeds(argv):
     """Return the parsed seeds given by files in smt2-format"""
 
     seeds = [
@@ -35,96 +37,85 @@ def get_seed(argv):
     return seeds
 
 
-def check_equ(example, mut_example):
+def check_equ(instance, mut_instance):
     """Return True if the test suites have the same satisfiability and False otherwise"""
-
-    global exec_way
-    cov = Coverage()
+    global stats
     solver = SolverFor('HORN')
     solver.set('engine', 'spacer')
     solver.set('timeout', TIME_LIMIT)
 
-    mut = example.mutation
+    mut = instance.mutation
     if mut.number == 1:
         st_time = time.perf_counter()
-        solver.add(example.chc)
-        sys.setprofile(tracefunc)
-        cov.start()
-        exec_way.clear()
-        example.satis = solver.check()
-        example.exec_len = len(exec_way)
-        cov.stop()
-        example.coverage = cov.report(file=io.StringIO())
+        solver.add(instance.chc)
+        instance.satis = solver.check()
         solver.reset()
-        example.time.append(time.perf_counter() - st_time)
-        assert example.satis != unknown, solver.reason_unknown()
+        instance.time.append(time.perf_counter() - st_time)
+        assert instance.satis != unknown, solver.reason_unknown()
+        stats = stats.merge(get_statistics(instance.id))
         logging.info("%s %s %s %s",
                      'Seed:',
-                     str(example.satis) + ',',
-                     'time(sec):', example.time[0])
+                     str(instance.satis) + ',',
+                     'time(sec):', instance.time[0])
 
     mut_st_time = time.perf_counter()
-    solver.add(mut_example.chc)
-    cov.start()
-    exec_way.clear()
-    mut_example.satis = solver.check()
-    mut_example.exec_len = len(exec_way)
-    cov.stop()
-    mut_example.coverage = cov.report(file=io.StringIO())
-    mut_example.time.append(time.perf_counter() - mut_st_time)
-    assert mut_example.satis != unknown, solver.reason_unknown()
+    solver.add(mut_instance.chc)
+    mut_instance.satis = solver.check()
+    mut_instance.time.append(time.perf_counter() - mut_st_time)
+    assert mut_instance.satis != unknown, solver.reason_unknown()
+    stats = stats.merge(get_statistics(mut_instance.id))
 
+    ins_id = 'seed' if instance.id == 0 else str(instance.id)
     logging.info("%s %s %s %s",
-                 'Mutant #' + str(mut.number) + ' (' + str(mut.cur_type().name) + '):',
-                 str(mut_example.satis) + ',',
-                 'time(sec):', mut_example.time[-1])
-    return example.satis == mut_example.satis
+                 str(mut_instance.id) + ': Mutant of ' + ins_id + ' (' + str(mut.cur_type().name) + '):',
+                 str(mut_instance.satis) + ',',
+                 'time(sec):', mut_instance.time[-1])
+    return instance.satis == mut_instance.satis
 
 
-def main(argv):
-    # help_simplify()
-    seed_num = len(argv)
-    assert seed_num > 0, 'Seeds not found'
-    enable_trace("spacer")
-    seeds = get_seed(argv)
-
-    queue = PriorityQueue()
+def fuzz(files, seeds):
+    global stats
+    queue = []
     for i, seed in enumerate(seeds):
-        example = Example(argv[i], seed, Mutation(), [])
-        queue.put((i, example))
+        instance = Instance(files[i], seed, Mutation(), [])
+        queue.append(instance)
 
     repeat_counter = 0
     prev_name = ''
-    while True and queue.queue:
-        i = 0
-        _, cur_example = queue.queue[i]
-        if repeat_counter == cur_example.repeat_limit:
-            queue_len = len(queue.queue)
-            i = cur_example.repeat_limit
+    rare_state = 0
+    while True and queue:
+        queue_len = len(queue)
+        if rare_state == 0:
+            i = random.randint(0, queue_len - 1)
+        else:
+            i = 0
+        cur_instance = queue[i]
+        if repeat_counter == cur_instance.repeat_limit:
+            i = cur_instance.repeat_limit
             if i == queue_len:
                 break
-            _, cur_example = queue.queue[i]
-        queue.queue.pop(i)
-        cur_name = cur_example.filename
+            cur_instance = queue[i]
+
+        cur_name = cur_instance.filename
         print(cur_name)
         logging.info(cur_name)
-        mut = cur_example.mutation
-        mut_chc = mut.apply(cur_example.chc)
-        mut_example = Example(cur_name, mut_chc, mut, cur_example.time)
+        mut = cur_instance.mutation
+        mut_chc = mut.apply(cur_instance.chc)
+        mut_instance = Instance(cur_name, mut_chc, deepcopy(mut), cur_instance.time)
         res = True
 
         try:
-            res = check_equ(cur_example, mut_example)
+            res = check_equ(cur_instance, mut_instance)
         except AssertionError as err:
-            if err == 'timeout' or cur_example.satis == unknown:
+            if err == 'timeout' or cur_instance.satis == unknown:
                 print(repr(err))
                 logging.info(repr(err))
-                if cur_example.satis != unknown:
+                if cur_instance.satis != unknown:
                     logging.info("%s %s\n%s %s",
                                  'Seed\'s time(sec):',
-                                 mut_example.time[0],
+                                 mut_instance.time[0],
                                  'Mutant\'s time(sec):',
-                                 mut_example.time[-1])
+                                 mut_instance.time[-1])
             else:
                 print('Problem --', repr(err))
                 logging.error("%s -- %s",
@@ -139,25 +130,54 @@ def main(argv):
                           'Problem in this chain of mutations:',
                           chain)
             logging.error("%s\n->\n%s",
-                          cur_example.chc,
-                          mut_example.chc)
+                          cur_instance.chc,
+                          mut_instance.chc)
             repeat_counter = 2
 
-        elif mut_example.satis != unknown:
-            cur_exec_len = cur_example.exec_len
-            mut_exec_len = mut_example.exec_len
-            if mut_exec_len == cur_exec_len and prev_name == cur_name:
+        elif mut_instance.satis != unknown:
+            if prev_name == cur_name:
                 repeat_counter += 1
             else:
                 repeat_counter = 2
-            queue.put((mut_exec_len, mut_example))
-            queue.put((cur_exec_len, cur_example))
+            queue.append(mut_instance)
             logging.info('No problems found')
 
         print()
         logging.info('\n')
         prev_name = cur_name
 
+        if stats.instance_num > STATS_NUMBER:
+            prob_matrix = stats.calc_probability_matrix()
+            prob_vector_in_power = prob_matrix[0]
+            while np.count_nonzero(prob_vector_in_power) < stats.size - 1:
+                prob_vector_in_power = prob_vector_in_power.dot(prob_matrix)
+            prob_vector_in_power = np.nan_to_num(prob_vector_in_power)[1:]
+            min_prob_ind = prob_vector_in_power.argmin() + 1
+            rare_state = stats.states[min_prob_ind]
+            instance_info = stats.instance_info[min_prob_ind]
+            sorted_id = sorted(instance_info.items(), key=lambda item: item[1], reverse=True)
+            id_order = {elem[0]: i for i, elem in enumerate(sorted_id)}
+            queue.sort(key=lambda item: id_order[item.id] if item.id in id_order else INSTANCE_ID)
+
+
+def main(argv):
+    # help_simplify()
+    np.set_printoptions(suppress=True)
+    enable_trace("spacer")
+    # enable_trace("smt_search")
+
+    directory = dirname(dirname(argv[0]))
+    if directory:
+        directory += '/'
+    argv = argv[1:]
+    files = get_seeds(argv, directory)
+
+    seed_num = len(files)
+    assert seed_num > 0, 'Seeds not found'
+    seeds = parse_seeds(files)
+
+    fuzz(files, seeds)
+
 
 if __name__ == '__main__':
-    main(sys.argv[1:])
+    main(sys.argv)

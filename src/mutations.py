@@ -1,6 +1,6 @@
 import random
 from enum import Enum
-from collections import defaultdict
+
 from utils import *
 
 
@@ -21,7 +21,7 @@ class MutType(Enum):
     BREAK_OR = 7
 
     # TODO
-    # CONNECT = 8
+    SWAP_BOUND_VARS = 8
 
 
 class Mutation(object):
@@ -36,32 +36,33 @@ class Mutation(object):
     def cur_type(self):
         return self.type_seq[-1]
 
-    def apply(self, examples):
-        """Return mutated examples"""
-        self.next_mutation(examples)
+    def apply(self, instances):
+        """Return mutated instances"""
+        self.next_mutation(instances)
         cur_type = self.cur_type()
         if cur_type == MutType.ID:
             self.is_final = True
-            return examples
+            return instances
 
         elif cur_type == MutType.SWAP_AND or cur_type == MutType.SWAP_OR or \
                 cur_type == MutType.DUPL_AND or cur_type == MutType.DUPL_OR or \
                 cur_type == MutType.BREAK_AND or cur_type == MutType.BREAK_OR:
-            return self.transform_rand(examples)
+            return self.transform_rand(instances)
 
-        # TODO
-        # elif cur_type == MutType.CONNECT:
-        #     return self.connect_chc(examples)
+        #TODO
+        elif cur_type == MutType.SWAP_BOUND_VARS:
+            self.is_final = True
+            return instances
 
         else:
             assert False
 
-    def next_mutation(self, example):
-        """Return the next mutation based on the example, type of the previous mutation etc"""
+    def next_mutation(self, instance):
+        """Return the next mutation based on the instance, type of the previous mutation etc"""
         self.number += 1
         is_there_and = False
         is_there_or = False
-        for clause in example:
+        for clause in instance:
             if is_quantifier(clause) and clause.is_forall():
                 expr = clause.body()
             elif is_not(clause):
@@ -86,9 +87,9 @@ class Mutation(object):
         next_type = MutType(value)
         self.type_seq.append(next_type)
 
-    def transform_rand(self, example):
+    def transform_rand(self, instance):
         """Transform random and/or-expression"""
-        mut_example = []
+        mut_instance = []
         is_and_mut = False
         cur_type = self.cur_type()
         if cur_type == MutType.SWAP_AND or \
@@ -99,13 +100,13 @@ class Mutation(object):
         else:
             kind = Z3_OP_OR
 
-        clause_num = len(example)
+        clause_num = len(instance)
         ind = [i for i in range(clause_num)]
         i = random.choice(ind)
-        while not is_there_expr(example[i], kind):
+        while not is_there_expr(instance[i], kind):
             ind.remove(i)
             i = random.choice(ind)
-        clause = example[i]
+        clause = instance[i]
         vars = get_bound_vars(clause)
         is_forall = False
         is_not_exists = False
@@ -133,13 +134,13 @@ class Mutation(object):
         else:
             mut_clause = update_expr(expr, mut_body)
         self.trans_clause_ind = i
-        for j, clause in enumerate(example):
+        for j, clause in enumerate(instance):
             if j == i:
-                mut_example.append(mut_clause)
+                mut_instance.append(mut_clause)
             else:
-                mut_example.append(example[j])
-        # print(example[self.trans_clause_ind], '\n->\n', mut_example[self.trans_clause_ind])
-        return mut_example
+                mut_instance.append(instance[j])
+        # print(instance[self.trans_clause_ind], '\n->\n', mut_instance[self.trans_clause_ind])
+        return mut_instance
 
     def transform_nth(self, expr, is_and_mut):
         """Transform nth and/or-expression in dfs-order"""
@@ -176,33 +177,6 @@ class Mutation(object):
                         mut_child = Or(subexpr)
             children.append(mut_child)
         return update_expr(expr, children)
-
-    # TODO
-    def connect_chc(self, examples):
-        """Return connected examples if they don't depend on each other"""
-        vars = defaultdict(set)
-        mut_examples = AstVector()
-        can_be_conn = True
-
-        if len(examples) == 1:
-            return examples
-        for i, example in enumerate(examples):
-            clause = example[0]
-            for j in range(clause.num_vars()):
-                var = clause.var_name(j)
-                vars[i].add(var)
-
-            for j in range(i):
-                if not vars[i].isdisjoint(vars[j]):
-                    can_be_conn = False
-                    break
-            if not can_be_conn:
-                mut_examples = examples
-                break
-            else:
-                for clause in example:
-                    mut_examples.push(clause)
-        return mut_examples
 
     def get_chain(self):
         """Return the full mutation chain."""

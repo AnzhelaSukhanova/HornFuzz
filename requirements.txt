@@ -1,2 +1,2 @@
+numpy==1.21.1
 z3_solver==4.8.10.0
-coverage==5.5
