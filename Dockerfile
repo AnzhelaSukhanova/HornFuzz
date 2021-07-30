@@ -15,7 +15,8 @@ RUN pacman -Syy \
                        
 # download and edit Z3-sourses
 RUN git clone https://github.com/Z3Prover/z3.git \
- && cd z3 && python scripts/mk_make.py --debug \
+ && cd z3 && python scripts/mk_make.py \
+ && sed -i -e 's, -D_MP_INTERNAL, -D_TRACE -D_MP_INTERNAL,g' build/config.mk \ 
  && sed -i -e 's, -*\\n"; CODE tout << "-*\\n,\\n,g' src/util/trace.h \
  && sed -i -e 's,<< "-* \[" << TAG << "\] ",,g' src/util/trace.h
  
@@ -28,7 +29,8 @@ RUN git clone https://github.com/dvvrd/spacer-benchmarks.git \
 
 # copy and install requirements
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+RUN pip install -r requirements.txt \
+ && ln -s /usr/lib/libz3.so libz3.so
 
 # add project-files
 COPY . .

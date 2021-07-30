@@ -85,7 +85,7 @@ def check_equ(instance, mut_instance):
                  str(mut_instance.id) + ': Mutant of ' + ins_id + ' (' + str(mut.cur_type().name) + '):',
                  str(mut_instance.satis) + ',',
                  'time(sec):', mut_instance.time[-1])
-    return instance.satis == mut_instance.satis
+    return instance.satis == mut_instance.satis and instance.satis != unknown
 
 
 def get_instance(queue, is_prioritized, repeat_counter, prev_name):
@@ -140,15 +140,21 @@ def fuzz(files, seeds):
         try:
             res = check_equ(cur_instance, mut_instance)
         except AssertionError as err:
-            if err == 'timeout' or cur_instance.satis == unknown:
+            if cur_instance.satis == unknown:
+                if err == 'timeout':
+                    counter['timeout'] += 1
+                else:
+                    queue.remove(cur_instance)
+                    counter['unknown'] += 1
+                logging.info(repr(err))
+            elif err == 'timeout':
                 counter['timeout'] += 1
                 logging.info(repr(err))
-                if cur_instance.satis != unknown:
-                    logging.info("%s %s\n%s %s",
-                                 'Seed\'s time(sec):',
-                                 mut_instance.time[0],
-                                 'Mutant\'s time(sec):',
-                                 mut_instance.time[-1])
+                logging.info("%s %s\n%s %s",
+                             'Seed\'s time(sec):',
+                             mut_instance.time[0],
+                             'Mutant\'s time(sec):',
+                             mut_instance.time[-1])
             else:
                 counter['unknown'] += 1
                 logging.error("%s -- %s",
@@ -175,7 +181,7 @@ def fuzz(files, seeds):
             queue.append(mut_instance)
             logging.info('No problems found')
 
-        if runs_number % PRINT_REG == 0:
+        if runs_number and runs_number % PRINT_REG == 0:
             print('Total:', runs_number,
                   'Timeout:', counter['timeout'],
                   'Unknown:', counter['unknown'],
@@ -192,6 +198,7 @@ def main(argv):
     # help_simplify()
     logging.basicConfig(format='%(message)s', filename='logfile', level=logging.INFO)
     np.set_printoptions(suppress=True)
+    set_option(max_args=int(1e6), max_lines=int(1e6), max_depth=int(1e6), max_visited=int(1e6))
     enable_trace("spacer")
     # enable_trace("smt_search")
 
