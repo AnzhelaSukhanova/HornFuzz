@@ -16,7 +16,8 @@ RUN pacman -Syy \
 # download and edit Z3-sourses
 RUN git clone https://github.com/Z3Prover/z3.git \
  && cd z3 && python scripts/mk_make.py --debug \
- && sed -i -e 's, -*\\n"; CODE tout << "-*\\n,\\n,g' src/util/trace.h
+ && sed -i -e 's, -*\\n"; CODE tout << "-*\\n,\\n,g' src/util/trace.h \
+ && sed -i -e 's,<< "-* \[" << TAG << "\] ",,g' src/util/trace.h
  
 # install Z3 in debug mode
 RUN cd z3/build && make && make install && cd ../../
@@ -24,12 +25,13 @@ RUN cd z3/build && make && make install && cd ../../
 # download benchmarks
 RUN git clone https://github.com/dvvrd/spacer-benchmarks.git \
  && git clone https://github.com/chc-comp/chc-comp21-benchmarks.git
-  
+
+# copy and install requirements
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
 # add project-files
 COPY . .
-
-# install requirements
-RUN pip install -r requirements.txt
 
 # run fuzzing
 CMD ["python", "src/main.py", "-all"]

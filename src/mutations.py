@@ -20,7 +20,6 @@ class MutType(Enum):
     DUPL_OR = 6
     BREAK_OR = 7
 
-    # TODO
     SWAP_BOUND_VARS = 8
 
 
@@ -62,13 +61,16 @@ class Mutation(object):
         self.number += 1
         is_there_and = False
         is_there_or = False
+        is_there_quant = False
         for clause in instance:
             if is_quantifier(clause) and clause.is_forall():
                 expr = clause.body()
+                is_there_quant = True
             elif is_not(clause):
                 child = clause.children()[0]
                 if is_quantifier(child) and child.is_exists():
                     expr = child.body()
+                    is_there_quant = True
                 else:
                     expr = clause
             else:
@@ -77,13 +79,15 @@ class Mutation(object):
             is_there_and |= is_there_expr(expr, Z3_OP_AND)
             is_there_or |= is_there_expr(expr, Z3_OP_OR)
         if is_there_and and is_there_or:
-            value = random.randint(2, len(MutType))
+            value = random.randint(2, 7)
         elif is_there_and:
             value = random.randint(2, 4)
         elif is_there_or:
-            value = random.randint(5, len(MutType))
+            value = random.randint(5, 7)
         else:
             value = 1
+        # if is_there_quant:
+        #   value = random.choice([value, 8])
         next_type = MutType(value)
         self.type_seq.append(next_type)
 
