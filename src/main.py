@@ -10,8 +10,7 @@ from seeds import get_seeds
 SEED_TIME_LIMIT = int(2 * 1e3)
 MUT_TIME_LIMIT = int(1e5)
 INSTANCE_ID = 0
-STATS_LIMIT = 1e2
-PRINT_REG = 4
+PRIORITY_LIMIT = 10
 
 stats = TransMatrix()
 runs_number = 0
@@ -45,14 +44,15 @@ class Instance(object):
         solver.reset()
         self.time.append(time.perf_counter() - st_time)
         assert self.satis != unknown, solver.reason_unknown()
-        self.trans_matrix.read_from_trace(self.id)
+        self.trans_matrix.read_from_trace()
         runs_number += 1
 
     def calc_sort_key(self, weight_matrix):
         prob_matrix = self.trans_matrix.get_probability_matrix()
         size = self.trans_matrix.size
         weight_matrix_part = weight_matrix[:size, :size]
-        self.sort_key = np.sum(prob_matrix.dot(weight_matrix_part))
+        trans_matrix = self.trans_matrix.trans_matrix
+        self.sort_key = np.sum(prob_matrix * trans_matrix * weight_matrix_part)
 
 
 def parse_seeds(argv):
@@ -67,45 +67,48 @@ def parse_seeds(argv):
 
 def check_equ(instance, mut_instance):
     """Return True if the test suites have the same satisfiability and False otherwise"""
+
     solver = SolverFor('HORN')
     solver.set('engine', 'spacer')
 
     mut = instance.mutation
     if mut.number == 1:
         instance.check(solver, is_seed=True)
-        logging.info("%s %s %s %s",
-                     'Seed:',
-                     str(instance.satis) + ',',
+        logging.info("%s -- %s: %s, %s %s",
+                     instance.id, 'Seed',
+                     str(instance.satis),
                      'time(sec):', instance.time[0])
 
     mut_instance.check(solver, is_seed=False)
-
-    ins_id = 'seed' if instance.id == 0 else str(instance.id)
-    logging.info("%s %s %s %s",
-                 str(mut_instance.id) + ': Mutant of ' + ins_id + ' (' + str(mut.cur_type().name) + '):',
-                 str(mut_instance.satis) + ',',
+    logging.info("%s -- %s %s (%s): %s, %s %s",
+                 mut_instance.id, 'Mutant of', instance.id, str(mut.cur_type().name),
+                 str(mut_instance.satis),
                  'time(sec):', mut_instance.time[-1])
-    return instance.satis == mut_instance.satis and instance.satis != unknown
+    return instance.satis == mut_instance.satis
 
 
-def get_instance(queue, is_prioritized, repeat_counter, prev_name):
+def get_instance(queue, repeat_counter, prev_name):
+    """Return an instance from the queue"""
+
     queue_len = len(queue)
-    if not is_prioritized:
-        i = random.randint(0, queue_len - 1)
-    else:
-        i = 0
+    if queue_len == 0:
+        return None
+    i = 0
     cur_instance = queue[i]
-    if repeat_counter == cur_instance.repeat_limit:
+    if repeat_counter >= cur_instance.repeat_limit:
         while prev_name == cur_instance.filename:
             i += 1
             if i == queue_len:
                 cur_instance = None
                 break
             cur_instance = queue[i]
+    cur_instance = queue.pop(i) if cur_instance is not None else None
     return cur_instance
 
 
 def sort_queue(queue):
+    """Sort the queue by rare transitions"""
+
     global stats
     for instance in queue:
         stats += instance.trans_matrix
@@ -116,18 +119,45 @@ def sort_queue(queue):
     queue.sort(key=lambda item: item.sort_key, reverse=True)
 
 
-def fuzz(files, seeds):
+def print_runs_info(counter):
+    """Print information about runs"""
+
     global runs_number
+    if runs_number:
+        print('Total:', runs_number,
+              'Timeout:', counter['timeout'],
+              'Unknown:', counter['unknown'],
+              'Problems:', counter['problem'], '\n')
+
+
+def fuzz(files, seeds):
     queue = []
+    priority_queue = []
     counter = defaultdict(int)
     prev_name = ''
     is_sorted = False
     for i, seed in enumerate(seeds):
         instance = Instance(files[i], seed, Mutation(), [])
         queue.append(instance)
+    stats_limit = len(seeds)
 
     while queue:
-        cur_instance = get_instance(queue, is_sorted, counter['repeat'], prev_name)
+        print_runs_info(counter)
+        if is_sorted:
+            if not priority_queue:
+                filenames = []
+                for i in range(len(queue)):
+                    instance = queue[i]
+                    if instance.filename not in filenames:
+                        priority_queue.append(instance)
+                        filenames.append(instance.filename)
+                    if len(priority_queue) == PRIORITY_LIMIT:
+                        break
+            cur_instance = get_instance(priority_queue, counter['repeat'], prev_name)
+            priority_queue.append(cur_instance)
+        else:
+            cur_instance = get_instance(queue, counter['repeat'], prev_name)
+            queue.append(cur_instance)
         if cur_instance is None:
             break
         cur_name = cur_instance.filename
@@ -145,6 +175,8 @@ def fuzz(files, seeds):
                     counter['timeout'] += 1
                 else:
                     queue.remove(cur_instance)
+                    if is_sorted:
+                        priority_queue.remove(cur_instance)
                     counter['unknown'] += 1
                 logging.info(repr(err))
             elif err == 'timeout':
@@ -179,19 +211,19 @@ def fuzz(files, seeds):
             else:
                 counter['repeat'] = 2
             queue.append(mut_instance)
+            if is_sorted:
+                priority_queue.append(mut_instance)
             logging.info('No problems found')
-
-        if runs_number and runs_number % PRINT_REG == 0:
-            print('Total:', runs_number,
-                  'Timeout:', counter['timeout'],
-                  'Unknown:', counter['unknown'],
-                  'Problems:', counter['problem'], '\n')
 
         logging.info('\n')
         prev_name = cur_name
-        if runs_number % STATS_LIMIT == 0:
+        if runs_number % stats_limit == 0:
             sort_queue(queue)
             is_sorted = True
+            priority_queue.clear()
+
+    if not queue:
+        print_runs_info(counter)
 
 
 def main(argv):
