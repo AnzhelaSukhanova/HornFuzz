@@ -1,4 +1,4 @@
-import sys
+import argparse
 import logging
 import time
 from copy import deepcopy
@@ -14,6 +14,7 @@ PRIORITY_LIMIT = 10
 
 stats = TransMatrix()
 runs_number = 0
+priority = ''
 
 
 class Instance(object):
@@ -28,11 +29,14 @@ class Instance(object):
         self.mutation = mut
         self.time = time
         self.repeat_limit = 5 * len(self.chc)
-        self.trans_matrix = TransMatrix()
+        if priority == 'transitions':
+            self.trans_matrix = TransMatrix()
+        else:
+            self.states_num = defaultdict(int)
         self.sort_key = 0
 
     def check(self, solver, is_seed):
-        global runs_number
+        global runs_number, priority
         if is_seed:
             solver.set('timeout', SEED_TIME_LIMIT)
         else:
@@ -44,15 +48,24 @@ class Instance(object):
         solver.reset()
         self.time.append(time.perf_counter() - st_time)
         assert self.satis != unknown, solver.reason_unknown()
-        self.trans_matrix.read_from_trace()
+        if priority == 'transitions':
+            self.trans_matrix.read_from_trace()
+        else:
+            count_states(self.states_num)
         runs_number += 1
 
-    def calc_sort_key(self, weight_matrix):
-        prob_matrix = self.trans_matrix.get_probability_matrix()
-        size = self.trans_matrix.size
-        weight_matrix_part = weight_matrix[:size, :size]
-        trans_matrix = self.trans_matrix.trans_matrix
-        self.sort_key = np.sum(prob_matrix * trans_matrix * weight_matrix_part)
+    def calc_sort_key(self, weights):
+        if priority == 'transitions':
+            prob_matrix = self.trans_matrix.get_probability_matrix()
+            size = self.trans_matrix.size
+            weight_matrix_part = weights[:size, :size]
+            trans_matrix = self.trans_matrix.trans_matrix
+            self.sort_key = np.sum(prob_matrix * trans_matrix * weight_matrix_part)
+        else:
+            total_states_num = sum(self.states_num.values())
+            states_prob = {state: self.states_num[state] / total_states_num 
+                           for state in self.states_num}
+            self.sort_key = sum(states_prob[state] * weights[state] for state in self.states_num)
 
 
 def parse_seeds(argv):
@@ -109,13 +122,23 @@ def get_instance(queue, repeat_counter, prev_name):
 def sort_queue(queue):
     """Sort the queue by rare transitions"""
 
-    global stats
+    if priority == 'transitions':
+        global stats
+        for instance in queue:
+            stats += instance.trans_matrix
+        prob_matrix = stats.get_probability_matrix()
+        weights = get_weight_matrix(prob_matrix)
+
+    else:
+        states_num = defaultdict(int)
+        for instance in queue:
+            for state in instance.states_num:
+                states_num[state] += instance.states_num[state]
+        total_states_num = sum(states_num.values())
+        weights = {state: total_states_num / states_num[state] for state in states_num}
+
     for instance in queue:
-        stats += instance.trans_matrix
-    prob_matrix = stats.get_probability_matrix()
-    weight_matrix = get_weight_matrix(prob_matrix)
-    for instance in queue:
-        instance.calc_sort_key(weight_matrix)
+        instance.calc_sort_key(weights)
     queue.sort(key=lambda item: item.sort_key, reverse=True)
 
 
@@ -226,19 +249,33 @@ def fuzz(files, seeds):
         print_runs_info(counter)
 
 
-def main(argv):
+def main():
+    global priority
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('seeds',
+                        nargs='*',
+                        default='',
+                        help='directory with seeds or keyword \'all\'')
+    parser.add_argument('-priority',
+                        nargs='*',
+                        choices=['transitions', 'states'],
+                        default='transitions',
+                        help='trace data which will be used to select an instance for mutation')
+    argv = parser.parse_args()
+
     # help_simplify()
     logging.basicConfig(format='%(message)s', filename='logfile', level=logging.INFO)
     np.set_printoptions(suppress=True)
     set_option(max_args=int(1e6), max_lines=int(1e6), max_depth=int(1e6), max_visited=int(1e6))
     enable_trace("spacer")
     # enable_trace("smt_search")
+    priority = argv.priority
 
-    directory = dirname(dirname(argv[0]))
+    directory = dirname(dirname(parser.prog))
     if directory:
         directory += '/'
-    argv = argv[1:]
-    files = get_seeds(argv, directory)
+    files = get_seeds(argv.seeds, directory)
 
     seed_num = len(files)
     assert seed_num > 0, 'Seeds not found'
@@ -248,4 +285,4 @@ def main(argv):
 
 
 if __name__ == '__main__':
-    main(sys.argv)
+    main()

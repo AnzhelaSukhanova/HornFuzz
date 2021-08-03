@@ -75,7 +75,7 @@ def get_chc_comp(dir_path):
 def get_seeds(argv, directory):
     if len(argv) == 0:
         seeds = get_relational(directory)
-    elif argv[0] == '-all':
+    elif argv[0] == 'all':
         dir_path = directory + 'spacer-benchmarks/'
         seeds = get_spacer_benchmarks(dir_path)
         dir_path = directory + 'chc-comp21-benchmarks/'

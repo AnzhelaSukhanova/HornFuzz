@@ -36,4 +36,4 @@ RUN pip install -r requirements.txt \
 COPY . .
 
 # run fuzzing
-CMD ["python", "src/main.py", "-all"]
+CMD ["python", "src/main.py", "all"]

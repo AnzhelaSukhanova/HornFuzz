@@ -68,6 +68,16 @@ def get_weight_matrix(prob_matrix):
     return weight_matrix
 
 
+def count_states(states_num):
+    trace = open(TRACE_FILE, 'r+')
+    lines = trace.readlines()
+    states = [state.rstrip() for state in lines]
+    for state in states:
+        states_num[state] += 1
+    trace.truncate(0)
+    trace.close()
+
+
 def get_bound_vars(expr):
     """Return bound variables"""
 
