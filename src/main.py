@@ -37,6 +37,7 @@ class Instance(object):
 
     def check(self, solver, is_seed):
         global runs_number, priority
+        runs_number += 1
         if is_seed:
             solver.set('timeout', SEED_TIME_LIMIT)
         else:
@@ -52,7 +53,6 @@ class Instance(object):
             self.trans_matrix.read_from_trace()
         else:
             count_states(self.states_num)
-        runs_number += 1
 
     def calc_sort_key(self, weights):
         if priority == 'transitions':
