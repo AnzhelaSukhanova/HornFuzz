@@ -1,14 +1,16 @@
 import argparse
 import logging
 import time
+import signal
 from copy import deepcopy
 from os.path import dirname
 
 from mutations import *
 from seeds import get_seeds
 
-SEED_TIME_LIMIT = int(2 * 1e3)
-MUT_TIME_LIMIT = int(1e5)
+SEED_CHECK_TIME_LIMIT = int(2 * 1e3)
+MUT_CHECK_TIME_LIMIT = int(1e5)
+MUT_APPLY_TIME_LIMIT = 10
 INSTANCE_ID = 0
 PRIORITY_LIMIT = 10
 
@@ -37,16 +39,16 @@ class Instance(object):
 
     def check(self, solver, is_seed):
         global runs_number, priority
+        solver.reset()
         runs_number += 1
         if is_seed:
-            solver.set('timeout', SEED_TIME_LIMIT)
+            solver.set('timeout', SEED_CHECK_TIME_LIMIT)
         else:
-            solver.set('timeout', MUT_TIME_LIMIT)
+            solver.set('timeout', MUT_CHECK_TIME_LIMIT)
 
         st_time = time.perf_counter()
         solver.add(self.chc)
         self.satis = solver.check()
-        solver.reset()
         self.time.append(time.perf_counter() - st_time)
         assert self.satis != unknown, solver.reason_unknown()
         if priority == 'transitions':
@@ -87,13 +89,13 @@ def check_equ(instance, mut_instance):
     mut = instance.mutation
     if mut.number == 1:
         instance.check(solver, is_seed=True)
-        logging.info("%s -- %s: %s, %s %s",
+        logging.info('%s -- %s: %s, %s %s',
                      instance.id, 'Seed',
                      str(instance.satis),
                      'time(sec):', instance.time[0])
 
     mut_instance.check(solver, is_seed=False)
-    logging.info("%s -- %s %s (%s): %s, %s %s",
+    logging.info('%s -- %s %s (%s): %s, %s %s',
                  mut_instance.id, 'Mutant of', instance.id, str(mut.cur_type().name),
                  str(mut_instance.satis),
                  'time(sec):', mut_instance.time[-1])
@@ -154,6 +156,8 @@ def print_runs_info(counter):
 
 
 def fuzz(files, seeds):
+    global runs_number
+
     queue = []
     priority_queue = []
     counter = defaultdict(int)
@@ -163,9 +167,14 @@ def fuzz(files, seeds):
         instance = Instance(files[i], seed, Mutation(), [])
         queue.append(instance)
     stats_limit = len(seeds)
+    signal.signal(signal.SIGALRM, timeout_handler)
 
     while queue:
         print_runs_info(counter)
+        if runs_number and runs_number % stats_limit == 0:
+            sort_queue(queue)
+            is_sorted = True
+            priority_queue.clear()
         if is_sorted:
             if not priority_queue:
                 filenames = []
@@ -177,73 +186,79 @@ def fuzz(files, seeds):
                     if len(priority_queue) == PRIORITY_LIMIT:
                         break
             cur_instance = get_instance(priority_queue, counter['repeat'], prev_name)
-            priority_queue.append(cur_instance)
         else:
             cur_instance = get_instance(queue, counter['repeat'], prev_name)
-            queue.append(cur_instance)
         if cur_instance is None:
             break
         cur_name = cur_instance.filename
+        prev_name = cur_name
         logging.info(cur_name)
         mut = cur_instance.mutation
-        mut_chc = mut.apply(cur_instance.chc)
+        signal.alarm(MUT_APPLY_TIME_LIMIT)
+        try:
+            mut_chc = mut.apply(cur_instance.chc)
+        except Exception as err:
+            signal.alarm(0)
+            runs_number += 1
+            counter['timeout'] += 1
+            logging.info('%s\n', repr(err))
+            continue
+        signal.alarm(0)
         mut_instance = Instance(cur_name, mut_chc, deepcopy(mut), cur_instance.time)
 
-        res = True
         try:
             res = check_equ(cur_instance, mut_instance)
         except AssertionError as err:
             if cur_instance.satis == unknown:
-                if err == 'timeout':
+                if str(err) == 'timeout':
                     counter['timeout'] += 1
                 else:
                     queue.remove(cur_instance)
                     if is_sorted:
                         priority_queue.remove(cur_instance)
                     counter['unknown'] += 1
-                logging.info(repr(err))
-            elif err == 'timeout':
+                logging.info('%s\n', repr(err))
+            elif str(err) == 'timeout':
                 counter['timeout'] += 1
                 logging.info(repr(err))
-                logging.info("%s %s\n%s %s",
+                logging.info('%s %s\n%s %s\n',
                              'Seed\'s time(sec):',
                              mut_instance.time[0],
                              'Mutant\'s time(sec):',
                              mut_instance.time[-1])
             else:
                 counter['unknown'] += 1
-                logging.error("%s -- %s",
+                logging.error('%s -- %s\n',
                               'Problem',
                               repr(err))
             counter['repeat'] = 2
+            continue
 
         if not res:
             chain = mut.get_chain()
             counter['problem'] += 1
-            logging.error("%s\n%s",
+            logging.error('%s\n%s',
                           'Problem in this chain of mutations:',
                           chain)
-            logging.error("%s\n->\n%s",
+            logging.error('%s\n->\n%s\n',
                           cur_instance.chc,
                           mut_instance.chc)
             counter['repeat'] = 2
+            queue.append(cur_instance)
+            if is_sorted:
+                priority_queue.append(cur_instance)
 
-        elif mut_instance.satis != unknown:
+        else:
             if prev_name == cur_name:
                 counter['repeat'] += 1
             else:
                 counter['repeat'] = 2
+            queue.append(cur_instance)
             queue.append(mut_instance)
             if is_sorted:
+                priority_queue.append(cur_instance)
                 priority_queue.append(mut_instance)
-            logging.info('No problems found')
-
-        logging.info('\n')
-        prev_name = cur_name
-        if runs_number % stats_limit == 0:
-            sort_queue(queue)
-            is_sorted = True
-            priority_queue.clear()
+            logging.info('No problems found\n')
 
     if not queue:
         print_runs_info(counter)
@@ -268,8 +283,8 @@ def main():
     logging.basicConfig(format='%(message)s', filename='logfile', level=logging.INFO)
     np.set_printoptions(suppress=True)
     set_option(max_args=int(1e6), max_lines=int(1e6), max_depth=int(1e6), max_visited=int(1e6))
-    enable_trace("spacer")
-    # enable_trace("smt_search")
+    enable_trace('spacer')
+    # enable_trace('smt_search')
     priority = argv.priority
 
     directory = dirname(dirname(parser.prog))

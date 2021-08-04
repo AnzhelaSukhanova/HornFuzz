@@ -151,3 +151,7 @@ def count_expr(expr, kind):
             for child in cur_expr.children():
                 stack.append(child)
     return expr_num
+
+
+def timeout_handler(signum, frame):
+    raise Exception('Timeout of applying mutation')
