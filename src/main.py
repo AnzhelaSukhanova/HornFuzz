@@ -1,7 +1,5 @@
 import argparse
 import logging
-import time
-import signal
 from copy import deepcopy
 from os.path import dirname
 
@@ -10,7 +8,6 @@ from seeds import get_seeds
 
 SEED_CHECK_TIME_LIMIT = int(2 * 1e3)
 MUT_CHECK_TIME_LIMIT = int(1e5)
-MUT_APPLY_TIME_LIMIT = 10
 INSTANCE_ID = 0
 PRIORITY_LIMIT = 10
 
@@ -59,9 +56,9 @@ class Instance(object):
     def calc_sort_key(self, weights):
         if priority == 'transitions':
             prob_matrix = self.trans_matrix.get_probability_matrix()
-            size = self.trans_matrix.size
+            size = self.trans_matrix.matrix.shape[0]
             weight_matrix_part = weights[:size, :size]
-            trans_matrix = self.trans_matrix.trans_matrix
+            trans_matrix = self.trans_matrix.matrix
             self.sort_key = np.sum(prob_matrix * trans_matrix * weight_matrix_part)
         else:
             total_states_num = sum(self.states_num.values())
@@ -167,7 +164,6 @@ def fuzz(files, seeds):
         instance = Instance(files[i], seed, Mutation(), [])
         queue.append(instance)
     stats_limit = len(seeds)
-    signal.signal(signal.SIGALRM, timeout_handler)
 
     while queue:
         print_runs_info(counter)
@@ -194,16 +190,13 @@ def fuzz(files, seeds):
         prev_name = cur_name
         logging.info(cur_name)
         mut = cur_instance.mutation
-        signal.alarm(MUT_APPLY_TIME_LIMIT)
         try:
             mut_chc = mut.apply(cur_instance.chc)
-        except Exception as err:
-            signal.alarm(0)
+        except (TimeoutError, AssertionError):
             runs_number += 1
             counter['timeout'] += 1
-            logging.info('%s\n', repr(err))
+            logging.info('%s\n', 'Timeout of applying mutation')
             continue
-        signal.alarm(0)
         mut_instance = Instance(cur_name, mut_chc, deepcopy(mut), cur_instance.time)
 
         try:

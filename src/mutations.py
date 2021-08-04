@@ -1,7 +1,10 @@
 import random
+import time
 from enum import Enum
 
 from utils import *
+
+MUT_APPLY_TIME_LIMIT = 10
 
 
 class MutType(Enum):
@@ -34,29 +37,31 @@ class Mutation(object):
     def __init__(self):
         self.type_seq = []
         self.number = 0
-        self.is_final = False
         self.trans_n = 0
         self.trans_clause_ind = 0
+        self.is_applied = False
 
     def cur_type(self):
         return self.type_seq[-1]
 
     def apply(self, instances):
         """Return mutated instances"""
+        self.is_applied = False
         self.next_mutation(instances)
         cur_type = self.cur_type()
         if cur_type == MutType.ID:
-            self.is_final = True
-            return instances
+            assert False, 'Failed to apply mutation'
 
         elif cur_type == MutType.SWAP_AND or cur_type == MutType.SWAP_OR or \
                 cur_type == MutType.DUP_AND or cur_type == MutType.DUP_OR or \
                 cur_type == MutType.BREAK_AND or cur_type == MutType.BREAK_OR or \
                 cur_type == MutType.MIX_BOUND_VARS:
-            return self.transform_rand(instances)
+            mut_instances = self.transform_rand(instances)
 
         else:
             assert False
+        self.is_applied = True
+        return mut_instances
 
     def next_mutation(self, instance):
         """Return the next mutation based on the instance, type of the previous mutation etc"""
@@ -120,7 +125,7 @@ class Mutation(object):
 
         num = count_expr(clause, kind)
         self.trans_n = random.randint(1, num)
-        mut_clause = self.transform_nth(clause, mut_group)
+        mut_clause = self.transform_nth(clause, mut_group, time.perf_counter())
         self.trans_clause_ind = i
         for j, clause in enumerate(instance):
             if j == i:
@@ -130,13 +135,15 @@ class Mutation(object):
         # print(instance[self.trans_clause_ind], '\n->\n', mut_instance[self.trans_clause_ind])
         return mut_instance
 
-    def transform_nth(self, expr, mut_group):
+    def transform_nth(self, expr, mut_group, st_time):
         """Transform nth and/or-expression in dfs-order"""
+        if time.perf_counter() - st_time >= MUT_APPLY_TIME_LIMIT:
+            raise TimeoutError('Timeout of applying mutation')
         if len(expr.children()) == 0:
             return expr
         mut_children = []
         for child in expr.children():
-            mut_children.append(self.transform_nth(child, mut_group))
+            mut_children.append(self.transform_nth(child, mut_group, st_time))
         cur_type = self.cur_type()
         is_and_expr = mut_group == MutGroup.AND and is_and(expr)
         is_or_expr = mut_group == MutGroup.OR and is_or(expr)
