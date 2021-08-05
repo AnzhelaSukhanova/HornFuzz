@@ -4,7 +4,7 @@ from scipy.sparse import dok_matrix
 import numpy as np
 
 TRACE_FILE = '.z3-trace'
-STACK_LIMIT = 3*1e2
+EXPR_LIMIT = 3*1e2
 
 trace_states = defaultdict(int)
 offset = 0
@@ -121,11 +121,11 @@ def update_expr(expr, children, vars=None):
 def is_there_expr(expr, kind):
     """Return if there is a subexpression of the specific kind"""
 
-    stack = [expr]
-    stack_count = 0
-    while len(stack) and stack_count < STACK_LIMIT:
-        stack_count += 1
-        cur_expr = stack.pop()
+    subexpr_set = {expr}
+    expr_count = 0
+    while len(subexpr_set) and expr_count < EXPR_LIMIT:
+        expr_count += 1
+        cur_expr = subexpr_set.pop()
         ctx_ref = cur_expr.ctx.ref()
         ast = cur_expr.as_ast()
         if Z3_get_ast_kind(ctx_ref, ast) == kind:
@@ -134,7 +134,7 @@ def is_there_expr(expr, kind):
             if is_app(cur_expr) and cur_expr.decl().kind() == kind:
                 return True
             for child in cur_expr.children():
-                stack.append(child)
+                subexpr_set.add(child)
     return False
 
 
@@ -142,20 +142,20 @@ def count_expr(expr, kind):
     """Return the number of subexpressions of the specific kind"""
 
     expr_num = 0
-    stack = [expr]
-    stack_count = 0
-    while len(stack) and stack_count < STACK_LIMIT:
-        stack_count += 1
-        cur_expr = stack.pop()
+    subexpr_set = {expr}
+    expr_count = 0
+    while len(subexpr_set) and expr_count < EXPR_LIMIT:
+        expr_count += 1
+        cur_expr = subexpr_set.pop()
         ctx_ref = cur_expr.ctx.ref()
         ast = cur_expr.as_ast()
         if Z3_get_ast_kind(ctx_ref, ast) == kind:
             expr_num += 1
             for child in cur_expr.children():
-                stack.append(child)
+                subexpr_set.add(child)
         elif not is_var(expr) and not is_const(expr):
             if is_app(cur_expr) and cur_expr.decl().kind() == kind:
                 expr_num += 1
             for child in cur_expr.children():
-                stack.append(child)
+                subexpr_set.add(child)
     return expr_num

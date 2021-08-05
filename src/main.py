@@ -195,7 +195,7 @@ def fuzz(files, seeds):
         try:
             res = check_equ(cur_instance, mut_instance)
         except AssertionError as err:
-            if cur_instance.satis == unknown:
+            if group.satis == unknown:
                 if str(err) == 'timeout':
                     counter['timeout'] += 1
                 else:
