@@ -92,10 +92,10 @@ class Instance(object):
 def parse_seeds(argv):
     """Return the parsed seeds given by files in smt2-format"""
 
-    seeds = {
+    seeds = [
         z3.parse_smt2_file(seed)
         for seed in argv
-    }
+    ]
     return seeds
 
 
