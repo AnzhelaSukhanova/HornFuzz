@@ -192,10 +192,10 @@ def fuzz(files, seeds):
         mut = cur_instance.mutation
         try:
             mut_chc = mut.apply(cur_instance.chc)
-        except (TimeoutError, AssertionError):
+        except (TimeoutError, AssertionError) as err:
             runs_number += 1
             counter['timeout'] += 1
-            logging.info('%s\n', 'Timeout of applying mutation')
+            logging.info('%s\n', repr(err))
             continue
         mut_instance = Instance(cur_name, mut_chc, deepcopy(mut), cur_instance.time)
 

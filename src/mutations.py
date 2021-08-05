@@ -39,7 +39,6 @@ class Mutation(object):
         self.number = 0
         self.trans_n = 0
         self.trans_clause_ind = 0
-        self.is_applied = False
 
     def cur_type(self):
         return self.type_seq[-1]
