@@ -1,8 +1,6 @@
 import argparse
 import logging
-from copy import deepcopy
 from os.path import dirname
-# from pympler import muppy, summary
 
 from mutations import *
 from seeds import get_seeds
@@ -13,22 +11,41 @@ INSTANCE_ID = 0
 PRIORITY_LIMIT = 10
 
 stats = TransMatrix()
+states_num = defaultdict(int)
 runs_number = 0
 priority = ''
 
 
+class InstanceGroup(object):
+
+    def __init__(self, filename, mut):
+        self.filename = filename
+        self.mutation = mut
+        self.satis = unknown
+        self.instances = defaultdict(Instance)
+
+    def push(self, instance):
+        length = len(self.instances)
+        self.instances[length] = instance
+
+    def roll_back(self):
+        seed = self.instances[0]
+        group.instances = {seed}
+        return seed
+
+
+instance_group = defaultdict(InstanceGroup)
+
+
 class Instance(object):
 
-    def __init__(self, filename, chc, mut, time):
+    def __init__(self, group_id, chc):
         global INSTANCE_ID
         self.id = INSTANCE_ID
         INSTANCE_ID += 1
-        self.filename = filename
+        self.group_id = group_id
         self.chc = chc
-        self.satis = unknown
-        self.mutation = mut
         self.time = time
-        self.repeat_limit = 5 * len(self.chc)
         if priority == 'transitions':
             self.trans_matrix = TransMatrix()
         else:
@@ -46,13 +63,14 @@ class Instance(object):
 
         st_time = time.perf_counter()
         solver.add(self.chc)
-        self.satis = solver.check()
-        self.time.append(time.perf_counter() - st_time)
-        assert self.satis != unknown, solver.reason_unknown()
+        satis = solver.check()
+        self.time = time.perf_counter() - st_time
+        assert satis != unknown, solver.reason_unknown()
         if priority == 'transitions':
             self.trans_matrix.read_from_trace()
         else:
             count_states(self.states_num)
+        return satis
 
     def calc_sort_key(self, weights):
         if priority == 'transitions':
@@ -67,56 +85,53 @@ class Instance(object):
                            for state in self.states_num}
             self.sort_key = sum(states_prob[state] * weights[state] for state in self.states_num)
 
+    def get_group(self):
+        global instance_group
+        return instance_group[self.group_id]
+
 
 def parse_seeds(argv):
     """Return the parsed seeds given by files in smt2-format"""
 
-    seeds = [
+    seeds = {
         z3.parse_smt2_file(seed)
         for seed in argv
-    ]
+    }
     return seeds
 
 
 def check_equ(instance, mut_instance):
     """Return True if the test suites have the same satisfiability and False otherwise"""
-
     solver = SolverFor('HORN')
     solver.set('engine', 'spacer')
+    group = instance.get_group()
 
-    mut = instance.mutation
+    mut = group.mutation
     if mut.number == 1:
-        instance.check(solver, is_seed=True)
+        satis = instance.check(solver, is_seed=True)
+        group.satis = satis
+        update_stats(instance)
         logging.info('%s -- %s: %s, %s %s',
                      instance.id, 'Seed',
-                     str(instance.satis),
-                     'time(sec):', instance.time[0])
+                     satis,
+                     'time(sec):', instance.time)
 
-    mut_instance.check(solver, is_seed=False)
+    satis = mut_instance.check(solver, is_seed=False)
+    update_stats(mut_instance)
     logging.info('%s -- %s %s (%s): %s, %s %s',
                  mut_instance.id, 'Mutant of', instance.id, str(mut.cur_type().name),
-                 str(mut_instance.satis),
-                 'time(sec):', mut_instance.time[-1])
-    return instance.satis == mut_instance.satis
+                 satis,
+                 'time(sec):', mut_instance.time)
+    return group.satis == satis
 
 
-def get_instance(queue, repeat_counter, prev_name):
-    """Return an instance from the queue"""
-
-    queue_len = len(queue)
-    if queue_len == 0:
-        return None
-    i = 0
-    cur_instance = queue[i]
-    if repeat_counter >= cur_instance.repeat_limit:
-        while prev_name == cur_instance.filename:
-            i += 1
-            if i == queue_len:
-                cur_instance = None
-                break
-            cur_instance = queue[i]
-    cur_instance = queue.pop(i) if cur_instance is not None else None
-    return cur_instance
+def update_stats(instance):
+    global priority, stats, states_num
+    if priority == 'transitions':
+        stats += instance.trans_matrix
+    else:
+        for state in instance.states_num:
+            states_num[state] += instance.states_num[state]
 
 
 def sort_queue(queue):
@@ -124,16 +139,11 @@ def sort_queue(queue):
 
     if priority == 'transitions':
         global stats
-        for instance in queue:
-            stats += instance.trans_matrix
         prob_matrix = stats.get_probability_matrix()
         weights = get_weight_matrix(prob_matrix)
 
     else:
-        states_num = defaultdict(int)
-        for instance in queue:
-            for state in instance.states_num:
-                states_num[state] += instance.states_num[state]
+        global states_num
         total_states_num = sum(states_num.values())
         weights = {state: total_states_num / states_num[state] for state in states_num}
 
@@ -154,15 +164,14 @@ def print_runs_info(counter):
 
 
 def fuzz(files, seeds):
-    global runs_number
+    global runs_number, instance_group
 
     queue = []
-    priority_queue = []
     counter = defaultdict(int)
-    prev_name = ''
-    is_sorted = False
     for i, seed in enumerate(seeds):
-        instance = Instance(files[i], seed, Mutation(), [])
+        instance_group[i] = InstanceGroup(files.pop(), Mutation())
+        instance = Instance(i, seed)
+        instance_group[i].push(instance)
         queue.append(instance)
     stats_limit = len(seeds)
 
@@ -170,27 +179,10 @@ def fuzz(files, seeds):
         print_runs_info(counter)
         if runs_number and runs_number % stats_limit == 0:
             sort_queue(queue)
-            is_sorted = True
-            priority_queue.clear()
-        if is_sorted:
-            if not priority_queue:
-                filenames = []
-                for i in range(len(queue)):
-                    instance = queue[i]
-                    if instance.filename not in filenames:
-                        priority_queue.append(instance)
-                        filenames.append(instance.filename)
-                    if len(priority_queue) == PRIORITY_LIMIT:
-                        break
-            cur_instance = get_instance(priority_queue, counter['repeat'], prev_name)
-        else:
-            cur_instance = get_instance(queue, counter['repeat'], prev_name)
-        if cur_instance is None:
-            break
-        cur_name = cur_instance.filename
-        prev_name = cur_name
-        logging.info(cur_name)
-        mut = cur_instance.mutation
+        cur_instance = queue.pop(0)
+        group = cur_instance.get_group()
+        logging.info(group.filename)
+        mut = group.mutation
         try:
             mut_chc = mut.apply(cur_instance.chc)
         except (TimeoutError, AssertionError) as err:
@@ -198,7 +190,7 @@ def fuzz(files, seeds):
             counter['timeout'] += 1
             logging.info('%s\n', repr(err))
             continue
-        mut_instance = Instance(cur_name, mut_chc, deepcopy(mut), cur_instance.time)
+        mut_instance = Instance(cur_instance.group_id, mut_chc)
 
         try:
             res = check_equ(cur_instance, mut_instance)
@@ -212,23 +204,21 @@ def fuzz(files, seeds):
             elif str(err) == 'timeout':
                 counter['timeout'] += 1
                 logging.info(repr(err))
+                seed = group.instances[0]
                 logging.info('%s %s\n%s %s\n',
                              'Seed\'s time(sec):',
-                             mut_instance.time[0],
+                             seed.time,
                              'Mutant\'s time(sec):',
-                             mut_instance.time[-1])
-                queue.append(cur_instance)
-                if is_sorted:
-                    priority_queue.append(cur_instance)
+                             mut_instance.time)
+                instance = group.roll_back()
+                queue.append(instance)
             else:
                 counter['unknown'] += 1
                 logging.error('%s -- %s\n',
                               'Problem',
                               repr(err))
-                queue.append(cur_instance)
-                if is_sorted:
-                    priority_queue.append(cur_instance)
-            counter['repeat'] = 2
+                instance = group.roll_back()
+                queue.append(instance)
             continue
 
         if not res:
@@ -240,21 +230,11 @@ def fuzz(files, seeds):
             logging.error('%s\n->\n%s\n',
                           cur_instance.chc,
                           mut_instance.chc)
-            counter['repeat'] = 2
             queue.append(cur_instance)
-            if is_sorted:
-                priority_queue.append(cur_instance)
 
         else:
-            if prev_name == cur_name:
-                counter['repeat'] += 1
-            else:
-                counter['repeat'] = 2
-            queue.append(cur_instance)
             queue.append(mut_instance)
-            if is_sorted:
-                priority_queue.append(cur_instance)
-                priority_queue.append(mut_instance)
+            group.push(mut_instance)
             logging.info('No problems found\n')
 
     if not queue:

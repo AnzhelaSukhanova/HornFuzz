@@ -1,5 +1,4 @@
 import subprocess
-import random
 import re
 from os import walk
 from os.path import join
@@ -11,7 +10,7 @@ def get_relational(directory):
     that don't return 'unknown' and don't work long
     """
 
-    files = [
+    files = {
         'point-location-nr.52.smt2',
         'point-location-nr.53.smt2',
         'point-location-nr.50.smt2',
@@ -23,10 +22,10 @@ def get_relational(directory):
         'point-location-nr.49.smt2',
         'inc-loop-2.smt2',
         'inc-loop-5.smt2'
-    ]
-    seeds = [directory +
+    }
+    seeds = {directory +
              'spacer-benchmarks/relational/' +
-             file for file in files]
+             file for file in files}
     return seeds
 
 
@@ -36,19 +35,19 @@ def get_spacer_benchmarks(dir_path):
     or /spacer-benchmarks/<subdir>
     """
 
-    seeds = []
+    seeds = set()
     for root, subdirs, files in walk(dir_path):
         for file in files:
             if file.endswith('.smt2'):
                 path = join(root, file)
-                seeds.append(path)
+                seeds.add(path)
     return seeds
 
 
 def extract(files, root):
     """Extract files from given archives and return their paths"""
 
-    ext_files = []
+    ext_files = set()
     for file in files:
         path = join(root, file)
         if file.endswith('.gz'):
@@ -56,7 +55,7 @@ def extract(files, root):
             path = path[:-3]
         elif not file.endswith('.smt2'):
             break
-        ext_files.append(path)
+        ext_files.add(path)
     return ext_files
 
 
@@ -66,9 +65,9 @@ def get_chc_comp(dir_path):
     or /chc-comp<year>-benchmarks/<subdir>
     """
 
-    ext_files = []
+    ext_files = set()
     for root, subdirs, files in walk(dir_path):
-        ext_files += extract(files, root)
+        ext_files.update(extract(files, root))
     return ext_files
 
 
@@ -79,8 +78,7 @@ def get_seeds(argv, directory):
         dir_path = directory + 'spacer-benchmarks/'
         seeds = get_spacer_benchmarks(dir_path)
         dir_path = directory + 'chc-comp21-benchmarks/'
-        seeds += get_chc_comp(dir_path)
-        random.shuffle(seeds)
+        seeds.update(get_chc_comp(dir_path))
     else:
         if argv[0].endswith('.smt2'):
             seeds = argv
@@ -93,5 +91,5 @@ def get_seeds(argv, directory):
                 dir_path = directory + argv[0] + '/'
                 seeds = get_chc_comp(dir_path)
             else:
-                seeds = []
+                seeds = set()
     return seeds

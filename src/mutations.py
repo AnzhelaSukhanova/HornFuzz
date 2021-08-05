@@ -45,7 +45,6 @@ class Mutation(object):
 
     def apply(self, instances):
         """Return mutated instances"""
-        self.is_applied = False
         self.next_mutation(instances)
         cur_type = self.cur_type()
         if cur_type == MutType.ID:
@@ -59,7 +58,6 @@ class Mutation(object):
 
         else:
             assert False
-        self.is_applied = True
         return mut_instances
 
     def next_mutation(self, instance):
