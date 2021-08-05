@@ -25,7 +25,8 @@ RUN cd z3/build && make && make install && cd ../../
 
 # download benchmarks
 RUN git clone https://github.com/dvvrd/spacer-benchmarks.git \
- && git clone https://github.com/chc-comp/chc-comp21-benchmarks.git
+ && git clone https://github.com/chc-comp/chc-comp21-benchmarks.git \
+ && rm -rf chc-comp21-benchmarks/LRA-TS && rm -rf chc-comp21-benchmarks/ADT-Nonlin
 
 # copy and install requirements
 COPY requirements.txt .
@@ -33,7 +34,7 @@ RUN pip install -r requirements.txt \
  && ln -s /usr/lib/libz3.so libz3.so
 
 # add project-files
-COPY . .
+ADD src src
 
 # run fuzzing
 CMD ["python", "src/main.py", "all"]

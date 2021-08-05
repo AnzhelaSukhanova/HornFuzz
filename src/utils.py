@@ -44,7 +44,7 @@ class TransMatrix(object):
             if state not in trace_states:
                 trace_states[state] = len(trace_states)
         size = len(trace_states)
-        self.matrix = np.zeros((size, size), dtype=int)
+        self.matrix = dok_matrix((size, size), dtype=int)
 
         state = states[0]
         for next_state in states[1:]:

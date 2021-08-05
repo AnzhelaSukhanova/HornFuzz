@@ -2,6 +2,7 @@ import argparse
 import logging
 from copy import deepcopy
 from os.path import dirname
+# from pympler import muppy, summary
 
 from mutations import *
 from seeds import get_seeds
@@ -206,9 +207,6 @@ def fuzz(files, seeds):
                 if str(err) == 'timeout':
                     counter['timeout'] += 1
                 else:
-                    queue.remove(cur_instance)
-                    if is_sorted:
-                        priority_queue.remove(cur_instance)
                     counter['unknown'] += 1
                 logging.info('%s\n', repr(err))
             elif str(err) == 'timeout':
@@ -219,11 +217,17 @@ def fuzz(files, seeds):
                              mut_instance.time[0],
                              'Mutant\'s time(sec):',
                              mut_instance.time[-1])
+                queue.append(cur_instance)
+                if is_sorted:
+                    priority_queue.append(cur_instance)
             else:
                 counter['unknown'] += 1
                 logging.error('%s -- %s\n',
                               'Problem',
                               repr(err))
+                queue.append(cur_instance)
+                if is_sorted:
+                    priority_queue.append(cur_instance)
             counter['repeat'] = 2
             continue
 
