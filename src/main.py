@@ -8,7 +8,6 @@ from seeds import get_seeds
 SEED_CHECK_TIME_LIMIT = int(2 * 1e3)
 MUT_CHECK_TIME_LIMIT = int(1e5)
 INSTANCE_ID = 0
-PRIORITY_LIMIT = 10
 
 stats = TransMatrix()
 states_num = defaultdict(int)
@@ -173,13 +172,16 @@ def fuzz(files, seeds):
         instance = Instance(i, seed)
         instance_group[i].push(instance)
         queue.append(instance)
-    stats_limit = len(seeds)
+    seed_len = len(seeds)
+    stats_limit = seed_len
 
     while queue:
         print_runs_info(counter)
-        if runs_number and runs_number % stats_limit == 0:
+        if stats_limit == 0:
             sort_queue(queue)
+            stats_limit = random.randint(seed_len // 5, seed_len)
         cur_instance = queue.pop(0)
+        stats_limit -= 1
         group = cur_instance.get_group()
         logging.info(group.filename)
         mut = group.mutation
