@@ -14,7 +14,10 @@ Or you can use the Dockerfile (`docker build -t spacer/fuzz .`).
 
 `docker run spacer/fuzz` if you are using docker.  
 
-Add `-priority=states` to change the instance selection by the probability of transition to the selection based on the probability of states.  
+Add `-heuristic=<priority>` (or `-heur`) to change the instance selection by the probability of transition to the selection based on:  
+* the probability of states (`states`);  
+* chc-difficulty (`difficulty`);  
+* the number of expressions that can be mutated (`many-targets` or `few-targets`).  
 
 ## Seeds
 Download benchmarks from

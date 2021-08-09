@@ -35,6 +35,7 @@ RUN pip install -r requirements.txt \
 
 # add project-files
 ADD src src
+ADD exclude_seed.json .
 
 # run fuzzing
 CMD ["python", "src/main.py", "all"]

@@ -1,5 +1,6 @@
 import subprocess
 import re
+import json
 from os import walk
 from os.path import join
 
@@ -7,7 +8,7 @@ from os.path import join
 def get_relational(directory):
     """
     Return tests from the /spacer-benchmarks/relational
-    that don't return 'unknown' and don't work long
+    that don't return 'unknown' and don't work long.
     """
 
     files = {
@@ -32,7 +33,7 @@ def get_relational(directory):
 def get_spacer_benchmarks(dir_path):
     """
     Return all tests from the /spacer-benchmarks
-    or /spacer-benchmarks/<subdir>
+    or /spacer-benchmarks/<subdir>.
     """
 
     seeds = set()
@@ -45,7 +46,7 @@ def get_spacer_benchmarks(dir_path):
 
 
 def extract(files, root):
-    """Extract files from given archives and return their paths"""
+    """Extract files from given archives and return their paths."""
 
     ext_files = set()
     for file in files:
@@ -62,13 +63,19 @@ def extract(files, root):
 def get_chc_comp(dir_path):
     """
     Return all tests from the /chc-comp<year>-benchmarks
-    or /chc-comp<year>-benchmarks/<subdir>
+    or /chc-comp<year>-benchmarks/<subdir>.
     """
 
     ext_files = set()
     for root, subdirs, files in walk(dir_path):
         ext_files.update(extract(files, root))
     return ext_files
+
+
+def exclude_unknown_seed(seeds):
+    file = open('exclude_seed.json', 'r')
+    blacklist = json.load(file)
+    return seeds.difference(blacklist)
 
 
 def get_seeds(argv, directory):
@@ -79,6 +86,7 @@ def get_seeds(argv, directory):
         seeds = get_spacer_benchmarks(dir_path)
         dir_path = directory + 'chc-comp21-benchmarks/'
         seeds.update(get_chc_comp(dir_path))
+        seeds = exclude_unknown_seed(seeds)
     else:
         if argv[0].endswith('.smt2'):
             seeds = argv
@@ -87,9 +95,11 @@ def get_seeds(argv, directory):
             if dirs[0] == 'spacer-benchmarks':
                 dir_path = directory + argv[0] + '/'
                 seeds = get_spacer_benchmarks(dir_path)
+                seeds = exclude_unknown_seed(seeds)
             elif re.match(r'chc-comp\d\d-benchmarks', dirs[0]):
                 dir_path = directory + argv[0] + '/'
                 seeds = get_chc_comp(dir_path)
+                seeds = exclude_unknown_seed(seeds)
             else:
                 seeds = set()
     return seeds
