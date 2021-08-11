@@ -1,4 +1,5 @@
 import argparse
+import logging
 from os.path import dirname
 from copy import deepcopy
 
@@ -154,9 +155,7 @@ class Instance(object):
             log['mut_type'] = group.mutation.cur_type().name
         log['satis'] = str(satis)
         log['time(sec)'] = self.time
-        with open('logfile', 'a') as logfile:
-            json.dump(log, logfile)
-            logfile.write('\n')
+        logging.info(json.dumps(log))
 
 
 class TraceStats(object):
@@ -328,9 +327,7 @@ def add_log_entry(filename, status, message, group=None, mut_instance=None):
         cur_instance = group[-1]
         log['prev_chc'] = cur_instance.chc.sexpr()
         log['current_chc'] = mut_instance.chc.sexpr()
-    with open('logfile', 'a') as logfile:
-        json.dump(log, logfile)
-        logfile.write('\n')
+    logging.info(json.dumps(log))
 
 
 def fuzz(files, seeds):
@@ -439,6 +436,9 @@ def main():
     argv = parser.parse_args()
 
     # help_simplify()
+    logging.basicConfig(format='%(message)s',
+                        filename='logfile',
+                        level=logging.INFO)
     np.set_printoptions(suppress=True)
     set_option(max_args=int(1e6), max_lines=int(1e6),
                max_depth=int(1e6), max_visited=int(1e6))
