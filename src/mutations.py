@@ -12,19 +12,17 @@ class MutType(Enum):
 
     """And(a, b) -> And(b, a)"""
     SWAP_AND = 2
-    """And(a, b) -> And(a, b, a)"""
-    DUP_AND = 3
-    """
-    And(a, b, c) -> And(a, And(b, c))
-    And(a, b) -> And(a, And(a, b))
-    """
-    BREAK_AND = 4
-
-    SWAP_OR = 5
-    DUP_OR = 6
-    BREAK_OR = 7
-
-    MIX_BOUND_VARS = 8
+    SWAP_OR = 3
+    MIX_BOUND_VARS = 4
+    # """And(a, b) -> And(a, b, a)"""
+    # DUP_AND
+    # """
+    # And(a, b, c) -> And(a, And(b, c))
+    # And(a, b) -> And(a, And(a, b))
+    # """
+    # BREAK_AND
+    # DUP_OR
+    # BREAK_OR
 
 
 class Mutation(object):
@@ -46,8 +44,6 @@ class Mutation(object):
             assert False, 'Failed to apply mutation'
 
         elif cur_type in {MutType.SWAP_AND, MutType.SWAP_OR,
-                          MutType.DUP_AND, MutType.DUP_OR,
-                          MutType.BREAK_AND, MutType.BREAK_OR,
                           MutType.MIX_BOUND_VARS}:
             mut_instances = self.transform_rand(instance.chc, instance.info)
 
@@ -62,21 +58,20 @@ class Mutation(object):
         """
         self.number += 1
         if self.number == 1:
-            for clause in instance:
-                info.expr_exists[Z3_OP_AND] |= expr_exists(clause, Z3_OP_AND)
-                info.expr_exists[Z3_OP_OR] |= expr_exists(clause, Z3_OP_OR)
-                info.expr_exists[Z3_QUANTIFIER_AST] |= \
-                    expr_exists(clause, Z3_QUANTIFIER_AST)
+            info.expr_exists[Z3_OP_AND] |= expr_exists(instance, Z3_OP_AND)
+            info.expr_exists[Z3_OP_OR] |= expr_exists(instance, Z3_OP_OR)
+            info.expr_exists[Z3_QUANTIFIER_AST] |= \
+                expr_exists(instance, Z3_QUANTIFIER_AST)
         if info.expr_exists[Z3_OP_AND] and info.expr_exists[Z3_OP_OR]:
-            value = random.randint(2, 7)
+            value = random.choice([2, 3])
         elif info.expr_exists[Z3_OP_AND]:
-            value = random.randint(2, 4)
+            value = 2
         elif info.expr_exists[Z3_OP_OR]:
-            value = random.randint(5, 7)
+            value = 3
         else:
             value = 1
         if info.expr_exists[Z3_QUANTIFIER_AST]:
-            value = random.choice([value, 8]) if value > 1 else 8
+            value = random.choice([value, 4]) if value > 1 else 8
         next_type = MutType(value)
         self.type_seq.append(next_type)
 
@@ -85,9 +80,7 @@ class Mutation(object):
         mut_instance = []
         kinds = {0: Z3_OP_AND, 1: Z3_OP_OR, 2: Z3_QUANTIFIER_AST}
         cur_type = self.cur_type()
-        if cur_type == MutType.SWAP_AND or \
-                cur_type == MutType.DUP_AND or \
-                cur_type == MutType.BREAK_AND:
+        if cur_type == MutType.SWAP_AND:
             kind_ind = 0
         elif cur_type == MutType.MIX_BOUND_VARS:
             kind_ind = 2
@@ -106,8 +99,6 @@ class Mutation(object):
 
         ind = np.where(info.expr_num[kind_ind] != 0)[0]
         i = int(random.choice(ind))
-        if cur_type == MutType.BREAK_AND or cur_type == MutType.BREAK_OR:
-            info.expr_num[kind_ind][i] += 1
         clause = instance[i]
         num = info.expr_num[kind_ind][i]
         self.trans_n = random.randint(1, num)
@@ -140,20 +131,6 @@ class Mutation(object):
             if self.trans_n == 0:
                 if cur_type == MutType.SWAP_AND or cur_type == MutType.SWAP_OR:
                     mut_children = mut_children[1:] + mut_children[:1]
-                elif cur_type == MutType.DUP_AND or cur_type == MutType.DUP_OR:
-                    mut_children.append(mut_children[0])
-                elif cur_type == MutType.BREAK_AND or \
-                        cur_type == MutType.BREAK_OR:
-                    if len(mut_children) == 2:
-                        mut_children.pop()
-                        mut_children.append(expr)
-                    else:
-                        subchildren = mut_children[-2:]
-                        mut_children = mut_children[:-2]
-                        if is_and_expr:
-                            mut_children.append(And(subchildren))
-                        else:
-                            mut_children.append(Or(subchildren))
                 if is_and_expr:
                     mut_expr = And(mut_children)
                 elif is_or_expr:

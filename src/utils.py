@@ -7,7 +7,8 @@ import numpy as np
 TRACE_FILE = '.z3-trace'
 
 trace_states = defaultdict(int)
-offset = 0
+trans_offset = 0
+states_offset = 0
 
 
 class ClauseInfo(object):
@@ -42,9 +43,9 @@ class TransMatrix(object):
 
     def read_from_trace(self):
         """Read z3-trace from last read line."""
-        global offset
+        global trans_offset
         trace = open(TRACE_FILE, 'r')
-        trace.seek(offset)
+        trace.seek(trans_offset)
         lines = trace.readlines()
         states = [state.rstrip() for state in lines]
         for state in states:
@@ -57,7 +58,7 @@ class TransMatrix(object):
         for next_state in states[1:]:
             self.add_trans(state, next_state)
             state = next_state
-        offset = trace.tell()
+        trans_offset = trace.tell()
         trace.close()
 
     def get_probability_matrix(self):
@@ -88,14 +89,14 @@ def get_weight_matrix(prob_matrix):
 def count_states(states_num):
     """Return the number of states in z3-trace."""
 
-    global offset
+    global states_offset
     trace = open(TRACE_FILE, 'r')
-    trace.seek(offset)
+    trace.seek(states_offset)
     lines = trace.readlines()
     states = [state.rstrip() for state in lines]
     for state in states:
         states_num[state] += 1
-    offset = trace.tell()
+    states_offset = trace.tell()
     trace.close()
 
 
@@ -135,48 +136,54 @@ def update_expr(expr, children, vars=None):
     return upd_expr
 
 
-def expr_exists(expr, kind):
+def expr_exists(instance, kind):
     """Return if there is a subexpression of the specific kind."""
 
-    expr_set = {expr}
-    while len(expr_set):
-        cur_expr = expr_set.pop()
-        ctx_ref = cur_expr.ctx.ref()
-        ast = cur_expr.as_ast()
-        if Z3_get_ast_kind(ctx_ref, ast) == kind:
-            return True
-        elif not is_var(expr) and not is_const(expr):
-            if is_app(cur_expr) and cur_expr.decl().kind() == kind:
+    length = len(instance) if isinstance(instance, AstVector) else 1
+    for i in range(length):
+        expr = instance[i] if isinstance(instance, AstVector) else instance
+        expr_set = {expr}
+        while len(expr_set):
+            cur_expr = expr_set.pop()
+            ctx_ref = cur_expr.ctx.ref()
+            ast = cur_expr.as_ast()
+            if Z3_get_ast_kind(ctx_ref, ast) == kind:
                 return True
-            for child in cur_expr.children():
-                expr_set.add(child)
+            elif not is_var(expr) and not is_const(expr):
+                if is_app(cur_expr) and cur_expr.decl().kind() == kind:
+                    return True
+                for child in cur_expr.children():
+                    expr_set.add(child)
     return False
 
 
-def count_expr(expr, kind, is_unique=False):
+def count_expr(instance, kind, is_unique=False):
     """Return the number of subexpressions of the specific kind."""
 
-    expr_set = {expr}
     if is_unique:
         func = set()
     else:
         expr_num = 0
-    while len(expr_set):
-        cur_expr = expr_set.pop()
-        ctx_ref = cur_expr.ctx.ref()
-        ast = cur_expr.as_ast()
-        if Z3_get_ast_kind(ctx_ref, ast) == kind:
-            expr_num += 1
-            for child in cur_expr.children():
-                expr_set.add(child)
-        elif not is_var(expr) and not is_const(expr):
-            if is_app(cur_expr) and cur_expr.decl().kind() == kind:
-                if is_unique:
-                    func.add(cur_expr.decl())
-                else:
-                    expr_num += 1
-            for child in cur_expr.children():
-                expr_set.add(child)
+    length = len(instance) if isinstance(instance, AstVector) else 1
+    for i in range(length):
+        expr = instance[i] if isinstance(instance, AstVector) else instance
+        expr_set = {expr}
+        while len(expr_set):
+            cur_expr = expr_set.pop()
+            ctx_ref = cur_expr.ctx.ref()
+            ast = cur_expr.as_ast()
+            if Z3_get_ast_kind(ctx_ref, ast) == kind:
+                expr_num += 1
+                for child in cur_expr.children():
+                    expr_set.add(child)
+            elif not is_var(expr) and not is_const(expr):
+                if is_app(cur_expr) and cur_expr.decl().kind() == kind:
+                    if is_unique:
+                        func.add(cur_expr.decl())
+                    else:
+                        expr_num += 1
+                for child in cur_expr.children():
+                    expr_set.add(child)
     if is_unique:
         return len(func)
     else:
