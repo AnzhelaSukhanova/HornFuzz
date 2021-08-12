@@ -139,7 +139,10 @@ class Instance(object):
 
         st_time = time.perf_counter()
         solver.add(self.chc)
-        satis = solver.check()
+        try:
+            satis = solver.check()
+        except SystemExit as ex:
+            assert False, ex
         self.time = time.perf_counter() - st_time
         self.log(is_seed, satis)
         assert satis != unknown, solver.reason_unknown()

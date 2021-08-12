@@ -1,5 +1,3 @@
-import subprocess
-import re
 import json
 from os import walk
 from os.path import join
@@ -30,11 +28,8 @@ def get_relational(directory):
     return seeds
 
 
-def get_spacer_benchmarks(dir_path):
-    """
-    Return all tests from the /spacer-benchmarks
-    or /spacer-benchmarks/<subdir>.
-    """
+def get_filenames(dir_path):
+    """Return all seed-names from the directory with its subdirectories."""
 
     seeds = set()
     for root, subdirs, files in walk(dir_path):
@@ -43,33 +38,6 @@ def get_spacer_benchmarks(dir_path):
                 path = join(root, file)
                 seeds.add(path)
     return seeds
-
-
-def extract(files, root):
-    """Extract files from given archives and return their paths."""
-
-    ext_files = set()
-    for file in files:
-        path = join(root, file)
-        if file.endswith('.gz'):
-            subprocess.run(['gzip -d ' + path], shell=True)
-            path = path[:-3]
-        elif not file.endswith('.smt2'):
-            break
-        ext_files.add(path)
-    return ext_files
-
-
-def get_chc_comp(dir_path):
-    """
-    Return all tests from the /chc-comp<year>-benchmarks
-    or /chc-comp<year>-benchmarks/<subdir>.
-    """
-
-    ext_files = set()
-    for root, subdirs, files in walk(dir_path):
-        ext_files.update(extract(files, root))
-    return ext_files
 
 
 def exclude_unknown_seed(seeds):
@@ -83,23 +51,15 @@ def get_seeds(argv, directory):
         seeds = get_relational(directory)
     elif argv[0] == 'all':
         dir_path = directory + 'spacer-benchmarks/'
-        seeds = get_spacer_benchmarks(dir_path)
+        seeds = get_filenames(dir_path)
         dir_path = directory + 'chc-comp21-benchmarks/'
-        seeds.update(get_chc_comp(dir_path))
+        seeds.update(get_filenames(dir_path))
         seeds = exclude_unknown_seed(seeds)
     else:
         if argv[0].endswith('.smt2'):
             seeds = argv
         else:
-            dirs = argv[0].split('/')
-            if dirs[0] == 'spacer-benchmarks':
-                dir_path = directory + argv[0] + '/'
-                seeds = get_spacer_benchmarks(dir_path)
-                seeds = exclude_unknown_seed(seeds)
-            elif re.match(r'chc-comp\d\d-benchmarks', dirs[0]):
-                dir_path = directory + argv[0] + '/'
-                seeds = get_chc_comp(dir_path)
-                seeds = exclude_unknown_seed(seeds)
-            else:
-                seeds = set()
+            dir_path = directory + argv[0] + '/'
+            seeds = get_filenames(dir_path)
+            seeds = exclude_unknown_seed(seeds)
     return seeds

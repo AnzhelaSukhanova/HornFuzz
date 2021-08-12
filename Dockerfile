@@ -18,7 +18,8 @@ RUN git clone https://github.com/Z3Prover/z3.git \
  && cd z3 && python scripts/mk_make.py \
  && sed -i -e 's, -D_MP_INTERNAL, -D_TRACE -D_MP_INTERNAL,g' build/config.mk \ 
  && sed -i -e 's, -*\\n"; CODE tout << "-*\\n,\\n,g' src/util/trace.h \
- && sed -i -e 's,<< "-* \[" << TAG << "\] ",,g' src/util/trace.h
+ && sed -i -e 's,<< "-* \[" << TAG << "\] ",,g' src/util/trace.h \
+ && sed -i -e ':a;N;$!ba;s,#ifdef _*EMSCRIPTEN_*\n#define NO\_Z3\_DEBUGGER\n#endif,#define NO\_Z3\_DEBUGGER,g' src/util/debug.h
  
 # install Z3 in debug mode
 RUN cd z3/build && make && make install && cd ../../
@@ -26,7 +27,8 @@ RUN cd z3/build && make && make install && cd ../../
 # download benchmarks
 RUN git clone https://github.com/dvvrd/spacer-benchmarks.git \
  && git clone https://github.com/chc-comp/chc-comp21-benchmarks.git \
- && rm -rf chc-comp21-benchmarks/LRA-TS && rm -rf chc-comp21-benchmarks/ADT-Nonlin
+ && rm -rf chc-comp21-benchmarks/LRA-TS && rm -rf chc-comp21-benchmarks/ADT-Nonlin \
+ && gzip -d -r chc-comp21-benchmarks
 
 # copy and install requirements
 COPY requirements.txt .
