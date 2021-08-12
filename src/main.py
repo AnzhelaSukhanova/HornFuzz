@@ -89,11 +89,20 @@ class InstanceGroup(object):
                     body = child.body()
                 else:
                     body = clause
-                # TODO
-                premise = body.children()[0]
-                upred_num = count_expr(premise, Z3_OP_UNINTERPRETED, True)
-                if upred_num > 1:
-                    self.is_linear = False
+                if is_implies(body):
+                    expr = body.children()[0]
+                elif is_and(body):
+                    expr = body
+                elif body.decl().kind() == Z3_OP_UNINTERPRETED:
+                    expr = None
+                else:
+                    assert False, self.filename + \
+                                  ' -- clause-kind: ' + \
+                                  str(body.decl())
+                if expr is not None:
+                    upred_num = count_expr(expr, Z3_OP_UNINTERPRETED, True)
+                    if upred_num > 1:
+                        self.is_linear = False
 
 
 instance_group = defaultdict(InstanceGroup)
@@ -144,9 +153,8 @@ class Instance(object):
         return instance_group[self.group_id]
 
     def log(self, is_seed, satis):
-        log = defaultdict()
+        log = {'instance_id': self.id}
         group = self.get_group()
-        log['instance_id'] = self.id
         if is_seed:
             log['status'] = 'seed'
         else:
@@ -199,7 +207,7 @@ class TraceStats(object):
         if heuristic == 'transitions':
             prob_matrix = self.trans.get_probability_matrix()
             weights = get_weight_matrix(prob_matrix)
-        elif heuristic == 'states':
+        else:
             total_states_num = sum(self.states.values())
             weights = {state: total_states_num / self.states[state]
                        for state in self.states}
@@ -315,10 +323,7 @@ def print_runs_info(counter):
 
 
 def add_log_entry(filename, status, message, group=None, mut_instance=None):
-    log = defaultdict()
-    log['filename'] = filename
-    log['status'] = status
-    log['message'] = message
+    log = {'filename': filename, 'status': status, 'message': message}
     if status == 'mut_timeout':
         seed = group[0]
         log['seed_time'] = seed.time
