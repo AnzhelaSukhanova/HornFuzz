@@ -1,7 +1,6 @@
 import argparse
 import logging
 from os.path import dirname
-from copy import deepcopy
 
 from mutations import *
 from seeds import *
@@ -46,7 +45,7 @@ class InstanceGroup(object):
         """Roll back the group to the seed."""
         seed = self.instances[0]
         self.instances = {0: seed}
-        self.mutation.type_seq.clear()
+        self.mutation.clear()
         return seed
 
     def check_stats(self, stats_limit):
@@ -331,7 +330,7 @@ def add_log_entry(filename, status, message, group=None, mut_instance=None):
         seed = group[0]
         log['seed_time'] = seed.time
         log['mut_time'] = mut_instance.time
-    if status in {'mut_timeout', 'mut_unknown', 'problem'}:
+    if status in {'mut_timeout', 'mut_unknown', 'problem', 'reduce_problem'}:
         cur_instance = group[-1]
         log['prev_chc'] = cur_instance.chc.sexpr()
         log['current_chc'] = mut_instance.chc.sexpr()
@@ -403,6 +402,7 @@ def fuzz(files, seeds):
             continue
 
         if not res:
+            mut.reduce(group.instances, mut_instance)
             chain = mut.get_chain()
             counter['problem'] += 1
             message = 'Problem in this chain of mutations: ' + chain
