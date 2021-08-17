@@ -2,8 +2,6 @@ import argparse
 import logging
 from os.path import dirname
 
-import numpy as np
-
 from mutations import *
 from seeds import *
 
