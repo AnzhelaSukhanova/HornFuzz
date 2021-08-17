@@ -413,7 +413,7 @@ def fuzz(files, seeds):
             continue
 
         if not res:
-            mut.reduce(group.instances, mut_instance)
+            # mut.reduce(group.instances, mut_instance)
             chain = mut.get_chain()
             counter['problem'] += 1
             message = 'Problem in this chain of mutations: ' + chain

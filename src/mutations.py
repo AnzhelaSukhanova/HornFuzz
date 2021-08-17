@@ -17,15 +17,15 @@ class MutType(Enum):
     SWAP_AND = 2
     SWAP_OR = 3
     MIX_BOUND_VARS = 4
-    # """And(a, b) -> And(a, b, a)"""
-    # DUP_AND
-    # """
-    # And(a, b, c) -> And(a, And(b, c))
-    # And(a, b) -> And(a, And(a, b))
-    # """
-    # BREAK_AND
-    # DUP_OR
-    # BREAK_OR
+    """And(a, b) -> And(a, b, a)"""
+    DUP_AND = 5
+    """
+    And(a, b, c) -> And(a, And(b, c))
+    And(a, b) -> And(a, And(a, b))
+    """
+    BREAK_AND = 6
+    DUP_OR = 7
+    BREAK_OR = 8
 
 
 class Mutation(object):
@@ -56,6 +56,8 @@ class Mutation(object):
             assert False, 'Failed to apply mutation'
 
         elif cur_type in {MutType.SWAP_AND, MutType.SWAP_OR,
+                          MutType.DUP_AND, MutType.DUP_OR,
+                          MutType.BREAK_AND, MutType.BREAK_OR,
                           MutType.MIX_BOUND_VARS}:
             mut_instances = self.transform_rand(instance.chc, instance.info)
 
@@ -77,9 +79,9 @@ class Mutation(object):
         if info.expr_exists[Z3_OP_AND] and info.expr_exists[Z3_OP_OR]:
             value = random.choice([2, 3])
         elif info.expr_exists[Z3_OP_AND]:
-            value = 2
+            value = random.choice([2, 5, 6])
         elif info.expr_exists[Z3_OP_OR]:
-            value = 3
+            value = random.choice([3, 7, 8])
         else:
             value = 1
         if info.expr_exists[Z3_QUANTIFIER_AST]:
@@ -93,7 +95,7 @@ class Mutation(object):
         mut_instance = AstVector()
         kinds = {0: Z3_OP_AND, 1: Z3_OP_OR, 2: Z3_QUANTIFIER_AST}
         cur_type = self.cur_type()
-        if cur_type == MutType.SWAP_AND:
+        if cur_type in {MutType.SWAP_AND, MutType.DUP_AND, MutType.BREAK_AND}:
             kind_ind = 0
         elif cur_type == MutType.MIX_BOUND_VARS:
             kind_ind = 2
@@ -112,6 +114,8 @@ class Mutation(object):
 
         ind = np.where(info.expr_num[kind_ind] != 0)[0]
         i = int(random.choice(ind))
+        if cur_type in {MutType.BREAK_AND, MutType.BREAK_OR}:
+            info.expr_num[kind_ind][i] += 1
         clause = instance[i]
         num = info.expr_num[kind_ind][i]
         trans_n = random.randint(1, num)
@@ -142,8 +146,21 @@ class Mutation(object):
         if is_and_expr or is_or_expr or is_quant_expr:
             trans_n -= 1
             if trans_n == 0:
-                if cur_type == MutType.SWAP_AND or cur_type == MutType.SWAP_OR:
+                if cur_type in {MutType.SWAP_AND, MutType.SWAP_OR}:
                     mut_children = mut_children[1:] + mut_children[:1]
+                elif cur_type in {MutType.DUP_AND, MutType.DUP_OR}:
+                    mut_children.append(mut_children[0])
+                elif cur_type in {MutType.BREAK_AND, MutType.BREAK_OR}:
+                    if len(mut_children) == 2:
+                        mut_children.pop()
+                        mut_children.append(expr)
+                    else:
+                        subchildren = mut_children[-2:]
+                        mut_children = mut_children[:-2]
+                        if is_and_expr:
+                            mut_children.append(And(subchildren))
+                        else:
+                            mut_children.append(Or(subchildren))
                 if is_and_expr:
                     mut_expr = And(mut_children)
                 elif is_or_expr:
