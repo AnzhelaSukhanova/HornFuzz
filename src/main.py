@@ -2,6 +2,8 @@ import argparse
 import logging
 from os.path import dirname
 
+import numpy as np
+
 from mutations import *
 from seeds import *
 
@@ -182,12 +184,21 @@ class TraceStats(object):
             stats_sum.trans += other.trans
         return stats_sum
 
+    def __eq__(self, other):
+        if heuristic_flags['transitions']:
+            comparison = self.trans.matrix != other.trans.matrix
+            res = comparison if isinstance(comparison, bool) \
+                else comparison.data.any()
+            return not res
+        else:
+            return self.states == other.states
+
     def __hash__(self):
         if heuristic_flags['transitions']:
             stats = self.trans.matrix
         else:
             stats = self.states
-        return hash(repr(stats))
+        return hash(str(stats))
 
     def get(self):
         if heuristic_flags['transitions'] and heuristic_flags['states']:
@@ -204,7 +215,7 @@ class TraceStats(object):
             self.trans.read_from_trace()
         if heuristic_flags['states']:
             count_states(self.states)
-        unique_traces.add(hash(self))
+        unique_traces.add(self)
 
     def get_weights(self, heuristic):
         """Return the weights of trace transitions or states."""
