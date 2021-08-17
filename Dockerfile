@@ -19,7 +19,8 @@ RUN git clone https://github.com/Z3Prover/z3.git \
  && sed -i -e 's, -D_MP_INTERNAL, -D_TRACE -D_MP_INTERNAL,g' build/config.mk \ 
  && sed -i -e 's, -*\\n"; CODE tout << "-*\\n,\\n,g' src/util/trace.h \
  && sed -i -e 's,<< "-* \[" << TAG << "\] ",,g' src/util/trace.h \
- && sed -i -e ':a;N;$!ba;s,#ifdef _*EMSCRIPTEN_*\n#define NO\_Z3\_DEBUGGER\n#endif,#define NO\_Z3\_DEBUGGER,g' src/util/debug.h
+ && sed -i -e ':a;N;$!ba;s,#ifdef _*EMSCRIPTEN_*\n#define NO\_Z3\_DEBUGGER\n#endif,#define NO\_Z3\_DEBUGGER,g' src/util/debug.h \
+ && sed -i -e 's, exit(ERR_UNREACHABLE);,,g' src/util/debug.h
  
 # install Z3 in debug mode
 RUN cd z3/build && make && make install && cd ../../
