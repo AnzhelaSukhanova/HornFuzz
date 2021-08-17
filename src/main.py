@@ -182,6 +182,13 @@ class TraceStats(object):
             stats_sum.trans += other.trans
         return stats_sum
 
+    def __hash__(self):
+        if heuristic_flags['transitions']:
+            stats = self.trans.matrix
+        else:
+            stats = self.states
+        return hash(repr(stats))
+
     def get(self):
         if heuristic_flags['transitions'] and heuristic_flags['states']:
             return self.trans, self.states
@@ -195,11 +202,9 @@ class TraceStats(object):
         global unique_traces
         if heuristic_flags['transitions']:
             self.trans.read_from_trace()
-            unique_traces.add(self.trans)
         if heuristic_flags['states']:
             count_states(self.states)
-            if not heuristic_flags['transitions']:
-                unique_traces.add(repr(self.states))
+        unique_traces.add(hash(self))
 
     def get_weights(self, heuristic):
         """Return the weights of trace transitions or states."""
