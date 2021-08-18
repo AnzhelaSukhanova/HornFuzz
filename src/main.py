@@ -1,6 +1,5 @@
 import argparse
 import logging
-import random
 from os.path import dirname
 
 from mutations import *
