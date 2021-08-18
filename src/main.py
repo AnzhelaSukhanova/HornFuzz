@@ -343,13 +343,13 @@ def find_inst_for_union(instance):
         if not fst_group.uninter_pred.intersection(snd_group.uninter_pred):
             fst_vars = set()
             for clause in instance.chc:
-                for i in range(clause.num_vars()):
-                    fst_vars.add(clause.var_name(i))
+                for var in get_bound_vars(clause):
+                    fst_vars.add(var)
             snd_instance = snd_group[-1]
             snd_vars = set()
             for clause in snd_instance.chc:
-                for i in range(clause.num_vars()):
-                    snd_vars.add(clause.var_name(i))
+                for var in get_bound_vars(clause):
+                    snd_vars.add(var)
             if not fst_vars.intersection(snd_vars):
                 fst_group.uninter_pred.union(snd_group.uninter_pred)
                 return snd_instance

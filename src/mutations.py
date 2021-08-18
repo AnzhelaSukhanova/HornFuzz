@@ -25,6 +25,7 @@ class MutType(Enum):
     SWAP_OR = 5
     DUP_OR = 6
     BREAK_OR = 7
+
     MIX_BOUND_VARS = 8
     UNION = 9
 
