@@ -103,8 +103,8 @@ class InstanceGroup(object):
                                   str(body.decl())
                 if expr is not None:
                     upred_num, _ = count_expr(expr,
-                                           Z3_OP_UNINTERPRETED,
-                                           is_unique=True)
+                                              Z3_OP_UNINTERPRETED,
+                                              is_unique=True)
                     if upred_num > 1:
                         self.is_linear = False
 
@@ -132,7 +132,7 @@ class Instance(object):
             prev_instance = group[group_size - 1]
             self.info = deepcopy(prev_instance.info)
 
-    def check(self, solver, is_seed):
+    def check(self, solver, snd_id, is_seed):
         """Check the satisfiability of the instance."""
         global runs_number
         solver.reset()
@@ -146,7 +146,7 @@ class Instance(object):
         solver.add(self.chc)
         satis = solver.check()
         self.time = time.perf_counter() - st_time
-        self.log(is_seed, satis)
+        self.log(is_seed, satis, snd_id)
         assert satis != unknown, solver.reason_unknown()
         if heuristic_flags['transitions'] or heuristic_flags['states']:
             self.trace_stats.read_trace()
@@ -157,7 +157,7 @@ class Instance(object):
         global instance_group
         return instance_group[self.group_id]
 
-    def log(self, is_seed, satis):
+    def log(self, is_seed, satis, snd_id):
         """Create a log entry with information about the instance."""
         log = {'instance_id': self.id}
         group = self.get_group()
@@ -165,7 +165,9 @@ class Instance(object):
             log['status'] = 'seed'
         else:
             log['status'] = 'mutant'
-            log['prev_id'] = group[-1].id
+            log['prev_inst_id'] = group[-1].id
+            if snd_id:
+                log['snd_inst_id'] = snd_id
             log['mut_type'] = group.mutation.cur_type().name
         log['satis'] = str(satis)
         log['time(sec)'] = self.time
@@ -285,19 +287,21 @@ def check_equ(instance, snd_instance, mut_instance):
     solver.set('engine', 'spacer')
     group = instance.get_group()
 
-    mut = group.mutation
     if group.satis == unknown:
-        satis = instance.check(solver, is_seed=True)
+        satis = instance.check(solver, None, is_seed=True)
         group.satis = satis
         group.same_stats_limit = 5 * len(instance.chc)
         if heuristic_flags['transitions'] or heuristic_flags['states']:
             general_stats += instance.trace_stats
-    elif snd_instance:
-        snd_group = instance.get_group()
+    if snd_instance:
+        snd_group = snd_instance.get_group()
         if snd_group.satis == unsat:
             group.satis = unsat
+        snd_id = snd_instance.id
+    else:
+        snd_id = None
 
-    satis = mut_instance.check(solver, is_seed=False)
+    satis = mut_instance.check(solver, snd_id, is_seed=False)
     if heuristic_flags['transitions'] or heuristic_flags['states']:
         general_stats += instance.trace_stats
     return group.satis == satis
