@@ -351,6 +351,7 @@ def find_inst_for_union(instance):
                 for i in range(clause.num_vars()):
                     snd_vars.add(clause.var_name(i))
             if not fst_vars.intersection(snd_vars):
+                fst_group.uninter_pred.union(snd_group.uninter_pred)
                 return snd_instance
     return None
 
