@@ -161,7 +161,7 @@ def count_expr(instance, kind, is_unique=False):
     """Return the number of subexpressions of the specific kind."""
 
     if is_unique:
-        func = set()
+        unique_expr = set()
     else:
         expr_num = 0
     length = len(instance) if isinstance(instance, AstVector) else 1
@@ -179,12 +179,12 @@ def count_expr(instance, kind, is_unique=False):
             elif not is_var(expr) and not is_const(expr):
                 if is_app(cur_expr) and cur_expr.decl().kind() == kind:
                     if is_unique:
-                        func.add(cur_expr.decl())
+                        unique_expr.add(cur_expr.decl())
                     else:
                         expr_num += 1
                 for child in cur_expr.children():
                     expr_set.add(child)
     if is_unique:
-        return len(func)
+        return len(unique_expr), unique_expr
     else:
         return expr_num

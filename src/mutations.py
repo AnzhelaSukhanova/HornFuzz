@@ -26,6 +26,7 @@ class MutType(Enum):
     BREAK_AND = 6
     DUP_OR = 7
     BREAK_OR = 8
+    UNION = 9
 
 
 class Mutation(object):
@@ -48,9 +49,12 @@ class Mutation(object):
     def cur_type(self):
         return self.type_seq[-1]
 
-    def apply(self, instance):
+    def apply(self, instance, snd_instance):
         """Return mutated instances."""
-        self.next_mutation(instance.chc, instance.info)
+        if snd_instance:
+            self.next_mutation(instance.chc, instance.info, snd_instance.chc, )
+        else:
+            self.next_mutation(instance.chc, instance.info)
         cur_type = self.cur_type()
         if cur_type == MutType.ID:
             assert False, 'Failed to apply mutation'
@@ -59,13 +63,16 @@ class Mutation(object):
                           MutType.DUP_AND, MutType.DUP_OR,
                           MutType.BREAK_AND, MutType.BREAK_OR,
                           MutType.MIX_BOUND_VARS}:
-            mut_instances = self.transform_rand(instance.chc, instance.info)
+            mut_instance = self.transform_rand(instance.chc, instance.info)
+
+        elif cur_type == MutType.UNION:
+            mut_instance = self.unite(instance.chc, snd_instance.chc)
 
         else:
             assert False
-        return mut_instances
+        return mut_instance
 
-    def next_mutation(self, instance, info):
+    def next_mutation(self, instance, info, snd_instance=None):
         """
         Return the next mutation based on the instance,
         type of the previous mutation etc.
@@ -76,18 +83,29 @@ class Mutation(object):
             info.expr_exists[Z3_OP_OR] |= expr_exists(instance, Z3_OP_OR)
             info.expr_exists[Z3_QUANTIFIER_AST] |= \
                 expr_exists(instance, Z3_QUANTIFIER_AST)
-        if info.expr_exists[Z3_OP_AND] and info.expr_exists[Z3_OP_OR]:
-            value = random.choice([2, 3])
-        elif info.expr_exists[Z3_OP_AND]:
-            value = random.choice([2, 5, 6])
-        elif info.expr_exists[Z3_OP_OR]:
-            value = random.choice([3, 7, 8])
+        if snd_instance:
+            next_type = MutType.UNION
         else:
-            value = 1
-        if info.expr_exists[Z3_QUANTIFIER_AST]:
-            value = random.choice([value, 4]) if value > 1 else 8
-        next_type = MutType(value)
+            if info.expr_exists[Z3_OP_AND] and info.expr_exists[Z3_OP_OR]:
+                value = random.choice([2, 3])
+            elif info.expr_exists[Z3_OP_AND]:
+                value = random.choice([2, 5, 6])
+            elif info.expr_exists[Z3_OP_OR]:
+                value = random.choice([3, 7, 8])
+            else:
+                value = 1
+            if info.expr_exists[Z3_QUANTIFIER_AST]:
+                value = random.choice([value, 4]) if value > 1 else 8
+            next_type = MutType(value)
         self.type_seq.append(next_type)
+
+    def unite(self, fst_inst, snd_inst):
+        """Unite formulas of two independent instances in random order."""
+        new_instance = AstVector()
+        clauses = set(fst_inst).union(set(snd_inst))
+        for clause in clauses:
+            new_instance.push(clause)
+        return new_instance
 
     def transform_rand(self, instance, info):
         """Transform random and/or-expression."""
@@ -174,9 +192,11 @@ class Mutation(object):
         return update_expr(expr, mut_children)
 
     def undo(self, instances, ind, last_instance):
+        """Undo the mutation and return the resulting instance."""
         global trans_n
         new_inst = deepcopy(last_instance)
         for i in reversed(ind):
+            # TODO -- for union
             path = self.paths[i]
             cur_clause_ind = path[0]
             cur_clause = instances[i].chc[cur_clause_ind]
@@ -193,6 +213,10 @@ class Mutation(object):
         return new_inst
 
     def reduce(self, instances, last_instance):
+        """
+        Search for a reduced version of mutation chain that is
+        the minimal set of bug-triggering transformations.
+        """
         chunk_size = self.number // 2
         seed = instances[0]
         while chunk_size:
@@ -208,6 +232,7 @@ class Mutation(object):
                     add_log_entry(group.filename,
                                   'reduce_problem',
                                   repr(err),
+                                  None,
                                   group, new_instance)
                     continue
                 if not res and length > chunk_size:
@@ -235,6 +260,8 @@ class Mutation(object):
 
 
 def rec_undo(path, cur_expr, target_expr):
+    """Undo the mutation with recursive descent along mutation's path."""
+
     child_ind = path[0]
     cur_child = cur_expr.children()[child_ind]
     target_children = target_expr.children()

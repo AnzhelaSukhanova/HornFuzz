@@ -1,5 +1,6 @@
 import argparse
 import logging
+import random
 from os.path import dirname
 
 from mutations import *
@@ -27,6 +28,7 @@ class InstanceGroup(object):
         self.same_stats_limit = 0
         self.is_linear = True
         self.upred_num = 0
+        self.uninter_pred = set()
 
     def __getitem__(self, item):
         ins = self.instances
@@ -38,7 +40,7 @@ class InstanceGroup(object):
         """Add an instance to the group."""
         length = len(self.instances)
         self.instances[length] = instance
-        if length == 0 and heuristic_flags['difficulty']:
+        if length == 0:
             self.get_pred_info()
 
     def roll_back(self):
@@ -73,12 +75,14 @@ class InstanceGroup(object):
 
     def get_pred_info(self):
         """
-        Get whether the chc-system is linear and the number of
-        uninterpreted predicates.
+        Get whether the chc-system is linear, the number of
+        uninterpreted predicates and their set.
         """
         assert len(self.instances) > 0, "Instance group is empty"
         instance = self.instances[0]
-        self.upred_num = count_expr(instance.chc, Z3_OP_UNINTERPRETED, True)
+        self.upred_num, self.uninter_pred = count_expr(instance.chc,
+                                                       Z3_OP_UNINTERPRETED,
+                                                       is_unique=True)
         for clause in instance.chc:
             if self.is_linear:
                 child = clause.children()[0]
@@ -99,7 +103,9 @@ class InstanceGroup(object):
                                   ' -- clause-kind: ' + \
                                   str(body.decl())
                 if expr is not None:
-                    upred_num = count_expr(expr, Z3_OP_UNINTERPRETED, True)
+                    upred_num, _ = count_expr(expr,
+                                           Z3_OP_UNINTERPRETED,
+                                           is_unique=True)
                     if upred_num > 1:
                         self.is_linear = False
 
@@ -128,6 +134,7 @@ class Instance(object):
             self.info = deepcopy(prev_instance.info)
 
     def check(self, solver, is_seed):
+        """Check the satisfiability of the instance."""
         global runs_number
         solver.reset()
         runs_number += 1
@@ -152,6 +159,7 @@ class Instance(object):
         return instance_group[self.group_id]
 
     def log(self, is_seed, satis):
+        """Create a log entry with information about the instance."""
         log = {'instance_id': self.id}
         group = self.get_group()
         if is_seed:
@@ -199,6 +207,7 @@ class TraceStats(object):
         return hash(str(stats))
 
     def get(self):
+        """Return data of the TraceStats-object."""
         if heuristic_flags['transitions'] and heuristic_flags['states']:
             return self.trans, self.states
         elif heuristic_flags['transitions']:
@@ -228,6 +237,8 @@ class TraceStats(object):
 
 
 def calc_sort_key(heuristic, stats, weights=None):
+    """Calculate the priority of an instance in the sorted queue."""
+
     if heuristic == 'transitions':
         prob_matrix = stats.trans.get_probability_matrix()
         size = stats.trans.matrix.shape[0]
@@ -264,7 +275,7 @@ def parse_seeds(argv):
     return seeds
 
 
-def check_equ(instance, mut_instance):
+def check_equ(instance, snd_instance, mut_instance):
     """
     Return True if the test suites have the same satisfiability and
     False otherwise.
@@ -276,12 +287,16 @@ def check_equ(instance, mut_instance):
     group = instance.get_group()
 
     mut = group.mutation
-    if mut.number == 1:
+    if group.satis == unknown:
         satis = instance.check(solver, is_seed=True)
         group.satis = satis
         group.same_stats_limit = 5 * len(instance.chc)
         if heuristic_flags['transitions'] or heuristic_flags['states']:
             general_stats += instance.trace_stats
+    elif snd_instance:
+        snd_group = instance.get_group()
+        if snd_group.satis == unsat:
+            group.satis = unsat
 
     satis = mut_instance.check(solver, is_seed=False)
     if heuristic_flags['transitions'] or heuristic_flags['states']:
@@ -320,6 +335,27 @@ def sort_queue(queue):
             queue += chunk
 
 
+def find_inst_for_union(instance):
+    """Find an instance that is independent of this instance."""
+
+    fst_group = instance.get_group()
+    for key in instance_group:
+        snd_group = instance_group[key]
+        if not fst_group.uninter_pred.intersection(snd_group.uninter_pred):
+            fst_vars = set()
+            for clause in instance.chc:
+                for i in range(clause.num_vars()):
+                    fst_vars.add(clause.var_name(i))
+            snd_instance = snd_group[-1]
+            snd_vars = set()
+            for clause in snd_instance.chc:
+                for i in range(clause.num_vars()):
+                    snd_vars.add(clause.var_name(i))
+            if not fst_vars.intersection(snd_vars):
+                return snd_instance
+    return None
+
+
 def print_runs_info(counter):
     """Print information about runs."""
 
@@ -335,7 +371,10 @@ def print_runs_info(counter):
         print()
 
 
-def add_log_entry(filename, status, message, group=None, mut_instance=None):
+def add_log_entry(filename, status, message, snd_instance,
+                  group=None, mut_instance=None):
+    """Create a log entry with information about the run."""
+
     log = {'filename': filename, 'status': status, 'message': message}
     if status == 'mut_timeout':
         seed = group[0]
@@ -344,6 +383,8 @@ def add_log_entry(filename, status, message, group=None, mut_instance=None):
     if status in {'mut_timeout', 'mut_unknown', 'problem', 'reduce_problem'}:
         cur_instance = group[-1]
         log['prev_chc'] = cur_instance.chc.sexpr()
+        if snd_instance:
+            log['snd_chc'] = snd_instance.chc.sexpr()
         log['current_chc'] = mut_instance.chc.sexpr()
     logging.info(json.dumps(log))
 
@@ -370,19 +411,26 @@ def fuzz(files, seeds):
         stats_limit -= 1
         group = cur_instance.get_group()
         mut = group.mutation
+        instance_num = random.randrange(1, 3)
+        if instance_num == 2 and mut.number > 0:
+            # if mut.number > 0 then the satisfiability of each instance is known
+            snd_instance = find_inst_for_union(cur_instance)
+        else:
+            snd_instance = None
         try:
-            mut_chc = mut.apply(cur_instance)
+            mut_chc = mut.apply(cur_instance, snd_instance)
         except (TimeoutError, AssertionError) as err:
             runs_number += 1
             counter['timeout'] += 1
             add_log_entry(group.filename,
                           'timeout_before_check',
-                          repr(err))
+                          repr(err),
+                          snd_instance)
             continue
         mut_instance = Instance(cur_instance.group_id, mut_chc)
 
         try:
-            res = check_equ(cur_instance, mut_instance)
+            res = check_equ(cur_instance, snd_instance, mut_instance)
         except AssertionError as err:
             if group.satis == unknown:
                 if str(err) == 'timeout':
@@ -393,12 +441,14 @@ def fuzz(files, seeds):
                     status = 'seed_unknown'
                 add_log_entry(group.filename,
                               status,
-                              repr(err))
+                              repr(err),
+                              snd_instance)
             elif str(err) == 'timeout':
                 counter['timeout'] += 1
                 add_log_entry(group.filename,
                               'mutant_timeout',
                               repr(err),
+                              snd_instance,
                               group, mut_instance)
                 instance = group.roll_back()
                 queue.append(instance)
@@ -407,6 +457,7 @@ def fuzz(files, seeds):
                 add_log_entry(group.filename,
                               'mutant_unknown',
                               repr(err),
+                              snd_instance,
                               group, mut_instance)
                 instance = group.roll_back()
                 queue.append(instance)
@@ -420,6 +471,7 @@ def fuzz(files, seeds):
             add_log_entry(group.filename,
                           'problem',
                           message,
+                          snd_instance,
                           group, mut_instance)
             queue.append(cur_instance)
 
@@ -430,7 +482,8 @@ def fuzz(files, seeds):
                 stats_limit = group.check_stats(stats_limit)
             add_log_entry(group.filename,
                           'pass',
-                          'No problems found')
+                          'No problems found',
+                          snd_instance)
 
     if not queue:
         print_runs_info(counter)
