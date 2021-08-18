@@ -383,7 +383,7 @@ def add_log_entry(filename, status, message, snd_instance,
         cur_instance = group[-1]
         log['prev_chc'] = cur_instance.chc.sexpr()
         if snd_instance:
-            log['snd_chc'] = snd_instance.chc.sexpr()
+            log['second_chc'] = snd_instance.chc.sexpr()
         log['current_chc'] = mut_instance.chc.sexpr()
     logging.info(json.dumps(log))
 

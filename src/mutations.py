@@ -15,17 +15,17 @@ class MutType(Enum):
 
     """And(a, b) -> And(b, a)"""
     SWAP_AND = 2
-    SWAP_OR = 3
-    MIX_BOUND_VARS = 4
     """And(a, b) -> And(a, b, a)"""
-    DUP_AND = 5
+    DUP_AND = 3
     """
     And(a, b, c) -> And(a, And(b, c))
     And(a, b) -> And(a, And(a, b))
     """
-    BREAK_AND = 6
-    DUP_OR = 7
-    BREAK_OR = 8
+    BREAK_AND = 4
+    SWAP_OR = 5
+    DUP_OR = 6
+    BREAK_OR = 7
+    MIX_BOUND_VARS = 8
     UNION = 9
 
 
@@ -87,23 +87,24 @@ class Mutation(object):
             next_type = MutType.UNION
         else:
             if info.expr_exists[Z3_OP_AND] and info.expr_exists[Z3_OP_OR]:
-                value = random.choice([2, 3])
+                value = random.randrange(2, 8)
             elif info.expr_exists[Z3_OP_AND]:
-                value = random.choice([2, 5, 6])
+                value = random.randrange(2, 5)
             elif info.expr_exists[Z3_OP_OR]:
-                value = random.choice([3, 7, 8])
+                value = random.randrange(5, 8)
             else:
                 value = 1
             if info.expr_exists[Z3_QUANTIFIER_AST]:
-                value = random.choice([value, 4]) if value > 1 else 8
+                value = random.choice([value, 8]) if value > 1 else 8
             next_type = MutType(value)
         self.type_seq.append(next_type)
 
     def unite(self, fst_inst, snd_inst):
-        """Unite formulas of two independent instances in random order."""
+        """Unite formulas of two independent instances."""
         new_instance = AstVector()
-        clauses = set(fst_inst).union(set(snd_inst))
-        for clause in clauses:
+        for clause in fst_inst:
+            new_instance.push(clause)
+        for clause in snd_inst:
             new_instance.push(clause)
         return new_instance
 
