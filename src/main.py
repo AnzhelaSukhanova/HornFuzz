@@ -28,6 +28,7 @@ class InstanceGroup(object):
         self.is_linear = True
         self.upred_num = 0
         self.uninter_pred = set()
+        self.bound_vars = set()
 
     def __getitem__(self, item):
         ins = self.instances
@@ -107,6 +108,12 @@ class InstanceGroup(object):
                                               is_unique=True)
                     if upred_num > 1:
                         self.is_linear = False
+
+    def get_vars(self):
+        instance = self[-1]
+        for clause in instance.chc:
+            for var in get_bound_vars(clause):
+                self.bound_vars.add(var)
 
 
 instance_group = defaultdict(InstanceGroup)
@@ -345,18 +352,13 @@ def find_inst_for_union(instance):
     for key in instance_group:
         snd_group = instance_group[key]
         if not fst_group.uninter_pred.intersection(snd_group.uninter_pred):
-            fst_vars = set()
-            for clause in instance.chc:
-                for var in get_bound_vars(clause):
-                    fst_vars.add(var)
-            snd_instance = snd_group[-1]
-            snd_vars = set()
-            for clause in snd_instance.chc:
-                for var in get_bound_vars(clause):
-                    snd_vars.add(var)
-            if not fst_vars.intersection(snd_vars):
+            if not fst_group.bound_vars:
+                fst_group.get_vars()
+            if not snd_group.bound_vars:
+                snd_group.get_vars()
+            if not fst_group.bound_vars.intersection(snd_group.bound_vars):
                 fst_group.uninter_pred.union(snd_group.uninter_pred)
-                return snd_instance
+                return snd_group[-1]
     return None
 
 
