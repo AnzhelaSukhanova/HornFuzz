@@ -373,6 +373,7 @@ def print_runs_info(counter):
               'Problems:', counter['problem'])
     if traces_num != 0:
         print('Unique traces:', traces_num, '\n')
+        logging.info(json.dumps({'unique traces:': traces_num}))
     else:
         print()
 
