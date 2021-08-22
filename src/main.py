@@ -169,16 +169,16 @@ class Instance(object):
         log = {'instance_id': self.id}
         group = self.get_group()
         if is_seed:
-            log['status'] = 'seed'
+            key = 'seed_info'
         else:
-            log['status'] = 'mutant'
+            key = 'mutant_info'
             log['prev_inst_id'] = group[-1].id
             if snd_id:
                 log['snd_inst_id'] = snd_id
             log['mut_type'] = group.mutation.cur_type().name
         log['satis'] = str(satis)
         log['time(sec)'] = self.time
-        logging.info(json.dumps(log))
+        logging.info(json.dumps({key: log}))
 
 
 class TraceStats(object):
@@ -373,7 +373,6 @@ def print_runs_info(counter):
               'Problems:', counter['problem'])
     if traces_num != 0:
         print('Unique traces:', traces_num, '\n')
-        logging.info(json.dumps({'unique_traces': traces_num}))
     else:
         print()
 
@@ -393,7 +392,10 @@ def add_log_entry(filename, status, message, snd_instance,
         if snd_instance:
             log['second_chc'] = snd_instance.chc.sexpr()
         log['current_chc'] = mut_instance.chc.sexpr()
-    logging.info(json.dumps(log))
+    traces_num = len(unique_traces)
+    if traces_num != 0:
+        log['unique_traces'] = traces_num
+    logging.info(json.dumps({'run_info': log}))
 
 
 def fuzz(files, seeds):
