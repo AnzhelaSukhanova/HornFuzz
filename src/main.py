@@ -293,13 +293,12 @@ def check_equ(instance, snd_instance, mut_instance):
     False otherwise.
     """
 
-    global general_stats, seed_number
+    global general_stats
     solver = SolverFor('HORN')
     solver.set('engine', 'spacer')
     group = instance.get_group()
 
     if group.satis == unknown:
-        seed_number -= 1
         satis = instance.check(solver, None, is_seed=True)
         group.satis = satis
         group.same_stats_limit = 5 * len(instance.chc)
@@ -407,7 +406,7 @@ def add_log_entry(filename, status, message, snd_instance,
 
 
 def fuzz(files, seeds):
-    global runs_number, instance_group
+    global runs_number, instance_group, seed_number
 
     queue = []
     counter = defaultdict(int)
@@ -429,6 +428,8 @@ def fuzz(files, seeds):
         group = cur_instance.get_group()
         mut = group.mutation
         instance_num = random.randrange(1, 3)
+        if group.satis == unknown:
+            seed_number -= 1
         if instance_num == 2 and mut.number > 0:
             # if mut.number > 0 then the satisfiability of each instance is known
             snd_instance = find_inst_for_union(cur_instance)
