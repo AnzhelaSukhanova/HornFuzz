@@ -11,7 +11,9 @@ INSTANCE_ID = 0
 
 general_stats = None
 runs_number = 0
+seed_number = 0
 unique_traces = set()
+unique_seed_traces = set()
 heuristics = ''
 heuristic_flags = defaultdict(bool)
 
@@ -156,7 +158,7 @@ class Instance(object):
         self.log(is_seed, satis, snd_id)
         assert satis != unknown, solver.reason_unknown()
         if heuristic_flags['transitions'] or heuristic_flags['states']:
-            self.trace_stats.read_trace()
+            self.trace_stats.read_trace(is_seed)
         return satis
 
     def get_group(self):
@@ -223,13 +225,15 @@ class TraceStats(object):
         else:
             return self.states
 
-    def read_trace(self):
+    def read_trace(self, is_seed):
         """Read z3-trace stats from .z3-trace."""
         global unique_traces
         if heuristic_flags['transitions']:
             self.trans.read_from_trace()
         if heuristic_flags['states']:
             count_states(self.states)
+        if is_seed:
+            unique_seed_traces.add(self)
         unique_traces.add(self)
 
     def get_weights(self, heuristic):
@@ -289,12 +293,13 @@ def check_equ(instance, snd_instance, mut_instance):
     False otherwise.
     """
 
-    global general_stats
+    global general_stats, seed_number
     solver = SolverFor('HORN')
     solver.set('engine', 'spacer')
     group = instance.get_group()
 
     if group.satis == unknown:
+        seed_number -= 1
         satis = instance.check(solver, None, is_seed=True)
         group.satis = satis
         group.same_stats_limit = 5 * len(instance.chc)
@@ -396,6 +401,8 @@ def add_log_entry(filename, status, message, snd_instance,
     traces_num = len(unique_traces)
     if traces_num != 0:
         log['unique_traces'] = traces_num
+    if not seed_number:
+        log['unique_seed_traces'] = len(unique_seed_traces)
     logging.info(json.dumps({'run_info': log}))
 
 
@@ -500,7 +507,7 @@ def fuzz(files, seeds):
 
 
 def main():
-    global general_stats, heuristics, heuristic_flags
+    global general_stats, heuristics, heuristic_flags, seed_number
 
     parser = argparse.ArgumentParser()
     parser.add_argument('seeds',
@@ -537,8 +544,9 @@ def main():
         directory += '/'
     files = get_seeds(argv.seeds, directory)
 
-    seed_num = len(files)
-    assert seed_num > 0, 'Seeds not found'
+    seed_number = len(files)
+    logging.info(json.dumps({'seed_number': seed_number}))
+    assert seed_number > 0, 'Seeds not found'
     seeds = parse_seeds(files)
 
     fuzz(files, seeds)
