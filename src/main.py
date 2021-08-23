@@ -166,7 +166,7 @@ class Instance(object):
 
     def log(self, is_seed, satis, snd_id):
         """Create a log entry with information about the instance."""
-        log = {'instance_id': self.id}
+        log = {'id': self.id}
         group = self.get_group()
         if is_seed:
             key = 'seed_info'
@@ -358,6 +358,7 @@ def find_inst_for_union(instance):
                 snd_group.get_vars()
             if not fst_group.bound_vars.intersection(snd_group.bound_vars):
                 fst_group.uninter_pred.union(snd_group.uninter_pred)
+                fst_group.bound_vars.union(snd_group.bound_vars)
                 return snd_group[-1]
     return None
 
