@@ -104,8 +104,10 @@ class Mutation(object):
         """Unite formulas of two independent instances."""
         fst_group = fst_inst.get_group()
         snd_group = snd_inst.get_group()
-        fst_group.uninter_pred.union(snd_group.uninter_pred)
-        fst_group.bound_vars.union(snd_group.bound_vars)
+        fst_group.uninter_pred = \
+            fst_group.uninter_pred.union(snd_group.uninter_pred)
+        fst_group.bound_vars = \
+            fst_group.bound_vars.union(snd_group.bound_vars)
         fst_inst.info += snd_inst.info
 
         new_instance = AstVector()
