@@ -129,7 +129,6 @@ class Instance(object):
         INSTANCE_ID += 1
         self.group_id = group_id
         self.chc = chc
-        self.time = time
         if heuristic_flags['transitions'] or heuristic_flags['states']:
             self.trace_stats = TraceStats()
         self.sort_key = 0
@@ -151,10 +150,8 @@ class Instance(object):
         else:
             solver.set('timeout', MUT_CHECK_TIME_LIMIT)
 
-        st_time = time.perf_counter()
         solver.add(self.chc)
         satis = solver.check()
-        self.time = time.perf_counter() - st_time
         self.log(is_seed, satis, snd_id)
         assert satis != unknown, solver.reason_unknown()
         if heuristic_flags['transitions'] or heuristic_flags['states']:
@@ -179,7 +176,6 @@ class Instance(object):
                 log['snd_inst_id'] = snd_id
             log['mut_type'] = group.mutation.cur_type().name
         log['satis'] = str(satis)
-        log['time(sec)'] = self.time
         logging.info(json.dumps({key: log}))
 
 
@@ -368,40 +364,36 @@ def find_inst_for_union(instance):
 def print_runs_info(counter):
     """Print information about runs."""
 
+    global seed_number
     traces_num = len(unique_traces)
+    log = {'runs': runs_number, 'time': time.perf_counter()}
     if runs_number:
         print('Total:', runs_number,
               'Timeout:', counter['timeout'],
               'Unknown:', counter['unknown'],
               'Problems:', counter['problem'])
     if traces_num != 0:
+        log['unique_traces'] = traces_num
         print('Unique traces:', traces_num, '\n')
     else:
         print()
+    if not seed_number:
+        log['unique_seed_traces'] = len(unique_seed_traces)
+        seed_number -= 1
+    logging.info(json.dumps({'general_info': log}))
 
 
 def add_log_entry(filename, status, message, snd_instance,
                   group=None, mut_instance=None):
     """Create a log entry with information about the run."""
 
-    global seed_number
     log = {'filename': filename, 'status': status, 'message': message}
-    if status == 'mut_timeout':
-        seed = group[0]
-        log['seed_time'] = seed.time
-        log['mut_time'] = mut_instance.time
     if status in {'mut_timeout', 'mut_unknown', 'problem', 'reduce_problem'}:
         cur_instance = group[-1]
         log['prev_chc'] = cur_instance.chc.sexpr()
         if snd_instance:
             log['second_chc'] = snd_instance.chc.sexpr()
         log['current_chc'] = mut_instance.chc.sexpr()
-    traces_num = len(unique_traces)
-    if traces_num != 0:
-        log['unique_traces'] = traces_num
-    if not seed_number:
-        log['unique_seed_traces'] = len(unique_seed_traces)
-        seed_number -= 1
     logging.info(json.dumps({'run_info': log}))
 
 
