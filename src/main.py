@@ -62,7 +62,7 @@ class InstanceGroup(object):
         i = len(self.instances) - 1
         instance = self.instances[i]
         prev_instance = self.instances[i - 1]
-        if instance.trace_stats.get() == prev_instance.trace_stats.get():
+        if instance.trace_stats == prev_instance.trace_stats:
             self.same_stats += 1
         else:
             self.same_stats = 0
@@ -130,7 +130,7 @@ class Instance(object):
         self.group_id = group_id
         self.chc = chc
         if heuristic_flags['transitions'] or heuristic_flags['states']:
-            self.trace_stats = TraceStats()
+            self.trace_stats = TransMatrix()
         self.sort_key = 0
         group = self.get_group()
         group_size = len(group.instances)
@@ -155,7 +155,10 @@ class Instance(object):
         self.log(is_seed, satis, snd_id)
         assert satis != unknown, solver.reason_unknown()
         if heuristic_flags['transitions'] or heuristic_flags['states']:
-            self.trace_stats.read_trace(is_seed)
+            self.trace_stats.read_from_trace()
+            if is_seed:
+                unique_seed_traces.add(self.trace_stats)
+            unique_traces.add(self.trace_stats)
         return satis
 
     def get_group(self):
@@ -179,86 +182,34 @@ class Instance(object):
         logging.info(json.dumps({key: log}))
 
 
-class TraceStats(object):
-
-    def __init__(self):
-        if heuristic_flags['transitions']:
-            self.trans = TransMatrix()
-        if heuristic_flags['states']:
-            self.states = defaultdict(int)
-
-    def __add__(self, other):
-        stats_sum = deepcopy(self)
-        if heuristic_flags['states']:
-            for state in other.states:
-                stats_sum.states[state] += other.states[state]
-        if heuristic_flags['transitions']:
-            stats_sum.trans += other.trans
-        return stats_sum
-
-    def __eq__(self, other):
-        if heuristic_flags['transitions']:
-            comparison = self.trans.matrix != other.trans.matrix
-            res = comparison if isinstance(comparison, bool) \
-                else comparison.data.any()
-            return not res
-        else:
-            return self.states == other.states
-
-    def __hash__(self):
-        if heuristic_flags['transitions']:
-            stats = self.trans.matrix
-        else:
-            stats = self.states
-        return hash(str(stats))
-
-    def get(self):
-        """Return data of the TraceStats-object."""
-        if heuristic_flags['transitions'] and heuristic_flags['states']:
-            return self.trans, self.states
-        elif heuristic_flags['transitions']:
-            return self.trans
-        else:
-            return self.states
-
-    def read_trace(self, is_seed):
-        """Read z3-trace stats from .z3-trace."""
-        global unique_traces
-        if heuristic_flags['transitions']:
-            self.trans.read_from_trace()
-        if heuristic_flags['states']:
-            count_states(self.states)
-        if is_seed:
-            unique_seed_traces.add(self)
-        unique_traces.add(self)
-
-    def get_weights(self, heuristic):
-        """Return the weights of trace transitions or states."""
-        if heuristic == 'transitions':
-            prob_matrix = self.trans.get_probability_matrix()
-            weights = get_weight_matrix(prob_matrix)
-        else:
-            total_states_num = sum(self.states.values())
-            weights = {state: total_states_num / self.states[state]
-                       for state in self.states}
-        return weights
+def get_weights(stats, heuristic):
+    """Return the weights of trace transitions or states."""
+    if heuristic == 'transitions':
+        prob_matrix = stats.get_probability_matrix()
+        weights = get_weight_matrix(prob_matrix)
+    else:
+        stats.count_states()
+        total_states_num = sum(stats.states_num.values())
+        weights = {state: total_states_num / stats.states_num[state]
+                   for state in stats.states_num}
+    return weights
 
 
 def calc_sort_key(heuristic, stats, weights=None):
     """Calculate the priority of an instance in the sorted queue."""
 
     if heuristic == 'transitions':
-        prob_matrix = stats.trans.get_probability_matrix()
-        size = stats.trans.matrix.shape[0]
+        prob_matrix = stats.get_probability_matrix()
+        size = stats.matrix.shape[0]
         weight_matrix_part = weights[:size, :size]
-        trans_matrix = stats.trans.matrix
+        trans_matrix = stats.matrix
         sort_key = np.sum(prob_matrix * trans_matrix * weight_matrix_part)
     elif heuristic == 'states':
-        total_states_num = sum(stats.states.values())
-        states_prob = {state: stats.states[state] / total_states_num
-                       for state in stats.states}
+        total_states_num = sum(stats.states_num.values())
+        states_prob = {state: stats.states_num[state] / total_states_num
+                       for state in stats.states_num}
         sort_key = sum(states_prob[state] * weights[state]
-                       for state in stats.states)
+                       for state in stats.states_num)
     elif heuristic == 'difficulty':
         is_nonlinear = not stats[0]
         upred_num = stats[1]
@@ -321,7 +272,7 @@ def sort_queue(queue):
     for i in range(length):
         heur = heuristics[i]
         if heur == 'transitions' or heur == 'states':
-            weights = general_stats.get_weights(heur)
+            weights = get_weights(general_stats, heur)
         chunk_size = len(queue) // (i + 1)
         queue_chunks = [queue[j:j + chunk_size]
                         for j in range(0, len(queue), chunk_size)]
@@ -530,7 +481,7 @@ def main():
     for heur in heuristics:
         heuristic_flags[heur] = True
     if heuristic_flags['transitions'] or heuristic_flags['states']:
-        general_stats = TraceStats()
+        general_stats = TransMatrix()
 
     directory = dirname(dirname(parser.prog))
     if directory:

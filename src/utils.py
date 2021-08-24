@@ -8,7 +8,7 @@ TRACE_FILE = '.z3-trace'
 
 trace_states = defaultdict(int)
 trans_offset = 0
-states_offset = 0
+start_state = 0
 
 
 class ClauseInfo(object):
@@ -16,12 +16,14 @@ class ClauseInfo(object):
     def __init__(self, number):
         self.expr_exists = defaultdict(bool)
         self.expr_num = np.zeros((3, number), dtype=int)
+        self.got = False
 
     def __add__(self, other):
         sum = ClauseInfo(1)
         for key in self.expr_exists:
             sum.expr_exists[key] = self.expr_exists[key] | other.expr_exists[key]
         sum.expr_num = np.concatenate((self.expr_num, other.expr_num), axis=1)
+        sum.got = self.got | other.got
         return sum
 
 
@@ -29,6 +31,8 @@ class TransMatrix(object):
 
     def __init__(self):
         self.matrix = dok_matrix((1, 1), dtype=int)
+        self.sum_num = 0
+        self.states_num = defaultdict(int)
 
     def __add__(self, other):
         """Return the sum of two transition matrices."""
@@ -39,7 +43,17 @@ class TransMatrix(object):
         other.matrix.resize(shape)
         sum.matrix = self.matrix
         sum.matrix += other.matrix
+        sum.sum_num += 1
         return sum
+
+    def __eq__(self, other):
+        comparison = self.matrix != other.matrix
+        res = comparison if isinstance(comparison, bool) \
+            else comparison.data.any()
+        return not res
+
+    def __hash__(self):
+        return hash(str(self.matrix))
 
     def add_trans(self, i, j):
         """Add transition to matrix."""
@@ -50,11 +64,13 @@ class TransMatrix(object):
 
     def read_from_trace(self):
         """Read z3-trace from last read line."""
-        global trans_offset
+        global trans_offset, start_state
         trace = open(TRACE_FILE, 'r')
         trace.seek(trans_offset)
         lines = trace.readlines()
         states = [state.rstrip() for state in lines]
+        if not start_state:
+            start_state = states[0]
         for state in states:
             if state not in trace_states:
                 trace_states[state] = len(trace_states)
@@ -78,6 +94,16 @@ class TransMatrix(object):
             prob_matrix[i, j] = self.matrix[i, j] / trans_num[i]
         return prob_matrix
 
+    def count_states(self):
+        """Return the number of states in z3-trace."""
+
+        sum_matrix = self.matrix.sum(axis=0)
+        for state in trace_states:
+            ind = trace_states[state]
+            self.states_num[state] = sum_matrix[0, ind]
+        for _ in range(self.sum_num):
+            self.states_num[start_state] += 1
+
 
 def get_weight_matrix(prob_matrix):
     """
@@ -91,20 +117,6 @@ def get_weight_matrix(prob_matrix):
     for i in not_zero_ind:
         weight_matrix[i] = 1 / prob_matrix[i]
     return weight_matrix
-
-
-def count_states(states_num):
-    """Return the number of states in z3-trace."""
-
-    global states_offset
-    trace = open(TRACE_FILE, 'r')
-    trace.seek(states_offset)
-    lines = trace.readlines()
-    states = [state.rstrip() for state in lines]
-    for state in states:
-        states_num[state] += 1
-    states_offset = trace.tell()
-    trace.close()
 
 
 def get_bound_vars(expr):

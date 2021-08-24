@@ -132,13 +132,14 @@ class Mutation(object):
         kind = kinds[kind_ind]
 
         clause_num = len(instance)
-        if self.number == 1:
+        if not info.got:
             for j in range(3):
                 if info.expr_exists[kinds[j]]:
                     for i in range(clause_num):
                         if expr_exists(instance[i], kinds[j]):
                             info.expr_num[j][i] += \
                                 count_expr(instance[i], kinds[j])
+            info.got = True
 
         ind = np.where(info.expr_num[kind_ind] != 0)[0]
         i = int(random.choice(ind))
