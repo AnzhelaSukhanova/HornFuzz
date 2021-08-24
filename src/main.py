@@ -361,8 +361,6 @@ def find_inst_for_union(instance):
             if not snd_group.bound_vars:
                 snd_group.get_vars()
             if not fst_group.bound_vars.intersection(snd_group.bound_vars):
-                fst_group.uninter_pred.union(snd_group.uninter_pred)
-                fst_group.bound_vars.union(snd_group.bound_vars)
                 return snd_group[-1]
     return None
 
@@ -386,6 +384,7 @@ def add_log_entry(filename, status, message, snd_instance,
                   group=None, mut_instance=None):
     """Create a log entry with information about the run."""
 
+    global seed_number
     log = {'filename': filename, 'status': status, 'message': message}
     if status == 'mut_timeout':
         seed = group[0]
@@ -402,6 +401,7 @@ def add_log_entry(filename, status, message, snd_instance,
         log['unique_traces'] = traces_num
     if not seed_number:
         log['unique_seed_traces'] = len(unique_seed_traces)
+        seed_number -= 1
     logging.info(json.dumps({'run_info': log}))
 
 

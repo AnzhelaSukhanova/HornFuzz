@@ -17,6 +17,13 @@ class ClauseInfo(object):
         self.expr_exists = defaultdict(bool)
         self.expr_num = np.zeros((3, number), dtype=int)
 
+    def __add__(self, other):
+        sum = ClauseInfo(1)
+        for key in self.expr_exists:
+            sum.expr_exists[key] = self.expr_exists[key] | other.expr_exists[key]
+        sum.expr_num = np.concatenate((self.expr_num, other.expr_num), axis=1)
+        return sum
+
 
 class TransMatrix(object):
 

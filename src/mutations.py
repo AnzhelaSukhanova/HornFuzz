@@ -67,7 +67,7 @@ class Mutation(object):
             mut_instance = self.transform_rand(instance.chc, instance.info)
 
         elif cur_type == MutType.UNION:
-            mut_instance = self.unite(instance.chc, snd_instance.chc)
+            mut_instance = self.unite(instance, snd_instance)
 
         else:
             assert False
@@ -102,10 +102,16 @@ class Mutation(object):
 
     def unite(self, fst_inst, snd_inst):
         """Unite formulas of two independent instances."""
+        fst_group = fst_inst.get_group()
+        snd_group = snd_inst.get_group()
+        fst_group.uninter_pred.union(snd_group.uninter_pred)
+        fst_group.bound_vars.union(snd_group.bound_vars)
+        fst_inst.info += snd_inst.info
+
         new_instance = AstVector()
-        for clause in fst_inst:
+        for clause in fst_inst.chc:
             new_instance.push(clause)
-        for clause in snd_inst:
+        for clause in snd_inst.chc:
             new_instance.push(clause)
         return new_instance
 
