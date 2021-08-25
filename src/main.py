@@ -373,8 +373,7 @@ def fuzz(files, seeds):
         instance_num = random.randrange(1, 3)
         if group.satis == unknown:
             seed_number -= 1
-        if instance_num == 2 and mut.number > 0:
-            # if mut.number > 0 then the satisfiability of each instance is known
+        if instance_num == 2 and group.satis != unknown:
             snd_instance = find_inst_for_union(cur_instance)
         else:
             snd_instance = None

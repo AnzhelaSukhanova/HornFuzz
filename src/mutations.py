@@ -71,6 +71,7 @@ class Mutation(object):
 
         else:
             assert False
+        self.number += 1
         return mut_instance
 
     def next_mutation(self, instance, info, snd_instance=None):
@@ -78,8 +79,7 @@ class Mutation(object):
         Return the next mutation based on the instance,
         type of the previous mutation etc.
         """
-        self.number += 1
-        if self.number == 1:
+        if not info.got:
             info.expr_exists[Z3_OP_AND] |= expr_exists(instance, Z3_OP_AND)
             info.expr_exists[Z3_OP_OR] |= expr_exists(instance, Z3_OP_OR)
             info.expr_exists[Z3_QUANTIFIER_AST] |= \
