@@ -129,8 +129,7 @@ class Instance(object):
         INSTANCE_ID += 1
         self.group_id = group_id
         self.chc = chc
-        if heuristic_flags['transitions'] or heuristic_flags['states']:
-            self.trace_stats = TransMatrix()
+        self.trace_stats = TransMatrix()
         self.sort_key = 0
         group = self.get_group()
         group_size = len(group.instances)
@@ -154,11 +153,10 @@ class Instance(object):
         satis = solver.check()
         self.log(is_seed, satis, snd_id)
         assert satis != unknown, solver.reason_unknown()
-        if heuristic_flags['transitions'] or heuristic_flags['states']:
-            self.trace_stats.read_from_trace()
-            if is_seed:
-                unique_seed_traces.add(self.trace_stats)
-            unique_traces.add(self.trace_stats)
+        self.trace_stats.read_from_trace()
+        if is_seed:
+            unique_seed_traces.add(self.trace_stats)
+        unique_traces.add(self.trace_stats)
         return satis
 
     def get_group(self):
@@ -438,8 +436,7 @@ def fuzz(files, seeds):
         else:
             queue.append(mut_instance)
             group.push(mut_instance)
-            if heuristic_flags['transitions'] or heuristic_flags['states']:
-                stats_limit = group.check_stats(stats_limit)
+            stats_limit = group.check_stats(stats_limit)
             add_log_entry(group.filename,
                           'pass',
                           'No problems found',
