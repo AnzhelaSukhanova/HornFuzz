@@ -203,6 +203,7 @@ def calc_sort_key(heuristic, stats, weights=None):
         trans_matrix = stats.matrix
         sort_key = np.sum(prob_matrix * trans_matrix * weight_matrix_part)
     elif heuristic == 'states':
+        stats.count_states()
         total_states_num = sum(stats.states_num.values())
         states_prob = {state: stats.states_num[state] / total_states_num
                        for state in stats.states_num}
@@ -361,7 +362,7 @@ def fuzz(files, seeds):
 
     while queue:
         print_runs_info(counter)
-        if stats_limit == 0:
+        if not heuristic_flags['default'] and stats_limit == 0:
             sort_queue(queue)
             stats_limit = random.randint(seed_len // 5, seed_len)
         cur_instance = queue.pop(0)
@@ -436,7 +437,8 @@ def fuzz(files, seeds):
         else:
             queue.append(mut_instance)
             group.push(mut_instance)
-            stats_limit = group.check_stats(stats_limit)
+            if not heuristic_flags['default']:
+                stats_limit = group.check_stats(stats_limit)
             add_log_entry(group.filename,
                           'pass',
                           'No problems found',
@@ -459,7 +461,7 @@ def main():
                         choices=['transitions', 'states',
                                  'many-targets', 'few-targets',
                                  'difficulty'],
-                        default=['transitions'],
+                        default=['default'],
                         help='trace data which will be used to '
                              'select an instance for mutation')
     argv = parser.parse_args()

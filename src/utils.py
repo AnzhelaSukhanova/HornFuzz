@@ -98,9 +98,14 @@ class TransMatrix(object):
         """Return the number of states in z3-trace."""
 
         sum_matrix = self.matrix.sum(axis=0)
-        for state in trace_states:
+        length = sum_matrix.shape[1]
+        states = {state: trace_states[state] for state in trace_states
+                  if trace_states[state] < length}
+        for state in states:
             ind = trace_states[state]
-            self.states_num[state] = sum_matrix[0, ind]
+            state_num = sum_matrix[0, ind]
+            if state_num > 0:
+                self.states_num[state] = state_num
         for _ in range(self.sum_num):
             self.states_num[start_state] += 1
 
