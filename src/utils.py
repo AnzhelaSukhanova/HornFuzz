@@ -38,6 +38,7 @@ stats_type = StatsType.DEFAULT
 
 
 def set_stats_type(heuristics):
+    """Set the type of statistics based on heuristics."""
     global stats_type
 
     if heuristics['transitions'] and heuristics['states']:
@@ -116,7 +117,10 @@ class TraceStats(object):
         trace.close()
 
     def get_probability(self, type):
-        """Return the transition matrix in probabilistic form."""
+        """
+        Return the transition matrix in probabilistic form
+        or state probabilities.
+        """
         if type == StatsType.TRANSITIONS:
             prob = dok_matrix(self.matrix.shape, dtype=float)
             trans_num = self.matrix.sum(axis=1)

@@ -120,6 +120,7 @@ class InstanceGroup(object):
                         self.is_linear = False
 
     def get_vars(self):
+        """Get clause variables."""
         instance = self[-1]
         for clause in instance.chc:
             for var in get_bound_vars(clause):
@@ -335,7 +336,9 @@ def log_run_info(group, status, info, mut_instance=None, snd_instance=None):
     logging.info(json.dumps({'run_info': log}))
 
 
-def analyze_check_exception(err, group, counter, mut_instance=None, is_seed=False):
+def analyze_check_exception(err, group, counter,
+                            mut_instance=None, is_seed=False):
+    """Log information about exceptions that occur during the check"""
     global queue
 
     if is_seed:
@@ -449,6 +452,7 @@ def fuzz(files, seeds):
             log_run_info(cur_group,
                          status,
                          traceback.format_exc())
+            print(traceback.format_exc())
 
     if not queue:
         print_general_info(counter)

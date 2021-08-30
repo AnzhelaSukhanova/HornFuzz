@@ -26,6 +26,7 @@ class MutType(Enum):
 
     MIX_BOUND_VARS = 8
     UNION = 9
+    SIMPLIFY = 10
 
 
 class Mutation(object):
@@ -49,20 +50,23 @@ class Mutation(object):
         """Return mutated instances."""
         self.next_mutation(instance.info)
         if self.type == MutType.ID:
-            mut_instance = instance
+            mut_system = instance
 
         elif self.type in {MutType.SWAP_AND, MutType.SWAP_OR,
                            MutType.DUP_AND, MutType.DUP_OR,
                            MutType.BREAK_AND, MutType.BREAK_OR,
                            MutType.MIX_BOUND_VARS}:
-            mut_instance = self.transform_rand(instance)
+            mut_system = self.transform_rand(instance)
 
         elif self.type == MutType.UNION:
-            mut_instance = self.unite(instance)
+            mut_system = self.unite(instance)
+
+        elif self.type == MutType.SIMPLIFY:
+            mut_system = self.simplify_ineq(instance.chc)
 
         else:
             assert False
-        return mut_instance
+        return mut_system
 
     def next_mutation(self, info):
         """
@@ -81,13 +85,24 @@ class Mutation(object):
             else:
                 value = 1
             if info.expr_exists[Z3_QUANTIFIER_AST]:
-                value = random.choice([value, 8]) if value > 1 else 8
-
+                value = random.choice([value, 8, 10]) if value > 1 \
+                    else random.choice([8, 10])
             if value == 8:
                 self.kind_ind = 2
             elif value > 4:
                 self.kind_ind = 1
             self.type = MutType(value)
+
+    def simplify_ineq(self, chc_system):
+        """Simplify instance with arith_ineq_lhs, arith_lhs and eq2ineq"""
+        mut_system = AstVector()
+        for clause in chc_system:
+            mut_clause = simplify(clause,
+                                  arith_ineq_lhs=True,
+                                  arith_lhs=True,
+                                  eq2ineq=True)
+            mut_system.push(mut_clause)
+        return mut_system
 
     def unite(self, fst_inst):
         """Unite formulas of two independent instances."""
@@ -110,25 +125,25 @@ class Mutation(object):
         """Transform random and/or-expression."""
         global trans_n
         info = instance.info
-        chc = instance.chc
-        mut_instance = AstVector()
+        chc_system = instance.chc
+        mut_system = AstVector()
         kind = info_kinds[self.kind_ind]
 
         ind = np.where(info.expr_num[self.kind_ind] != 0)[0]
         i = int(random.choice(ind))
         if self.type in {MutType.BREAK_AND, MutType.BREAK_OR}:
             info.expr_num[self.kind_ind][i] += 1
-        clause = chc[i]
+        clause = chc_system[i]
         num = info.expr_num[self.kind_ind][i]
         trans_n = random.randint(1, num)
         self.path = [i]
         mut_clause = self.transform_nth(clause, kind, time.perf_counter(), [i])
-        for j, clause in enumerate(chc):
+        for j, clause in enumerate(chc_system):
             if j == i:
-                mut_instance.push(mut_clause)
+                mut_system.push(mut_clause)
             else:
-                mut_instance.push(chc[j])
-        return mut_instance
+                mut_system.push(chc_system[j])
+        return mut_system
 
     def transform_nth(self, expr, expr_kind, st_time, path):
         """Transform nth and/or-expression in dfs-order."""
@@ -237,8 +252,8 @@ class Mutation(object):
             chain = cur_mutation.type.name + '->' + chain
         return chain
 
-    def debug_print(self, instance: AstVector, mut_instance: AstVector):
-        print(instance[self.path[0]], '\n->\n', mut_instance[self.path[0]])
+    def debug_print(self, chc_system: AstVector, mut_system: AstVector):
+        print(chc_system[self.path[0]], '\n->\n', mut_system[self.path[0]])
 
 
 def rec_undo(path, cur_expr, target_expr):
