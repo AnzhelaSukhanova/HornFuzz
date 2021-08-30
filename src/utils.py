@@ -1,14 +1,16 @@
 from z3 import *
 from collections import defaultdict
 from scipy.sparse import dok_matrix
+from copy import deepcopy
+from enum import Enum
 import numpy as np
-
+import hashlib
 
 TRACE_FILE = '.z3-trace'
 
 trace_states = defaultdict(int)
 trans_offset = 0
-start_state = 0
+info_kinds = {0: Z3_OP_AND, 1: Z3_OP_OR, 2: Z3_QUANTIFIER_AST}
 
 
 class ClauseInfo(object):
@@ -16,44 +18,64 @@ class ClauseInfo(object):
     def __init__(self, number):
         self.expr_exists = defaultdict(bool)
         self.expr_num = np.zeros((3, number), dtype=int)
-        self.got = False
 
     def __add__(self, other):
         sum = ClauseInfo(1)
         for key in self.expr_exists:
             sum.expr_exists[key] = self.expr_exists[key] | other.expr_exists[key]
         sum.expr_num = np.concatenate((self.expr_num, other.expr_num), axis=1)
-        sum.got = self.got | other.got
         return sum
 
 
-class TransMatrix(object):
+class StatsType(Enum):
+    DEFAULT = 0
+    TRANSITIONS = 1
+    STATES = 2
+    ALL = 3
+
+
+stats_type = StatsType.DEFAULT
+
+
+def set_stats_type(heuristics):
+    global stats_type
+
+    if heuristics['transitions'] and heuristics['states']:
+        stats_type = StatsType.ALL
+    elif heuristics['transitions']:
+        stats_type = StatsType.TRANSITIONS
+    elif heuristics['states']:
+        stats_type = StatsType.STATES
+
+
+class TraceStats(object):
 
     def __init__(self):
-        self.matrix = dok_matrix((1, 1), dtype=int)
-        self.sum_num = 0
-        self.states_num = defaultdict(int)
+        self.hash = 0
+
+        if stats_type in {StatsType.TRANSITIONS, StatsType.ALL}:
+            self.matrix = dok_matrix((1, 1), dtype=int)
+
+        if stats_type in {StatsType.STATES, StatsType.ALL}:
+            self.states_num = defaultdict(int)
 
     def __add__(self, other):
         """Return the sum of two transition matrices."""
-        sum = TransMatrix()
-        size = len(trace_states)
-        shape = (size, size)
-        self.matrix.resize(shape)
-        other.matrix.resize(shape)
-        sum.matrix = self.matrix
-        sum.matrix += other.matrix
-        sum.sum_num += 1
+        sum = TraceStats()
+
+        if stats_type in {StatsType.TRANSITIONS, StatsType.ALL}:
+            size = len(trace_states)
+            shape = (size, size)
+            self.matrix.resize(shape)
+            other.matrix.resize(shape)
+            sum.matrix = self.matrix
+            sum.matrix += other.matrix
+
+        if stats_type in {StatsType.STATES, StatsType.ALL}:
+            sum.states_num = deepcopy(self.states_num)
+            for state in other.states_num:
+                sum.states_num[state] += other.states_num[state]
         return sum
-
-    def __eq__(self, other):
-        comparison = self.matrix != other.matrix
-        res = comparison if isinstance(comparison, bool) \
-            else comparison.data.any()
-        return not res
-
-    def __hash__(self):
-        return hash(str(self.matrix))
 
     def add_trans(self, i, j):
         """Add transition to matrix."""
@@ -64,64 +86,68 @@ class TransMatrix(object):
 
     def read_from_trace(self):
         """Read z3-trace from last read line."""
-        global trans_offset, start_state
+        global trans_offset
         trace = open(TRACE_FILE, 'r')
         trace.seek(trans_offset)
         lines = trace.readlines()
+        self.hash = hashlib.sha512()
         states = [state.rstrip() for state in lines]
-        if not start_state:
-            start_state = states[0]
         for state in states:
-            if state not in trace_states:
-                trace_states[state] = len(trace_states)
-        size = len(trace_states)
-        self.matrix = dok_matrix((size, size), dtype=int)
+            self.hash.update(state.encode('utf-8'))
+            if stats_type.value > 0:
+                if state not in trace_states:
+                    trace_states[state] = len(trace_states)
 
-        state = states[0]
-        for next_state in states[1:]:
-            self.add_trans(state, next_state)
-            state = next_state
+        if stats_type in {StatsType.TRANSITIONS, StatsType.ALL}:
+            size = len(trace_states)
+            self.matrix = dok_matrix((size, size), dtype=int)
+            state = states[0]
+            for next_state in states[1:]:
+                self.add_trans(state, next_state)
+                state = next_state
+
+        if stats_type in {StatsType.STATES, StatsType.ALL}:
+            for state in states:
+                self.states_num[state] += 1
+
         trans_offset = trace.tell()
         trace.close()
 
-    def get_probability_matrix(self):
+    def get_probability(self, type):
         """Return the transition matrix in probabilistic form."""
-        prob_matrix = dok_matrix(self.matrix.shape, dtype=float)
-        trans_num = self.matrix.sum(axis=1)
-        not_zero_ind = [tuple(item)
-                        for item in np.transpose(self.matrix.nonzero())]
-        for i, j in not_zero_ind:
-            prob_matrix[i, j] = self.matrix[i, j] / trans_num[i]
-        return prob_matrix
+        if type == StatsType.TRANSITIONS:
+            prob = dok_matrix(self.matrix.shape, dtype=float)
+            trans_num = self.matrix.sum(axis=1)
+            not_zero_ind = [tuple(item)
+                            for item in np.transpose(self.matrix.nonzero())]
+            for i, j in not_zero_ind:
+                prob[i, j] = self.matrix[i, j] / trans_num[i]
+        elif type == StatsType.STATES:
+            total_states_num = sum(self.states_num.values())
+            prob = {state: self.states_num[state] / total_states_num
+                    for state in self.states_num}
+        else:
+            assert False, 'The probability cannot be calculated ' \
+                          'for this type of statistics'
+        return prob
 
-    def count_states(self):
-        """Return the number of states in z3-trace."""
-
-        sum_matrix = self.matrix.sum(axis=0)
-        length = sum_matrix.shape[1]
-        states = {state: trace_states[state] for state in trace_states
-                  if trace_states[state] < length}
-        for state in states:
-            ind = trace_states[state]
-            state_num = sum_matrix[0, ind]
-            if state_num > 0:
-                self.states_num[state] = state_num
-        for _ in range(self.sum_num):
-            self.states_num[start_state] += 1
-
-
-def get_weight_matrix(prob_matrix):
-    """
-    Return the matrix whose values are reverse to the
-    values of the probability matrix.
-    """
-
-    weight_matrix = dok_matrix(prob_matrix.shape, dtype=float)
-    not_zero_ind = [tuple(item)
-                    for item in np.transpose(prob_matrix.nonzero())]
-    for i in not_zero_ind:
-        weight_matrix[i] = 1 / prob_matrix[i]
-    return weight_matrix
+    def get_weights(self, type):
+        """Return the weights of trace transitions or states."""
+        if type == StatsType.TRANSITIONS:
+            prob_matrix = self.get_probability(type)
+            weights = dok_matrix(prob_matrix.shape, dtype=float)
+            not_zero_ind = [tuple(item)
+                            for item in np.transpose(prob_matrix.nonzero())]
+            for i in not_zero_ind:
+                weights[i] = 1 / prob_matrix[i]
+        elif type == StatsType.STATES:
+            total_states_num = sum(self.states_num.values())
+            weights = {state: total_states_num / self.states_num[state]
+                       for state in self.states_num}
+        else:
+            assert False, 'Weights cannot be calculated ' \
+                          'for this type of statistics'
+        return weights
 
 
 def get_bound_vars(expr):
@@ -184,10 +210,8 @@ def expr_exists(instance, kind):
 def count_expr(instance, kind, is_unique=False):
     """Return the number of subexpressions of the specific kind."""
 
-    if is_unique:
-        unique_expr = set()
-    else:
-        expr_num = 0
+    unique_expr = set()
+    expr_num = 0
     length = len(instance) if isinstance(instance, AstVector) else 1
     for i in range(length):
         expr = instance[i] if isinstance(instance, AstVector) else instance
@@ -209,6 +233,7 @@ def count_expr(instance, kind, is_unique=False):
                 for child in cur_expr.children():
                     expr_set.add(child)
     if is_unique:
-        return len(unique_expr), unique_expr
+        expr_num = len(unique_expr)
+        return expr_num, unique_expr
     else:
         return expr_num
