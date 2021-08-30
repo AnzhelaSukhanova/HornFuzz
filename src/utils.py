@@ -90,13 +90,15 @@ class TraceStats(object):
         trace = open(TRACE_FILE, 'r')
         trace.seek(trans_offset)
         lines = trace.readlines()
-        self.hash = hashlib.sha512()
+        hash_builder = hashlib.sha512()
         states = [state.rstrip() for state in lines]
         for state in states:
-            self.hash.update(state.encode('utf-8'))
+            hash_builder.update(state.encode('utf-8'))
             if stats_type.value > 0:
                 if state not in trace_states:
                     trace_states[state] = len(trace_states)
+
+        self.hash = hash_builder.digest()
 
         if stats_type in {StatsType.TRANSITIONS, StatsType.ALL}:
             size = len(trace_states)
