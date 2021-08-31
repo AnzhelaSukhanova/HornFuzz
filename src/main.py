@@ -3,184 +3,47 @@ import logging
 import traceback
 from os.path import dirname
 
-from mutations import *
+from instances import *
 from seeds import *
 
-SEED_CHECK_TIME_LIMIT = int(2 * 1e3)
-MUT_CHECK_TIME_LIMIT = int(1e5)
-INSTANCE_ID = 0
-
 general_stats = None
-unique_traces = set()
 heuristics = ''
 heuristic_flags = defaultdict(bool)
 queue = []
 
 
-class InstanceGroup(object):
-
-    def __init__(self, filename):
-        self.filename = filename
-        self.satis = unknown
-        self.instances = defaultdict(Instance)
-        self.same_stats = 0
-        self.same_stats_limit = 0
-        self.is_linear = True
-        self.upred_num = 0
-        self.uninter_pred = set()
-        self.bound_vars = set()
-
-    def __getitem__(self, item):
-        ins = self.instances
-        if item < 0:
-            item = len(ins) + item
-        return ins[item]
-
-    def push(self, instance):
-        """Add an instance to the group."""
-        length = len(self.instances)
-        self.instances[length] = instance
-        if length == 0:
-            self.get_clause_info()
-
-    def roll_back(self):
-        """Roll back the group to the seed."""
-        seed = self[0]
-        self.instances = {0: seed}
-
-    def check_stats(self, stats_limit):
-        """
-        Increase the counter if the current trace is the same as the previous
-        one. Reset the number of steps before sorting instances if their
-        traces repeat long enough.
-        """
-        assert len(self.instances) >= 2, 'Not enough instances to compare'
-        i = len(self.instances) - 1
-        instance = self.instances[i]
-        prev_instance = self.instances[i - 1]
-        if instance.trace_stats == prev_instance.trace_stats:
-            self.same_stats += 1
-        else:
-            self.same_stats = 0
-        if self.same_stats >= self.same_stats_limit:
-            probability = (self.same_stats_limit - 1) / self.same_stats
-            choice = np.random.choice([False, True], 1,
-                                      p=[probability, 1 - probability])
-            if choice:
-                self.roll_back()
-                return 0
-        return stats_limit
-
-    def get_clause_info(self):
-        """
-        Get whether the chc-system is linear, the number of
-        uninterpreted predicates and their set.
-        """
-        assert len(self.instances) > 0, "Instance group is empty"
-        instance = self.instances[0]
-        info = instance.info
-        chc = instance.chc
-
-        self.upred_num, self.uninter_pred = count_expr(chc,
-                                                       Z3_OP_UNINTERPRETED,
-                                                       is_unique=True)
-        info.expr_exists[Z3_OP_AND] = expr_exists(chc, Z3_OP_AND)
-        info.expr_exists[Z3_OP_OR] = expr_exists(chc, Z3_OP_OR)
-        info.expr_exists[Z3_QUANTIFIER_AST] = \
-            expr_exists(chc, Z3_QUANTIFIER_AST)
-
-        for i, clause in enumerate(chc):
-            for j in range(3):
-                if info.expr_exists[info_kinds[j]]:
-                    info.expr_num[j, i] += count_expr(clause, info_kinds[j])
-
-            if self.is_linear:
-                child = clause.children()[0]
-                if is_quantifier(clause):
-                    body = clause.body()
-                elif is_not(clause) and child.is_exists():
-                    body = child.body()
-                else:
-                    body = clause
-                if is_implies(body):
-                    expr = body.children()[0]
-                elif is_and(body):
-                    expr = body
-                elif body.decl().kind() == Z3_OP_UNINTERPRETED:
-                    expr = None
-                else:
-                    assert False, self.filename + \
-                                  ' -- clause-kind: ' + \
-                                  str(body.decl())
-                if expr is not None:
-                    upred_num, _ = count_expr(expr,
-                                              Z3_OP_UNINTERPRETED,
-                                              is_unique=True)
-                    if upred_num > 1:
-                        self.is_linear = False
-
-    def get_vars(self):
-        """Get clause variables."""
-        instance = self[-1]
-        for clause in instance.chc:
-            for var in get_bound_vars(clause):
-                self.bound_vars.add(var)
+def reduce(instance):
+    """
+    Search for a reduced version of mutation chain that is
+    the minimal set of bug-triggering transformations.
+    """
+    group = instance.get_group()
+    initial_size = len(group.instances)
+    chunk_size = initial_size // 2
+    while chunk_size:
+        for i in range(initial_size - 1, 0, -chunk_size):
+            from_ind = max(i - chunk_size + 1, 1)
+            ind_chunk = range(from_ind, i + 1)
+            new_group = undo(instance, ind_chunk)
+            new_instance = group[-1]
+            try:
+                res = check_satis(new_instance)
+            except AssertionError as err:
+                log_run_info(new_group,
+                             'reduce_problem',
+                             repr(err),
+                             new_instance)
+                continue
+            if not res:
+                group = new_group
+        chunk_size //= 2
 
 
-instance_group = defaultdict(InstanceGroup)
-
-
-class Instance(object):
-
-    def __init__(self, group_id, chc=None):
-        global INSTANCE_ID
-        self.id = INSTANCE_ID
-        INSTANCE_ID += 1
-        self.group_id = group_id
-        self.chc = chc
-        self.trace_stats = TraceStats()
-        self.sort_key = 0
-        group = self.get_group()
-
-        if not group.instances:
-            chc_len = len(self.chc)
-            self.mutation = Mutation(None)
-            self.info = ClauseInfo(chc_len)
-        else:
-            prev_instance = group[-1]
-            self.mutation = Mutation(prev_instance.mutation)
-            self.info = deepcopy(prev_instance.info)
-
-    def check(self, solver, is_seed):
-        """Check the satisfiability of the instance."""
-        solver.reset()
-        if is_seed:
-            solver.set('timeout', SEED_CHECK_TIME_LIMIT)
-        else:
-            solver.set('timeout', MUT_CHECK_TIME_LIMIT)
-
-        solver.add(self.chc)
-        satis = solver.check()
-        assert satis != unknown, solver.reason_unknown()
-        self.trace_stats.read_from_trace()
-        unique_traces.add(self.trace_stats.hash)
-        return satis
-
-    def get_group(self):
-        """Return the group of the instance."""
-        global instance_group
-        return instance_group[self.group_id]
-
-    def get_log(self, is_seed=False, snd_id=None):
-        """Create a log entry with information about the instance."""
-        log = {'id': self.id}
-        group = self.get_group()
-        if not is_seed:
-            log['prev_inst_id'] = group[-1].id
-            if snd_id:
-                log['snd_inst_id'] = snd_id
-            log['mut_type'] = self.mutation.type.name
-        return log
+def undo(instance, ind):
+    """Undo the mutation and return the resulting instance."""
+    # TODO
+    group = instance.get_group
+    return group
 
 
 def calc_sort_key(heuristic, stats, weights=None):
@@ -280,22 +143,6 @@ def sort_queue():
             queue += chunk
 
 
-def find_inst_for_union(instance):
-    """Find an instance that is independent of this instance."""
-
-    fst_group = instance.get_group()
-    for key in instance_group:
-        snd_group = instance_group[key]
-        if not fst_group.uninter_pred.intersection(snd_group.uninter_pred):
-            if not fst_group.bound_vars:
-                fst_group.get_vars()
-            if not snd_group.bound_vars:
-                snd_group.get_vars()
-            if not fst_group.bound_vars.intersection(snd_group.bound_vars):
-                return snd_group[-1]
-    return None
-
-
 def print_general_info(counter):
     """Print and log information about runs."""
 
@@ -315,24 +162,33 @@ def print_general_info(counter):
     logging.info(json.dumps({'general_info': log}))
 
 
-def log_run_info(group, status, info, mut_instance=None, snd_instance=None):
+def log_run_info(group, status, message=None, mut_instance=None, snd_instance=None):
     """Create a log entry with information about the run."""
 
     cur_instance = group[-1]
-    log = {'filename': group.filename, 'status': status, 'info': info}
+    log = {'filename': group.filename, 'status': status}
+    if message:
+        log['message'] = message
     if not mut_instance:
         cur_instance_info = cur_instance.get_log(is_seed=True)
         log.update(cur_instance_info)
+        if status == 'error':
+            log['chc'] = cur_instance.chc.sexpr()
+            chain = cur_instance.mutation.get_chain()
+            log['mut_chain'] = chain
     else:
         snd_id = snd_instance.id if snd_instance else None
         mutant_info = mut_instance.get_log(snd_id)
         log.update(mutant_info)
-        if status in {'mut_timeout', 'mut_unknown', 'bug', 'reduce_problem'}:
+        if status != 'pass':
             log['prev_chc'] = cur_instance.chc.sexpr()
             if snd_instance:
                 log['second_chc'] = snd_instance.chc.sexpr()
             log['current_chc'] = mut_instance.chc.sexpr()
-            log['excepted_satis'] = group.satis
+            log['excepted_satis'] = str(group.satis)
+            # reduce(mut_instance)
+            chain = mut_instance.mutation.get_chain()
+            log['mut_chain'] = chain
     logging.info(json.dumps({'run_info': log}))
 
 
@@ -408,10 +264,8 @@ def fuzz(files, seeds):
             stats_limit -= 1
             cur_group = cur_instance.get_group()
 
-            instance_num = random.randrange(1, 3)
             mut_instance = Instance(cur_instance.group_id)
             mut = mut_instance.mutation
-            mut.snd_inst = find_inst_for_union(cur_instance) if instance_num == 2 else None
             mut_instance.chc = mut.apply(cur_instance)
 
             try:
@@ -421,15 +275,11 @@ def fuzz(files, seeds):
                 continue
 
             if not res:
-                # mut.reduce(cur_group.instances, mut_instance)
-                chain = mut.get_chain()
                 counter['bug'] += 1
-                info = 'Bug in this chain of mutations: ' + chain
                 log_run_info(cur_group,
                              'bug',
-                             info,
-                             mut_instance,
-                             mut.snd_inst)
+                             mut_instance=mut_instance,
+                             snd_instance=mut.snd_inst)
                 queue.append(cur_instance)
 
             else:
@@ -439,9 +289,8 @@ def fuzz(files, seeds):
                     stats_limit = cur_group.check_stats(stats_limit)
                 log_run_info(cur_group,
                              'pass',
-                             'No bugs found',
-                             mut_instance,
-                             mut.snd_inst)
+                             mut_instance=mut_instance,
+                             snd_instance=mut.snd_inst)
         except Exception as err:
             if type(err).__name__ == 'TimeoutError':
                 counter['timeout'] += 1
@@ -449,10 +298,11 @@ def fuzz(files, seeds):
             else:
                 counter['error'] += 1
                 status = 'error'
+            message = traceback.format_exc()
             log_run_info(cur_group,
                          status,
-                         traceback.format_exc())
-            print(traceback.format_exc())
+                         message)
+            print(message)
 
     if not queue:
         print_general_info(counter)

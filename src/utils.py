@@ -162,13 +162,12 @@ def get_bound_vars(expr):
     vars = []
     if is_not(expr):
         expr = expr.children()[0]
-    assert expr.is_forall() or expr.is_exists(), \
-        'А quantifier-free expression is given'
-    for i in range(expr.num_vars()):
-        name = expr.var_name(i)
-        sort = expr.var_sort(i)
-        var = Const(name, sort)
-        vars.append(var)
+    if is_quantifier(expr):
+        for i in range(expr.num_vars()):
+            name = expr.var_name(i)
+            sort = expr.var_sort(i)
+            var = Const(name, sort)
+            vars.append(var)
     return vars
 
 
