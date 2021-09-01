@@ -14,6 +14,7 @@ class Stats:
         self.lines = file.readlines()
         file.close()
         self.df = None
+        self.seed_num = 0
 
     def create_time_graph(self, fig, color_i):
         num_axis = []
@@ -48,6 +49,11 @@ class Stats:
                 unique_traces_axis,
                 colors[color_i])
 
+    def analyze_errors(self):
+        ind = self.df['status'] == 'error'
+        # for i, entry in self.df.loc[ind].iterrows():
+        #     print(entry['mut_chain'], end='\n')
+
 
 def main(log_names):
     traces = plt.figure()
@@ -60,13 +66,15 @@ def main(log_names):
         min_len = len(stats[i].lines) if min_len == -1 \
             else min(len(stats[i].lines), min_len)
 
-    for i in range(len(stats)):
+    for i, cur_stats in enumerate(stats):
         entries = []
-        info = json.loads(stats[i].lines[0])
-        for line in stats[i].lines[1:]:  # or stats[i].lines[1:min_len]:
+        info = json.loads(cur_stats.lines[0])
+        cur_stats.seed_num = info['seed_number']
+        for line in cur_stats.lines[1:]:  # or stats[i].lines[1:min_len]:
             entry = json.loads(line)
             entries.append(list(entry.values())[0])
-        stats[i].df = pd.DataFrame(entries)
+        cur_stats.df = pd.DataFrame(entries)
+        cur_stats.analyze_errors()
         for heur in info['heuristics']:
             if heur == 'transitions':
                 legend.append('Trace transition heuristic')
@@ -76,12 +84,16 @@ def main(log_names):
                 legend.append('Complexity heuristic')
             else:
                 legend.append('Default')
-        stats[i].create_traces_graph(traces, i)
-        stats[i].create_time_graph(times, i)
+        cur_stats.create_traces_graph(traces, i)
+        cur_stats.create_time_graph(times, i)
 
-    traces.legend(legend, bbox_to_anchor=(0.49, 0.88))
+    for cur_stats in stats:
+        traces.gca().axvline(x=cur_stats.seed_num, linestyle='--', color='k')
+        times.gca().axhline(y=cur_stats.seed_num, linestyle='--', color='k')
+
+    traces.legend(legend, bbox_to_anchor=(0.9, 0.23))
     traces.savefig('traces.png', bbox_inches='tight')
-    times.legend(legend, bbox_to_anchor=(0.49, 0.88))
+    times.legend(legend, bbox_to_anchor=(0.9, 0.23))  # (0.49, 0.88)
     times.savefig('times.png', bbox_inches='tight')
 
 

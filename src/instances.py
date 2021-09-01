@@ -37,13 +37,17 @@ class InstanceGroup(object):
         length = len(self.instances)
         self.instances[length] = instance
         if length == 0:
-            self.get_clause_info()
+            self.get_pred_info()
+            self.get_system_info()
 
     def roll_back(self):
         """Roll back the group to the seed."""
         seed = self[0]
         self.instances = {0: seed}
         self.is_simplified = False
+        self.same_stats_limit = 5 * len(seed.chc)
+        self.get_pred_info()
+        self.get_vars()
 
     def check_stats(self, stats_limit):
         """
@@ -68,29 +72,36 @@ class InstanceGroup(object):
                 return 0
         return stats_limit
 
-    def get_clause_info(self):
+    def get_system_info(self):
+        assert len(self.instances) > 0, "Instance group is empty"
+        instance = self.instances[0]
+        chc_system = instance.chc
+        info = instance.info
+
+        info.expr_exists[Z3_OP_AND] = expr_exists(chc_system, Z3_OP_AND)
+        info.expr_exists[Z3_OP_OR] = expr_exists(chc_system, Z3_OP_OR)
+        info.expr_exists[Z3_QUANTIFIER_AST] = \
+            expr_exists(chc_system, Z3_QUANTIFIER_AST)
+
+        for i, clause in enumerate(chc_system):
+            for j in range(3):
+                if info.expr_exists[info_kinds[j]]:
+                    info.expr_num[j, i] += count_expr(clause, info_kinds[j])
+
+    def get_pred_info(self):
         """
         Get whether the chc-system is linear, the number of
         uninterpreted predicates and their set.
         """
         assert len(self.instances) > 0, "Instance group is empty"
         instance = self.instances[0]
-        info = instance.info
-        chc = instance.chc
+        chc_system = instance.chc
 
-        self.upred_num, self.uninter_pred = count_expr(chc,
+        self.upred_num, self.uninter_pred = count_expr(chc_system,
                                                        Z3_OP_UNINTERPRETED,
                                                        is_unique=True)
-        info.expr_exists[Z3_OP_AND] = expr_exists(chc, Z3_OP_AND)
-        info.expr_exists[Z3_OP_OR] = expr_exists(chc, Z3_OP_OR)
-        info.expr_exists[Z3_QUANTIFIER_AST] = \
-            expr_exists(chc, Z3_QUANTIFIER_AST)
 
-        for i, clause in enumerate(chc):
-            for j in range(3):
-                if info.expr_exists[info_kinds[j]]:
-                    info.expr_num[j, i] += count_expr(clause, info_kinds[j])
-
+        for clause in chc_system:
             if self.is_linear:
                 child = clause.children()[0]
                 if is_quantifier(clause):
@@ -308,6 +319,7 @@ class Mutation(object):
             fst_group.bound_vars.union(snd_group.bound_vars)
         fst_inst.info += self.snd_inst.info
         fst_group.is_simplified &= snd_group.is_simplified
+        fst_group.same_stats_limit += snd_group.same_stats_limit
 
         new_instance = AstVector()
         for clause in fst_inst.chc:
@@ -328,6 +340,8 @@ class Mutation(object):
         i = int(random.choice(ind))
         if self.type in {MutType.BREAK_AND, MutType.BREAK_OR}:
             info.expr_num[self.kind_ind][i] += 1
+        if i not in range(0, len(chc_system)):
+            print(ind, i)
         clause = chc_system[i]
         num = info.expr_num[self.kind_ind][i]
         trans_n = random.randint(1, num)
@@ -388,7 +402,7 @@ class Mutation(object):
         """Return the full mutation chain."""
         chain = self.type.name
         cur_mutation = self
-        for i in range(self.number, 0, -1):
+        for i in range(self.number, 1, -1):
             cur_mutation = cur_mutation.prev_mutation
             chain = cur_mutation.type.name + '->' + chain
         return chain

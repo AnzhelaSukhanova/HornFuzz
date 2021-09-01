@@ -97,7 +97,6 @@ def check_satis(instance, snd_instance=None, mut_instance=None, is_seed=False):
     if is_seed:
         satis = instance.check(solver, is_seed)
         group.satis = satis
-        group.same_stats_limit = 5 * len(instance.chc)
     else:
         if snd_instance:
             snd_group = snd_instance.get_group()
@@ -241,6 +240,7 @@ def fuzz(files, seeds):
         instance_group[i] = InstanceGroup(files.pop())
         cur_group = instance_group[i]
         instance = Instance(i, seed)
+        cur_group.same_stats_limit = 5 * len(seed)
         cur_group.push(instance)
         try:
             check_satis(instance, is_seed=True)
