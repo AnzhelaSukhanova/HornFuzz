@@ -340,8 +340,6 @@ class Mutation(object):
         i = int(random.choice(ind))
         if self.type in {MutType.BREAK_AND, MutType.BREAK_OR}:
             info.expr_num[self.kind_ind][i] += 1
-        if i not in range(0, len(chc_system)):
-            print(ind, i)
         clause = chc_system[i]
         num = info.expr_num[self.kind_ind][i]
         trans_n = random.randint(1, num)
