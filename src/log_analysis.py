@@ -52,7 +52,7 @@ class Stats:
     def analyze_errors(self):
         ind = self.df['status'] == 'error'
         # for i, entry in self.df.loc[ind].iterrows():
-        #     print(entry['mut_chain'], end='\n')
+        #     print(entry['mut_chain'], entry['message'], end='\n')
 
 
 def main(log_names):
@@ -91,9 +91,9 @@ def main(log_names):
         traces.gca().axvline(x=cur_stats.seed_num, linestyle='--', color='k')
         times.gca().axhline(y=cur_stats.seed_num, linestyle='--', color='k')
 
-    traces.legend(legend, bbox_to_anchor=(0.9, 0.23))
+    traces.legend(legend, bbox_to_anchor=(0.9, 0.28))
     traces.savefig('traces.png', bbox_inches='tight')
-    times.legend(legend, bbox_to_anchor=(0.9, 0.23))  # (0.49, 0.88)
+    times.legend(legend, bbox_to_anchor=(0.9, 0.28))  # (0.49, 0.88)
     times.savefig('times.png', bbox_inches='tight')
 
 

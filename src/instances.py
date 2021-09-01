@@ -78,15 +78,12 @@ class InstanceGroup(object):
         chc_system = instance.chc
         info = instance.info
 
-        info.expr_exists[Z3_OP_AND] = expr_exists(chc_system, Z3_OP_AND)
-        info.expr_exists[Z3_OP_OR] = expr_exists(chc_system, Z3_OP_OR)
-        info.expr_exists[Z3_QUANTIFIER_AST] = \
-            expr_exists(chc_system, Z3_QUANTIFIER_AST)
+        info.expr_exists = expr_exists(chc_system, info_kinds)
 
         for i, clause in enumerate(chc_system):
-            for j in range(3):
-                if info.expr_exists[info_kinds[j]]:
-                    info.expr_num[j, i] += count_expr(clause, info_kinds[j])
+            expr_numbers = count_expr(clause, info_kinds)
+            for j in range(len(info_kinds)):
+                info.expr_num[j, i] = expr_numbers[j]
 
     def get_pred_info(self):
         """
@@ -97,9 +94,11 @@ class InstanceGroup(object):
         instance = self.instances[0]
         chc_system = instance.chc
 
-        self.upred_num, self.uninter_pred = count_expr(chc_system,
-                                                       Z3_OP_UNINTERPRETED,
-                                                       is_unique=True)
+        upred_num, uninter_pred = count_expr(chc_system,
+                                             [Z3_OP_UNINTERPRETED],
+                                             is_unique=True)
+        self.upred_num = upred_num[0]
+        self.uninter_pred = uninter_pred[0]
 
         for clause in chc_system:
             if self.is_linear:
@@ -122,9 +121,9 @@ class InstanceGroup(object):
                                   str(body.decl())
                 if expr is not None:
                     upred_num, _ = count_expr(expr,
-                                              Z3_OP_UNINTERPRETED,
+                                              [Z3_OP_UNINTERPRETED],
                                               is_unique=True)
-                    if upred_num > 1:
+                    if upred_num[0] > 1:
                         self.is_linear = False
 
     def get_vars(self):
@@ -234,7 +233,7 @@ class Mutation(object):
         """Return mutated instances."""
         self.next_mutation(instance)
         if self.type == MutType.ID:
-            mut_system = instance
+            assert False, 'No mutation can be applied'
 
         elif self.type in {MutType.SWAP_AND, MutType.SWAP_OR,
                            MutType.DUP_AND, MutType.DUP_OR,
@@ -247,6 +246,9 @@ class Mutation(object):
 
         elif self.type == MutType.SIMPLIFY:
             mut_system = self.simplify_ineq(instance.chc)
+
+        elif self.type == MutType.ADD_INEQ:
+            mut_system = self.add_ineq(instance)
 
         else:
             assert False
@@ -263,27 +265,32 @@ class Mutation(object):
         if self.snd_inst:
             self.type = MutType.UNION
         else:
+            ind = []
             info = instance.info
-            group = instance.get_group()
-            if info.expr_exists[Z3_OP_AND] and info.expr_exists[Z3_OP_OR]:
-                value = random.randrange(2, 8)
-            elif info.expr_exists[Z3_OP_AND]:
-                value = random.randrange(2, 5)
-            elif info.expr_exists[Z3_OP_OR]:
-                value = random.randrange(5, 8)
+            for i in range(len(info_kinds)):
+                if info.expr_exists[i]:
+                    ind.append(i)
+                    if i > 2:
+                        break
+            if not ind:
+                return MutType.ID
             else:
-                value = 1
-            if info.expr_exists[Z3_QUANTIFIER_AST]:
-                value = random.choice([value, 8]) if value > 1 else 8
-            if not group.is_simplified:
-                value = random.choice([value, 10])
-                if value == 10:
-                    group.is_simplified = True
-            if value == 8:
-                self.kind_ind = 2
-            elif 4 < value < 8:
-                self.kind_ind = 1
-            self.type = MutType(value)
+                self.kind_ind = random.choice(ind)
+                if self.kind_ind == 0:
+                    value = random.randrange(2, 5)
+                    self.type = MutType(value)
+                elif self.kind_ind == 1:
+                    value = random.randrange(5, 8)
+                    self.type = MutType(value)
+                elif self.kind_ind == 2:
+                    self.type = MutType.MIX_BOUND_VARS
+                else:
+                    group = instance.get_group()
+                    if not group.is_simplified:
+                        self.type = MutType.SIMPLIFY
+                        group.is_simplified = True
+                    else:
+                        self.type = MutType.ADD_INEQ
 
     def find_inst_for_union(self, instance):
         """Find an instance that is independent of this instance."""
@@ -297,6 +304,9 @@ class Mutation(object):
                     snd_group.get_vars()
                 if not fst_group.bound_vars.intersection(snd_group.bound_vars):
                     self.snd_inst = snd_group[-1]
+
+    def add_ineq(self, instance):
+        return instance.chc
 
     def simplify_ineq(self, chc_system):
         """Simplify instance with arith_ineq_lhs, arith_lhs and eq2ineq"""

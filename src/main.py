@@ -235,22 +235,23 @@ def fuzz(files, seeds):
     stats_limit = len(seeds)
     cur_group = None
     for i, seed in enumerate(seeds):
-        counter['runs'] += 1
-        print_general_info(counter)
-        instance_group[i] = InstanceGroup(files.pop())
-        cur_group = instance_group[i]
-        instance = Instance(i, seed)
-        cur_group.same_stats_limit = 5 * len(seed)
-        cur_group.push(instance)
-        try:
-            check_satis(instance, is_seed=True)
-        except AssertionError as err:
-            analyze_check_exception(err, cur_group, counter, is_seed=True)
-            continue
-        log_run_info(cur_group,
-                     'seed',
-                     str(cur_group.satis))
-        queue.append(instance)
+        if seed:
+            counter['runs'] += 1
+            print_general_info(counter)
+            instance_group[i] = InstanceGroup(files.pop())
+            cur_group = instance_group[i]
+            instance = Instance(i, seed)
+            cur_group.same_stats_limit = 5 * len(seed)
+            cur_group.push(instance)
+            try:
+                check_satis(instance, is_seed=True)
+            except AssertionError as err:
+                analyze_check_exception(err, cur_group, counter, is_seed=True)
+                continue
+            log_run_info(cur_group,
+                         'seed',
+                         str(cur_group.satis))
+            queue.append(instance)
 
     while queue:
         print_general_info(counter)

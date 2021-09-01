@@ -10,14 +10,15 @@ TRACE_FILE = '.z3-trace'
 
 trace_states = defaultdict(int)
 trans_offset = 0
-info_kinds = {0: Z3_OP_AND, 1: Z3_OP_OR, 2: Z3_QUANTIFIER_AST}
+info_kinds = [Z3_OP_AND, Z3_OP_OR, Z3_QUANTIFIER_AST,
+              Z3_OP_LE, Z3_OP_GE, Z3_OP_LT, Z3_OP_GT]
 
 
 class ClauseInfo(object):
 
     def __init__(self, number):
         self.expr_exists = defaultdict(bool)
-        self.expr_num = np.zeros((3, number), dtype=int)
+        self.expr_num = np.zeros((len(info_kinds), number), dtype=int)
 
     def __add__(self, other):
         sum = ClauseInfo(1)
@@ -191,32 +192,37 @@ def update_expr(expr, children, vars=None):
     return upd_expr
 
 
-def expr_exists(instance, kind):
+def expr_exists(instance, kinds):
     """Return if there is a subexpression of the specific kind."""
 
+    expr_info = defaultdict(bool)
+    ind = list(range(len(kinds)))
     length = len(instance) if isinstance(instance, AstVector) else 1
     for i in range(length):
         expr = instance[i] if isinstance(instance, AstVector) else instance
         expr_set = {expr}
-        while len(expr_set):
+        while len(expr_set) and ind:
             cur_expr = expr_set.pop()
             ctx_ref = cur_expr.ctx.ref()
             ast = cur_expr.as_ast()
-            if Z3_get_ast_kind(ctx_ref, ast) == kind:
-                return True
-            elif not is_var(expr) and not is_const(expr):
-                if is_app(cur_expr) and cur_expr.decl().kind() == kind:
-                    return True
-                for child in cur_expr.children():
-                    expr_set.add(child)
-    return False
+            for j in ind:
+                if Z3_get_ast_kind(ctx_ref, ast) == kinds[j] or \
+                        (not is_var(expr) and not is_const(expr) and
+                         is_app(cur_expr) and cur_expr.decl().kind() == kinds[j]):
+                    expr_info[j] = True
+                    ind.remove(j)
+                    if ind:
+                        for child in cur_expr.children():
+                            expr_set.add(child)
+                    continue
+    return expr_info
 
 
-def count_expr(instance, kind, is_unique=False):
+def count_expr(instance, kinds, is_unique=False):
     """Return the number of subexpressions of the specific kind."""
 
-    unique_expr = set()
-    expr_num = 0
+    unique_expr = defaultdict(set)
+    expr_num = defaultdict(int)
     length = len(instance) if isinstance(instance, AstVector) else 1
     for i in range(length):
         expr = instance[i] if isinstance(instance, AstVector) else instance
@@ -225,20 +231,18 @@ def count_expr(instance, kind, is_unique=False):
             cur_expr = expr_set.pop()
             ctx_ref = cur_expr.ctx.ref()
             ast = cur_expr.as_ast()
-            if Z3_get_ast_kind(ctx_ref, ast) == kind:
-                expr_num += 1
-                for child in cur_expr.children():
-                    expr_set.add(child)
-            elif not is_var(expr) and not is_const(expr):
-                if is_app(cur_expr) and cur_expr.decl().kind() == kind:
+            for j in range(len(kinds)):
+                if Z3_get_ast_kind(ctx_ref, ast) == kinds[j] or \
+                        (not is_var(expr) and not is_const(expr) and
+                         is_app(cur_expr) and cur_expr.decl().kind() == kinds[j]):
                     if is_unique:
-                        unique_expr.add(cur_expr.decl())
+                        expr_num[j] += 1
+                        unique_expr[j].add(cur_expr.decl())
                     else:
-                        expr_num += 1
+                        expr_num[j] += 1
                 for child in cur_expr.children():
                     expr_set.add(child)
     if is_unique:
-        expr_num = len(unique_expr)
         return expr_num, unique_expr
     else:
         return expr_num
