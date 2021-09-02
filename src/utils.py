@@ -11,7 +11,8 @@ TRACE_FILE = '.z3-trace'
 trace_states = defaultdict(int)
 trans_offset = 0
 info_kinds = [Z3_OP_AND, Z3_OP_OR, Z3_QUANTIFIER_AST,
-              Z3_OP_LE, Z3_OP_GE, Z3_OP_LT, Z3_OP_GT]
+              Z3_OP_LE, Z3_OP_GE, Z3_OP_LT, Z3_OP_GT,
+              Z3_OP_EQ]
 
 
 class ClauseInfo(object):
@@ -195,12 +196,12 @@ def update_expr(expr, children, vars=None):
 def expr_exists(instance, kinds):
     """Return if there is a subexpression of the specific kind."""
 
-    expr_info = defaultdict(bool)
+    expr_ex = defaultdict(bool)
     ind = list(range(len(kinds)))
     length = len(instance) if isinstance(instance, AstVector) else 1
     for i in range(length):
         expr = instance[i] if isinstance(instance, AstVector) else instance
-        expr_set = {expr}
+        expr_set = {expr} if not is_var(expr) and not is_const(expr) else {}
         while len(expr_set) and ind:
             cur_expr = expr_set.pop()
             ctx_ref = cur_expr.ctx.ref()
@@ -209,13 +210,14 @@ def expr_exists(instance, kinds):
                 if Z3_get_ast_kind(ctx_ref, ast) == kinds[j] or \
                         (not is_var(expr) and not is_const(expr) and
                          is_app(cur_expr) and cur_expr.decl().kind() == kinds[j]):
-                    expr_info[j] = True
+                    expr_ex[j] = True
                     ind.remove(j)
-                    if ind:
-                        for child in cur_expr.children():
-                            expr_set.add(child)
-                    continue
-    return expr_info
+                    break
+            if ind:
+                for child in cur_expr.children():
+                    if not is_var(child) and not is_const(child):
+                        expr_set.add(child)
+    return expr_ex
 
 
 def count_expr(instance, kinds, is_unique=False):
@@ -226,21 +228,22 @@ def count_expr(instance, kinds, is_unique=False):
     length = len(instance) if isinstance(instance, AstVector) else 1
     for i in range(length):
         expr = instance[i] if isinstance(instance, AstVector) else instance
-        expr_set = {expr}
+        expr_set = {expr} if not is_var(expr) and not is_const(expr) else {}
         while len(expr_set):
             cur_expr = expr_set.pop()
             ctx_ref = cur_expr.ctx.ref()
             ast = cur_expr.as_ast()
             for j in range(len(kinds)):
                 if Z3_get_ast_kind(ctx_ref, ast) == kinds[j] or \
-                        (not is_var(expr) and not is_const(expr) and
-                         is_app(cur_expr) and cur_expr.decl().kind() == kinds[j]):
+                        (is_app(cur_expr) and cur_expr.decl().kind() == kinds[j]):
                     if is_unique:
                         expr_num[j] += 1
                         unique_expr[j].add(cur_expr.decl())
                     else:
                         expr_num[j] += 1
-                for child in cur_expr.children():
+                    break
+            for child in cur_expr.children():
+                if not is_var(child) and not is_const(child):
                     expr_set.add(child)
     if is_unique:
         return expr_num, unique_expr
