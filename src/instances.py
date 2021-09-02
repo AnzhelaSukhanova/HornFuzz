@@ -16,7 +16,6 @@ class InstanceGroup(object):
 
     def __init__(self, filename):
         self.filename = filename
-        self.satis = unknown
         self.instances = defaultdict(Instance)
         self.same_stats = 0
         self.same_stats_limit = 0
@@ -38,7 +37,7 @@ class InstanceGroup(object):
         self.instances[length] = instance
         if length == 0:
             self.get_pred_info()
-            self.get_system_info()
+            instance.get_system_info()
 
     def roll_back(self):
         """Roll back the group to the seed."""
@@ -72,26 +71,13 @@ class InstanceGroup(object):
                 return 0
         return stats_limit
 
-    def get_system_info(self):
-        assert len(self.instances) > 0, "Instance group is empty"
-        instance = self.instances[0]
-        chc_system = instance.chc
-        info = instance.info
-
-        info.expr_exists = expr_exists(chc_system, info_kinds)
-
-        for i, clause in enumerate(chc_system):
-            expr_numbers = count_expr(clause, info_kinds)
-            for j in range(len(info_kinds)):
-                info.expr_num[j, i] = expr_numbers[j]
-
     def get_pred_info(self):
         """
         Get whether the chc-system is linear, the number of
         uninterpreted predicates and their set.
         """
         assert len(self.instances) > 0, "Instance group is empty"
-        instance = self.instances[0]
+        instance = self[-1]
         chc_system = instance.chc
 
         upred_num, uninter_pred = count_expr(chc_system,
@@ -145,6 +131,7 @@ class Instance(object):
         INSTANCE_ID += 1
         self.group_id = group_id
         self.chc = chc
+        self.satis = unknown
         self.trace_stats = TraceStats()
         self.sort_key = 0
         group = self.get_group()
@@ -167,11 +154,10 @@ class Instance(object):
             solver.set('timeout', MUT_CHECK_TIME_LIMIT)
 
         solver.add(self.chc)
-        satis = solver.check()
-        assert satis != unknown, solver.reason_unknown()
+        self.satis = solver.check()
+        assert self.satis != unknown, solver.reason_unknown()
         self.trace_stats.read_from_trace()
         unique_traces.add(self.trace_stats.hash)
-        return satis
 
     def get_group(self):
         """Return the group of the instance."""
@@ -188,6 +174,17 @@ class Instance(object):
                 log['snd_inst_id'] = snd_id
             log['mut_type'] = self.mutation.type.name
         return log
+
+    def get_system_info(self):
+        info = self.info
+        info.expr_exists = expr_exists(self.chc, info_kinds)
+
+        for i, clause in enumerate(self.chc):
+            expr_numbers = count_expr(clause, info_kinds)
+            for j in range(len(info_kinds)):
+                if i >= info.expr_num.shape[1]:
+                    print(self.mutation.get_chain())
+                info.expr_num[j, i] = expr_numbers[j]
 
 
 class MutType(Enum):
@@ -229,8 +226,8 @@ class Mutation(object):
         self.snd_inst = None
         self.prev_mutation = None
 
-    def apply(self, instance):
-        """Return mutated instances."""
+    def apply(self, instance, new_instance):
+        """Mutate instances."""
         self.next_mutation(instance)
         if self.type == MutType.ID:
             assert False, 'No mutation can be applied'
@@ -239,20 +236,20 @@ class Mutation(object):
                            MutType.DUP_AND, MutType.DUP_OR,
                            MutType.BREAK_AND, MutType.BREAK_OR,
                            MutType.MIX_BOUND_VARS}:
-            mut_system = self.transform_rand(instance)
+            new_instance.chc = self.transform_rand(instance)
 
         elif self.type == MutType.UNION:
-            mut_system = self.unite(instance)
+            new_instance.chc, new_instance.info = self.unite(instance)
 
         elif self.type == MutType.SIMPLIFY:
-            mut_system = self.simplify_ineq(instance.chc)
+            new_instance.chc = self.simplify_ineq(instance.chc)
+            new_instance.get_system_info()
 
         elif self.type == MutType.ADD_INEQ:
-            mut_system = self.add_ineq(instance)
+            new_instance.chc = self.add_ineq(instance)
 
         else:
             assert False
-        return mut_system
 
     def next_mutation(self, instance):
         """
@@ -327,7 +324,6 @@ class Mutation(object):
             fst_group.uninter_pred.union(snd_group.uninter_pred)
         fst_group.bound_vars = \
             fst_group.bound_vars.union(snd_group.bound_vars)
-        fst_inst.info += self.snd_inst.info
         fst_group.is_simplified &= snd_group.is_simplified
         fst_group.same_stats_limit += snd_group.same_stats_limit
 
@@ -336,7 +332,8 @@ class Mutation(object):
             new_instance.push(clause)
         for clause in self.snd_inst.chc:
             new_instance.push(clause)
-        return new_instance
+        new_info = fst_inst.info + self.snd_inst.info
+        return new_instance, new_info
 
     def transform_rand(self, instance):
         """Transform random and/or-expression."""

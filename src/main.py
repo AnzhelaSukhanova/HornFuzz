@@ -7,6 +7,7 @@ from instances import *
 from seeds import *
 
 general_stats = None
+seed_number = 0
 heuristics = ''
 heuristic_flags = defaultdict(bool)
 queue = []
@@ -73,17 +74,21 @@ def calc_sort_key(heuristic, stats, weights=None):
     return sort_key
 
 
-def parse_seeds(argv):
+def parse_seeds(filenames):
     """Return the parsed seeds given by files in smt2-format."""
 
-    seeds = [
-        z3.parse_smt2_file(seed)
-        for seed in argv
-    ]
+    global seed_number
+    seeds = []
+    for name in filenames:
+        seed = z3.parse_smt2_file(name)
+        if seed:
+            seeds.append(seed)
+        else:
+            seed_number -= 1
     return seeds
 
 
-def check_satis(instance, snd_instance=None, mut_instance=None, is_seed=False):
+def check_satis(instance, snd_instance=None, is_seed=False):
     """
     Return True if the test suites have the same satisfiability and
     False otherwise.
@@ -92,21 +97,16 @@ def check_satis(instance, snd_instance=None, mut_instance=None, is_seed=False):
     global general_stats
     solver = SolverFor('HORN')
     solver.set('engine', 'spacer')
-    group = instance.get_group()
 
-    if is_seed:
-        satis = instance.check(solver, is_seed)
-        group.satis = satis
-    else:
-        if snd_instance:
-            snd_group = snd_instance.get_group()
-            if snd_group.satis == unsat:
-                group.satis = unsat
+    instance.check(solver, is_seed)
+    satis = instance.satis
+    if snd_instance:
+        if snd_instance.satis == unsat:
+            satis = unsat
 
-        satis = mut_instance.check(solver, is_seed)
     if heuristic_flags['transitions'] or heuristic_flags['states']:
         general_stats += instance.trace_stats
-    return group.satis == satis
+    return True if is_seed else instance.satis == satis
 
 
 def sort_queue():
@@ -175,6 +175,8 @@ def log_run_info(group, status, message=None, mut_instance=None, snd_instance=No
             log['chc'] = cur_instance.chc.sexpr()
             chain = cur_instance.mutation.get_chain()
             log['mut_chain'] = chain
+        elif status == 'seed':
+            log['satis'] = str(cur_instance.satis)
     else:
         snd_id = snd_instance.id if snd_instance else None
         mutant_info = mut_instance.get_log(snd_id)
@@ -184,7 +186,7 @@ def log_run_info(group, status, message=None, mut_instance=None, snd_instance=No
             if snd_instance:
                 log['second_chc'] = snd_instance.chc.sexpr()
             log['current_chc'] = mut_instance.chc.sexpr()
-            log['excepted_satis'] = str(group.satis)
+            log['excepted_satis'] = str(cur_instance.satis)
             # reduce(mut_instance)
             chain = mut_instance.mutation.get_chain()
             log['mut_chain'] = chain
@@ -235,23 +237,21 @@ def fuzz(files, seeds):
     stats_limit = len(seeds)
     cur_group = None
     for i, seed in enumerate(seeds):
-        if seed:
-            counter['runs'] += 1
-            print_general_info(counter)
-            instance_group[i] = InstanceGroup(files.pop())
-            cur_group = instance_group[i]
-            instance = Instance(i, seed)
-            cur_group.same_stats_limit = 5 * len(seed)
-            cur_group.push(instance)
-            try:
-                check_satis(instance, is_seed=True)
-            except AssertionError as err:
-                analyze_check_exception(err, cur_group, counter, is_seed=True)
-                continue
-            log_run_info(cur_group,
-                         'seed',
-                         str(cur_group.satis))
-            queue.append(instance)
+        counter['runs'] += 1
+        print_general_info(counter)
+        instance_group[i] = InstanceGroup(files.pop())
+        cur_group = instance_group[i]
+        instance = Instance(i, seed)
+        cur_group.same_stats_limit = 5 * len(seed)
+        cur_group.push(instance)
+        try:
+            check_satis(instance, is_seed=True)
+        except AssertionError as err:
+            analyze_check_exception(err, cur_group, counter, is_seed=True)
+            continue
+        log_run_info(cur_group,
+                     'seed')
+        queue.append(instance)
 
     while queue:
         print_general_info(counter)
@@ -267,10 +267,10 @@ def fuzz(files, seeds):
 
             mut_instance = Instance(cur_instance.group_id)
             mut = mut_instance.mutation
-            mut_instance.chc = mut.apply(cur_instance)
+            mut.apply(cur_instance, mut_instance)
 
             try:
-                res = check_satis(cur_instance, mut.snd_inst, mut_instance)
+                res = check_satis(mut_instance, mut.snd_inst)
             except AssertionError as err:
                 analyze_check_exception(err, cur_group, counter, mut_instance)
                 continue
@@ -310,7 +310,7 @@ def fuzz(files, seeds):
 
 
 def main():
-    global general_stats, heuristics, heuristic_flags
+    global general_stats, heuristics, heuristic_flags, seed_number
 
     parser = argparse.ArgumentParser()
     parser.add_argument('seeds',
@@ -349,9 +349,10 @@ def main():
     files = get_seeds(argv.seeds, directory)
 
     seed_number = len(files)
-    logging.info(json.dumps({'seed_number': seed_number, 'heuristics': heuristics}))
     assert seed_number > 0, 'Seeds not found'
     seeds = parse_seeds(files)
+    assert seed_number > 0, 'All seeds were given in incorrect format'
+    logging.info(json.dumps({'seed_number': seed_number, 'heuristics': heuristics}))
 
     fuzz(files, seeds)
 
