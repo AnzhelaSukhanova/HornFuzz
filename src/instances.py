@@ -37,6 +37,7 @@ class InstanceGroup(object):
         self.instances[length] = instance
         if length == 0:
             self.get_pred_info()
+            self.get_vars()
             instance.get_system_info()
 
     def roll_back(self):
@@ -180,7 +181,7 @@ class Instance(object):
         info.expr_exists = expr_exists(self.chc, info_kinds)
 
         for i, clause in enumerate(self.chc):
-            expr_numbers = count_expr(clause, info_kinds)
+            expr_numbers = count_expr(clause, info_kinds, vars_lim=2)
             for j in range(len(info_kinds)):
                 if i >= info.expr_num.shape[1]:
                     print(self.mutation.get_chain())
@@ -235,7 +236,7 @@ class Mutation(object):
         elif self.type in {MutType.SWAP_AND, MutType.SWAP_OR,
                            MutType.DUP_AND, MutType.DUP_OR,
                            MutType.BREAK_AND, MutType.BREAK_OR,
-                           MutType.MIX_BOUND_VARS}:
+                           MutType.MIX_BOUND_VARS, MutType.ADD_INEQ}:
             new_instance.chc = self.transform_rand(instance)
 
         elif self.type == MutType.UNION:
@@ -244,9 +245,6 @@ class Mutation(object):
         elif self.type == MutType.SIMPLIFY:
             new_instance.chc = self.simplify_ineq(instance.chc)
             new_instance.get_system_info()
-
-        elif self.type == MutType.ADD_INEQ:
-            new_instance.chc = self.add_ineq(instance)
 
         else:
             assert False
@@ -262,13 +260,16 @@ class Mutation(object):
         if self.snd_inst:
             self.type = MutType.UNION
         else:
-            ind = []
+            ind = ineq_ind = []
             info = instance.info
             for i in range(len(info_kinds)):
                 if info.expr_exists[i]:
-                    ind.append(i)
-                    if i > 2:
-                        break
+                    if 2 < i < 7:
+                        ineq_ind.append(i)
+                    else:
+                        ind.append(i)
+            ind.append(random.choice(ineq_ind))
+
             if not ind:
                 return MutType.ID
             else:
@@ -277,7 +278,7 @@ class Mutation(object):
                     value = random.randrange(2, 5)
                     self.type = MutType(value)
                 elif self.kind_ind == 1:
-                    value = random.randrange(5, 8)
+                    value = random.choice([5, 7])  # random.randrange(5, 8)
                     self.type = MutType(value)
                 elif self.kind_ind == 2:
                     self.type = MutType.MIX_BOUND_VARS
@@ -295,15 +296,8 @@ class Mutation(object):
         for key in instance_group:
             snd_group = instance_group[key]
             if not fst_group.uninter_pred.intersection(snd_group.uninter_pred):
-                if not fst_group.bound_vars:
-                    fst_group.get_vars()
-                if not snd_group.bound_vars:
-                    snd_group.get_vars()
                 if not fst_group.bound_vars.intersection(snd_group.bound_vars):
                     self.snd_inst = snd_group[-1]
-
-    def add_ineq(self, instance):
-        return instance.chc
 
     def simplify_ineq(self, chc_system):
         """Simplify instance with arith_ineq_lhs, arith_lhs and eq2ineq"""
@@ -336,7 +330,7 @@ class Mutation(object):
         return new_instance, new_info
 
     def transform_rand(self, instance):
-        """Transform random and/or-expression."""
+        """Transform random expression of the specific kind."""
         global trans_n
         info = instance.info
         chc_system = instance.chc
@@ -345,63 +339,72 @@ class Mutation(object):
 
         ind = np.where(info.expr_num[self.kind_ind] != 0)[0]
         i = int(random.choice(ind))
-        if self.type in {MutType.BREAK_AND, MutType.BREAK_OR}:
-            info.expr_num[self.kind_ind][i] += 1
         clause = chc_system[i]
         num = info.expr_num[self.kind_ind][i]
-        trans_n = random.randint(1, num)
+        trans_n = random.randint(0, num - 1)
         self.path = [i]
         mut_clause = self.transform_nth(clause, kind, time.perf_counter(), [i])
+        assert trans_n <= 0, 'Mutation ' + str(self.type) + ' wasn\'t applied'
+
         for j, clause in enumerate(chc_system):
             if j == i:
                 mut_system.push(mut_clause)
             else:
                 mut_system.push(chc_system[j])
+        if self.type in {MutType.BREAK_AND, MutType.BREAK_OR}:
+            info.expr_num[self.kind_ind][i] += 1
+        elif self.type == MutType.ADD_INEQ:
+            info.expr_num[0][i] += 1
+            info.expr_num[self.kind_ind][i] += 1
+        assert str(chc_system) != str(mut_system), \
+            'Mutation ' + str(self.type) + ' didn\'t change the CHC'
         return mut_system
 
     def transform_nth(self, expr, expr_kind, st_time, path):
-        """Transform nth and/or-expression in dfs-order."""
+        """Transform nth expression of the specific kind in dfs-order."""
         global trans_n
         if time.perf_counter() - st_time >= MUT_APPLY_TIME_LIMIT:
             raise TimeoutError('Timeout of applying mutation')
         if not len(expr.children()):
             return expr
+
+        if is_app_of(expr, expr_kind) or check_ast_kind(expr, expr_kind):
+            if trans_n == 0:
+                children = expr.children()
+                if self.type in {MutType.SWAP_AND, MutType.SWAP_OR}:
+                    children = children[1:] + children[:1]
+                elif self.type in {MutType.DUP_AND, MutType.DUP_OR}:
+                    children.append(children[0])
+                elif self.type in {MutType.BREAK_AND, MutType.BREAK_OR}:
+                    children = mut_break(children, expr_kind)
+                elif self.type == MutType.ADD_INEQ:
+                    new_ineq = create_add_ineq(children, expr_kind)
+
+                if expr_kind == Z3_OP_AND:
+                    mut_expr = And(children)
+                elif expr_kind == Z3_OP_OR:
+                    mut_expr = Or(children)
+                elif expr_kind == Z3_QUANTIFIER_AST:
+                    vars = get_bound_vars(expr)
+                    old_order = deepcopy(vars)
+                    if len(vars) > 1:
+                        while vars == old_order:
+                            random.shuffle(vars)
+                    mut_expr = update_expr(expr, children, vars)
+                else:
+                    mut_expr = And([expr, new_ineq])
+                self.path = path
+                return mut_expr
+            trans_n -= 1
+
         mut_children = []
         for i, child in enumerate(expr.children()):
             new_path = path + [i]
-            mut_children.append(self.transform_nth(child, expr_kind, st_time, new_path))
-        is_and_expr = expr_kind == Z3_OP_AND and is_and(expr)
-        is_or_expr = expr_kind == Z3_OP_OR and is_or(expr)
-        is_quant_expr = expr_kind == Z3_QUANTIFIER_AST and is_quantifier(expr)
-        if is_and_expr or is_or_expr or is_quant_expr:
-            trans_n -= 1
-            if trans_n == 0:
-                if self.type in {MutType.SWAP_AND, MutType.SWAP_OR}:
-                    mut_children = mut_children[1:] + mut_children[:1]
-                elif self.type in {MutType.DUP_AND, MutType.DUP_OR}:
-                    mut_children.append(mut_children[0])
-                elif self.type in {MutType.BREAK_AND, MutType.BREAK_OR}:
-                    if len(mut_children) == 2:
-                        mut_children.pop()
-                        mut_children.append(expr)
-                    else:
-                        subchildren = mut_children[-2:]
-                        mut_children = mut_children[:-2]
-                        if is_and_expr:
-                            mut_children.append(And(subchildren))
-                        else:
-                            mut_children.append(Or(subchildren))
-                if is_and_expr:
-                    mut_expr = And(mut_children)
-                elif is_or_expr:
-                    mut_expr = Or(mut_children)
-                else:
-                    vars = get_bound_vars(expr)
-                    random.shuffle(vars)
-                    mut_expr = update_expr(expr, mut_children, vars)
-                self.path = path
-                return mut_expr
-        return update_expr(expr, mut_children)
+            if trans_n >= 0:
+                mut_children.append(self.transform_nth(child, expr_kind, st_time, new_path))
+            else:
+                mut_children.append(child)
+            return update_expr(expr, mut_children)
 
     def get_chain(self):
         """Return the full mutation chain."""
@@ -414,3 +417,26 @@ class Mutation(object):
 
     def debug_print(self, chc_system: AstVector, mut_system: AstVector):
         print(chc_system[self.path[0]], '\n->\n', mut_system[self.path[0]])
+
+
+def mut_break(children, expr_kind):
+    children_part = children[-2:]
+    if len(children) == 2:
+        mut_children = children[:-1]
+    else:
+        mut_children = children[:-2]
+    if expr_kind == Z3_OP_AND:
+        mut_children.append(And(children_part))
+    else:
+        mut_children.append(Or(children_part))
+    return mut_children
+
+
+def create_add_ineq(children, expr_kind):
+    if expr_kind in {Z3_OP_LE, Z3_OP_LT}:
+        new_child = Sum(children[1], 1)
+        new_ineq = children[0] < new_child
+    else:
+        new_child = Sum(children[1], -1)
+        new_ineq = children[0] > new_child
+    return new_ineq

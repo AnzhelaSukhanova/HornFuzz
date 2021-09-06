@@ -204,12 +204,9 @@ def expr_exists(instance, kinds):
         expr_set = {expr} if not is_var(expr) and not is_const(expr) else {}
         while len(expr_set) and ind:
             cur_expr = expr_set.pop()
-            ctx_ref = cur_expr.ctx.ref()
-            ast = cur_expr.as_ast()
             for j in ind:
-                if Z3_get_ast_kind(ctx_ref, ast) == kinds[j] or \
-                        (not is_var(expr) and not is_const(expr) and
-                         is_app(cur_expr) and cur_expr.decl().kind() == kinds[j]):
+                if check_ast_kind(cur_expr, kinds[j]) or \
+                        is_app_of(cur_expr, kinds[j]):
                     expr_ex[j] = True
                     ind.remove(j)
                     break
@@ -220,7 +217,7 @@ def expr_exists(instance, kinds):
     return expr_ex
 
 
-def count_expr(instance, kinds, is_unique=False):
+def count_expr(instance, kinds, is_unique=False, vars_lim=None):
     """Return the number of subexpressions of the specific kind."""
 
     unique_expr = defaultdict(set)
@@ -231,11 +228,12 @@ def count_expr(instance, kinds, is_unique=False):
         expr_set = {expr} if not is_var(expr) and not is_const(expr) else {}
         while len(expr_set):
             cur_expr = expr_set.pop()
-            ctx_ref = cur_expr.ctx.ref()
-            ast = cur_expr.as_ast()
             for j in range(len(kinds)):
-                if Z3_get_ast_kind(ctx_ref, ast) == kinds[j] or \
-                        (is_app(cur_expr) and cur_expr.decl().kind() == kinds[j]):
+                if check_ast_kind(cur_expr, kinds[j]) or \
+                        is_app_of(cur_expr, kinds[j]):
+                    if kinds[j] == Z3_QUANTIFIER_AST and vars_lim:
+                        if len(get_bound_vars(cur_expr)) < vars_lim:
+                            break
                     if is_unique:
                         expr_num[j] += 1
                         unique_expr[j].add(cur_expr.decl())
@@ -249,3 +247,9 @@ def count_expr(instance, kinds, is_unique=False):
         return expr_num, unique_expr
     else:
         return expr_num
+
+
+def check_ast_kind(expr, kind):
+    ctx_ref = expr.ctx.ref()
+    ast = expr.as_ast()
+    return Z3_get_ast_kind(ctx_ref, ast) == kind

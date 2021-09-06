@@ -49,10 +49,20 @@ class Stats:
                 unique_traces_axis,
                 colors[color_i])
 
-    def analyze_errors(self):
-        ind = self.df['status'] == 'error'
-        # for i, entry in self.df.loc[ind].iterrows():
-        #     print(entry['mut_chain'], entry['message'], end='\n')
+    # def analyze_errors(self):
+    #     ind = self.df['status'] == 'error'
+    #     for i, entry in self.df.loc[ind].iterrows():
+    #         print(entry['mut_chain'], entry['message'], end='\n')
+    #
+    # def analyze_unknown(self):
+    #     ind = self.df['status'] == 'mutant_unknown'
+    #     for i, entry in self.df.loc[ind].iterrows():
+    #         print(entry['message'], entry['mut_chain'], end='\n')
+    #
+    # def analyze_bugs(self):
+    #     ind = self.df['status'] == 'bug'
+    #     for i, entry in self.df.loc[ind].iterrows():
+    #         print(entry['mut_chain'], end='\n')
 
 
 def main(log_names):
@@ -74,7 +84,6 @@ def main(log_names):
             entry = json.loads(line)
             entries.append(list(entry.values())[0])
         cur_stats.df = pd.DataFrame(entries)
-        cur_stats.analyze_errors()
         for heur in info['heuristics']:
             if heur == 'transitions':
                 legend.append('Trace transition heuristic')
