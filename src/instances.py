@@ -201,8 +201,11 @@ class MutType(Enum):
     """
     BREAK_AND = 4
     SWAP_OR = 5
+
+    # Cause "formula is not in Horn fragment"
     DUP_OR = 6
     BREAK_OR = 7
+    # _______________________________________
 
     MIX_BOUND_VARS = 8
     UNION = 9
@@ -219,6 +222,7 @@ class Mutation(object):
         self.snd_inst = None
         self.prev_mutation = prev_mutation
         self.kind_ind = 0
+        self.applied = False
 
     def clear(self):
         self.type = MutType.ID
@@ -278,7 +282,7 @@ class Mutation(object):
                     value = random.randrange(2, 5)
                     self.type = MutType(value)
                 elif self.kind_ind == 1:
-                    value = random.choice([5, 7])  # random.randrange(5, 8)
+                    value = 5  # random.randrange(5, 8)
                     self.type = MutType(value)
                 elif self.kind_ind == 2:
                     self.type = MutType.MIX_BOUND_VARS
@@ -344,8 +348,7 @@ class Mutation(object):
         trans_n = random.randint(0, num - 1)
         self.path = [i]
         mut_clause = self.transform_nth(clause, kind, time.perf_counter(), [i])
-        assert trans_n <= 0, 'Mutation ' + str(self.type) + ' wasn\'t applied'
-
+        assert self.applied, 'Mutation ' + self.type.name + ' wasn\'t applied'
         for j, clause in enumerate(chc_system):
             if j == i:
                 mut_system.push(mut_clause)
@@ -356,8 +359,8 @@ class Mutation(object):
         elif self.type == MutType.ADD_INEQ:
             info.expr_num[0][i] += 1
             info.expr_num[self.kind_ind][i] += 1
-        assert str(chc_system) != str(mut_system), \
-            'Mutation ' + str(self.type) + ' didn\'t change the CHC'
+        assert bool(chc_system != mut_system), \
+            'Mutation ' + self.type.name + ' didn\'t change the CHC'
         return mut_system
 
     def transform_nth(self, expr, expr_kind, st_time, path):
@@ -394,6 +397,7 @@ class Mutation(object):
                 else:
                     mut_expr = And([expr, new_ineq])
                 self.path = path
+                self.applied = True
                 return mut_expr
             trans_n -= 1
 
@@ -404,7 +408,7 @@ class Mutation(object):
                 mut_children.append(self.transform_nth(child, expr_kind, st_time, new_path))
             else:
                 mut_children.append(child)
-            return update_expr(expr, mut_children)
+        return update_expr(expr, mut_children)
 
     def get_chain(self):
         """Return the full mutation chain."""
