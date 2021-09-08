@@ -38,6 +38,11 @@ class InstanceGroup(object):
             self.get_pred_info()
             self.get_vars()
             instance.get_system_info()
+            for var in self.bound_vars:
+                if is_array(var):
+                    instance.info.has_array = True
+                    print('!!')
+                    break
 
     def roll_back(self):
         """Roll back the group to the seed."""
@@ -265,8 +270,9 @@ class Mutation(object):
             info = instance.info
             for i in range(len(info_kinds)):
                 if info.expr_exists[i]:
-                    if 2 < i < 7:
-                        ineq_ind.append(i)
+                    if 2 < i < 8:
+                        if not info.has_array:
+                            ineq_ind.append(i)
                     else:
                         ind.append(i)
             ind.append(random.choice(ineq_ind))
@@ -379,6 +385,8 @@ class Mutation(object):
                     children = mut_break(children, expr_kind)
                 elif self.type == MutType.ADD_INEQ:
                     new_ineq = create_add_ineq(children, expr_kind)
+                else:
+                    pass
 
                 if expr_kind == Z3_OP_AND:
                     mut_expr = And(children)
@@ -432,9 +440,9 @@ def mut_break(children, expr_kind):
 
 def create_add_ineq(children, expr_kind):
     if expr_kind in {Z3_OP_LE, Z3_OP_LT}:
-        new_child = Sum(children[1], 1)
+        new_child = children[1] + 1
         new_ineq = children[0] < new_child
     else:
-        new_child = Sum(children[1], -1)
+        new_child = children[1] - 1
         new_ineq = children[0] > new_child
     return new_ineq
