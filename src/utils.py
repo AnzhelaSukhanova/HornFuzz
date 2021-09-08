@@ -5,6 +5,7 @@ from copy import deepcopy
 from enum import Enum
 import numpy as np
 import hashlib
+import random
 
 TRACE_FILE = '.z3-trace'
 
@@ -253,3 +254,12 @@ def check_ast_kind(expr, kind):
     ctx_ref = expr.ctx.ref()
     ast = expr.as_ast()
     return Z3_get_ast_kind(ctx_ref, ast) == kind
+
+
+def shuffle_vars(vars):
+    old_order = [id(var) for var in vars]
+    is_same = True
+    while is_same:
+        random.shuffle(vars)
+        new_order = [id(var) for var in vars]
+        is_same = new_order == old_order

@@ -1,4 +1,3 @@
-import random
 import time
 
 from utils import *
@@ -183,8 +182,6 @@ class Instance(object):
         for i, clause in enumerate(self.chc):
             expr_numbers = count_expr(clause, info_kinds, vars_lim=2)
             for j in range(len(info_kinds)):
-                if i >= info.expr_num.shape[1]:
-                    print(self.mutation.get_chain())
                 info.expr_num[j, i] = expr_numbers[j]
 
 
@@ -389,10 +386,7 @@ class Mutation(object):
                     mut_expr = Or(children)
                 elif expr_kind == Z3_QUANTIFIER_AST:
                     vars = get_bound_vars(expr)
-                    old_order = deepcopy(vars)
-                    if len(vars) > 1:
-                        while vars == old_order:
-                            random.shuffle(vars)
+                    shuffle_vars(vars)
                     mut_expr = update_expr(expr, children, vars)
                 else:
                     mut_expr = And([expr, new_ineq])

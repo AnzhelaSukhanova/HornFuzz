@@ -49,11 +49,11 @@ class Stats:
                 unique_traces_axis,
                 colors[color_i])
 
-    # def analyze_errors(self):
-    #     ind = self.df['status'] == 'error'
-    #     for i, entry in self.df.loc[ind].iterrows():
-    #         print(entry['mut_chain'], entry['message'], end='\n')
-    #
+    def analyze_errors(self):
+        ind = self.df['status'] == 'error'
+        for i, entry in self.df.loc[ind].iterrows():
+            print(entry['filename'], entry['message'], end='\n')
+
     # def analyze_unknown(self):
     #     ind = self.df['status'] == 'mutant_unknown'
     #     for i, entry in self.df.loc[ind].iterrows():
@@ -93,6 +93,7 @@ def main(log_names):
                 legend.append('Complexity heuristic')
             else:
                 legend.append('Default')
+        cur_stats.analyze_errors()
         cur_stats.create_traces_graph(traces, i)
         cur_stats.create_time_graph(times, i)
 
