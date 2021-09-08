@@ -41,7 +41,6 @@ class InstanceGroup(object):
             for var in self.bound_vars:
                 if is_array(var):
                     instance.info.has_array = True
-                    print('!!')
                     break
 
     def roll_back(self):
