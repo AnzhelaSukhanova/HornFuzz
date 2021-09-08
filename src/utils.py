@@ -21,14 +21,12 @@ class ClauseInfo(object):
     def __init__(self, number):
         self.expr_exists = defaultdict(bool)
         self.expr_num = np.zeros((len(info_kinds), number), dtype=int)
-        self.has_array = False
 
     def __add__(self, other):
         sum = ClauseInfo(1)
         for key in self.expr_exists:
             sum.expr_exists[key] = self.expr_exists[key] | other.expr_exists[key]
         sum.expr_num = np.concatenate((self.expr_num, other.expr_num), axis=1)
-        sum.has_array = self.has_array | other.has_array
         return sum
 
 

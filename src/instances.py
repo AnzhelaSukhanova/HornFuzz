@@ -38,10 +38,6 @@ class InstanceGroup(object):
             self.get_pred_info()
             self.get_vars()
             instance.get_system_info()
-            for var in self.bound_vars:
-                if is_array(var):
-                    instance.info.has_array = True
-                    break
 
     def roll_back(self):
         """Roll back the group to the seed."""
@@ -270,8 +266,7 @@ class Mutation(object):
             for i in range(len(info_kinds)):
                 if info.expr_exists[i]:
                     if 2 < i < 8:
-                        if not info.has_array:
-                            ineq_ind.append(i)
+                        ineq_ind.append(i)
                     else:
                         ind.append(i)
             ind.append(random.choice(ineq_ind))
@@ -279,6 +274,7 @@ class Mutation(object):
             if not ind:
                 return MutType.ID
             else:
+                group = instance.get_group()
                 self.kind_ind = random.choice(ind)
                 if self.kind_ind == 0:
                     value = random.randrange(2, 5)
@@ -288,8 +284,10 @@ class Mutation(object):
                     self.type = MutType(value)
                 elif self.kind_ind == 2:
                     self.type = MutType.MIX_BOUND_VARS
+                elif self.kind_ind == 7:
+                    self.type = MutType.SIMPLIFY
+                    group.is_simplified = True
                 else:
-                    group = instance.get_group()
                     if not group.is_simplified:
                         self.type = MutType.SIMPLIFY
                         group.is_simplified = True
