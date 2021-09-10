@@ -21,6 +21,7 @@ class InstanceGroup(object):
         self.is_linear = True
         self.upred_num = 0
         self.uninter_pred = set()
+        self.upred_ind = defaultdict(set)
         self.bound_vars = set()
         self.is_simplified = False
 
@@ -80,37 +81,36 @@ class InstanceGroup(object):
         instance = self[-1]
         chc_system = instance.chc
 
-        upred_num, uninter_pred = count_expr(chc_system,
-                                             [Z3_OP_UNINTERPRETED],
-                                             is_unique=True)
-        self.upred_num = upred_num[0]
-        self.uninter_pred = uninter_pred[0]
+        for i, clause in enumerate(chc_system):
+            child = clause.children()[0]
+            if is_quantifier(clause):
+                body = clause.body()
+            elif is_not(clause) and child.is_exists():
+                body = child.body()
+            else:
+                body = clause
+            if is_implies(body):
+                expr = body.children()[0]
+            elif is_and(body):
+                expr = body
+            elif body.decl().kind() == Z3_OP_UNINTERPRETED:
+                expr = None
+            else:
+                assert False, self.filename + \
+                              ' -- clause-kind: ' + \
+                              str(body.decl())
+            if expr is not None:
+                upred_num, uninter_pred = count_expr(expr,
+                                                     [Z3_OP_UNINTERPRETED],
+                                                     is_unique=True)
+                for pred in uninter_pred[0]:
+                    self.uninter_pred.add(pred)
+                    self.upred_ind[pred].add(i)
 
-        for clause in chc_system:
-            if self.is_linear:
-                child = clause.children()[0]
-                if is_quantifier(clause):
-                    body = clause.body()
-                elif is_not(clause) and child.is_exists():
-                    body = child.body()
-                else:
-                    body = clause
-                if is_implies(body):
-                    expr = body.children()[0]
-                elif is_and(body):
-                    expr = body
-                elif body.decl().kind() == Z3_OP_UNINTERPRETED:
-                    expr = None
-                else:
-                    assert False, self.filename + \
-                                  ' -- clause-kind: ' + \
-                                  str(body.decl())
-                if expr is not None:
-                    upred_num, _ = count_expr(expr,
-                                              [Z3_OP_UNINTERPRETED],
-                                              is_unique=True)
-                    if upred_num[0] > 1:
-                        self.is_linear = False
+                if upred_num[0] > 1:
+                    self.is_linear = False
+        self.upred_num = len(self.uninter_pred)
+        #print(self.uninter_pred)
 
     def get_vars(self):
         """Get clause variables."""
@@ -145,7 +145,7 @@ class Instance(object):
             self.mutation = Mutation(prev_instance.mutation)
             self.info = deepcopy(prev_instance.info)
 
-    def check(self, solver, is_seed):
+    def check(self, solver, is_seed=False, get_stats=True):
         """Check the satisfiability of the instance."""
         solver.reset()
         if is_seed:
@@ -156,8 +156,9 @@ class Instance(object):
         solver.add(self.chc)
         self.satis = solver.check()
         assert self.satis != unknown, solver.reason_unknown()
-        self.trace_stats.read_from_trace()
-        unique_traces.add(self.trace_stats.hash)
+        if get_stats:
+            self.trace_stats.read_from_trace()
+            unique_traces.add(self.trace_stats.hash)
 
     def get_group(self):
         """Return the group of the instance."""
@@ -230,7 +231,9 @@ class Mutation(object):
 
     def apply(self, instance, new_instance):
         """Mutate instances."""
-        self.next_mutation(instance)
+        if self.type != MutType.ID:
+            self.next_mutation(instance)
+
         if self.type == MutType.ID:
             assert False, 'No mutation can be applied'
 

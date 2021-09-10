@@ -13,6 +13,42 @@ heuristic_flags = defaultdict(bool)
 queue = []
 
 
+def reduce_instance(instance, mut_type, message):
+    group = instance.get_group()
+    new_instance = deepcopy(instance)
+    last_chc = instance.chc
+    reduced_ind = set()
+
+    for pred in group.upred_ind:
+        for i in group.upred_ind[pred]:
+            if i not in reduced_ind:
+                new_instance.chc = new_instance.chc[:i] + new_instance.chc[i + 1:]
+
+        mut_instance = deepcopy(new_instance)
+        mut = new_instance.mutation
+        mut.type = mut_type
+        try:
+            mut.apply(new_instance, mut_instance)
+            same_res = not check_satis(mut_instance, mut.snd_inst, get_stats=False)
+            if message:
+                same_res = False
+        except AssertionError as err:
+            same_res = repr(err) == message
+
+        if not same_res:
+            new_instance.chc = last_chc
+        else:
+            last_chc = new_instance.chc
+            reduced_ind = reduced_ind.union(group.upred_ind[pred])
+    new_instance.chc = AstVector()
+    for clause in last_chc:
+        new_instance.chc.push(clause)
+    print('Reduced:',
+          len(instance.chc), '->', len(new_instance.chc),
+          '(number of clauses)')
+    return new_instance.chc
+
+
 def reduce(instance):
     """
     Search for a reduced version of mutation chain that is
@@ -88,7 +124,7 @@ def parse_seeds(filenames):
     return seeds
 
 
-def check_satis(instance, snd_instance=None, is_seed=False):
+def check_satis(instance, snd_instance=None, is_seed=False, get_stats=True):
     """
     Return True if the test suites have the same satisfiability and
     False otherwise.
@@ -98,13 +134,14 @@ def check_satis(instance, snd_instance=None, is_seed=False):
     solver = SolverFor('HORN')
     solver.set('engine', 'spacer')
 
-    instance.check(solver, is_seed)
+    instance.check(solver, is_seed, get_stats)
     satis = instance.satis
     if snd_instance:
         if snd_instance.satis == unsat:
             satis = unsat
 
-    if heuristic_flags['transitions'] or heuristic_flags['states']:
+    if get_stats and (heuristic_flags['transitions'] or
+                      heuristic_flags['states']):
         general_stats += instance.trace_stats
     return True if is_seed else instance.satis == satis
 
@@ -168,6 +205,7 @@ def log_run_info(group, status, message=None, mut_instance=None, snd_instance=No
     log = {'filename': group.filename, 'status': status}
     if message:
         log['message'] = message
+
     if not mut_instance:
         cur_instance_info = cur_instance.get_log(is_seed=True)
         log.update(cur_instance_info)
@@ -177,19 +215,32 @@ def log_run_info(group, status, message=None, mut_instance=None, snd_instance=No
             log['mut_chain'] = chain
         elif status == 'seed':
             log['satis'] = str(cur_instance.satis)
+
     else:
         snd_id = snd_instance.id if snd_instance else None
         mutant_info = mut_instance.get_log(snd_id)
         log.update(mutant_info)
+
         if status != 'pass':
-            log['prev_chc'] = cur_instance.chc.sexpr()
+            # reduce(mut_instance)
+            chain = mut_instance.mutation.get_chain()
+            log['mut_chain'] = chain
+
+            if status in {'mutant_unknown', 'bug'}:
+                reduced_inst = reduce_instance(group[-1],
+                                               mut_instance.mutation.type,
+                                               message).sexpr()
+                log['prev_chc'] = reduced_inst
+                filename = 'reduced/' + str(mut_instance.group_id) + '_' + str(mut_instance.id) + '.smt2'
+                with open(filename, 'w') as file:
+                    file.write(reduced_inst)
+            else:
+                log['prev_chc'] = cur_instance.chc.sexpr()
+
             if snd_instance:
                 log['second_chc'] = snd_instance.chc.sexpr()
             log['current_chc'] = mut_instance.chc.sexpr()
             log['excepted_satis'] = str(cur_instance.satis)
-            # reduce(mut_instance)
-            chain = mut_instance.mutation.get_chain()
-            log['mut_chain'] = chain
     logging.info(json.dumps({'run_info': log}))
 
 
@@ -238,7 +289,6 @@ def fuzz(files, seeds):
     cur_group = None
     for i, seed in enumerate(seeds):
         counter['runs'] += 1
-        print_general_info(counter)
         instance_group[i] = InstanceGroup(files.pop())
         cur_group = instance_group[i]
         instance = Instance(i, seed)
@@ -267,6 +317,7 @@ def fuzz(files, seeds):
 
             mut_instance = Instance(cur_instance.group_id)
             mut = mut_instance.mutation
+            mut.next_mutation(cur_instance)
             mut.apply(cur_instance, mut_instance)
 
             try:
@@ -331,6 +382,8 @@ def main():
     logging.basicConfig(format='%(message)s',
                         filename='logfile',
                         level=logging.INFO)
+    if not os.path.exists('reduced'):
+        os.mkdir('reduced')
     np.set_printoptions(suppress=True)
     set_option(max_args=int(1e6), max_lines=int(1e6),
                max_depth=int(1e6), max_visited=int(1e6))

@@ -1,7 +1,7 @@
 from z3 import *
 from collections import defaultdict
 from scipy.sparse import dok_matrix
-from copy import deepcopy
+from copy import deepcopy, copy
 from enum import Enum
 import numpy as np
 import hashlib
