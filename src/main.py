@@ -13,20 +13,24 @@ heuristic_flags = defaultdict(bool)
 queue = []
 
 
-def reduce_instance(instance, mut_type, message):
+def reduce_instance(instance, mutation, message=None):
     group = instance.get_group()
     new_instance = deepcopy(instance)
+    new_instance.mutation = mutation
     last_chc = instance.chc
     reduced_ind = set()
 
-    for pred in group.upred_ind:
-        for i in group.upred_ind[pred]:
-            if i not in reduced_ind:
-                new_instance.chc = new_instance.chc[:i] + new_instance.chc[i + 1:]
+    if mutation.type == MutType.UNION:
+        group.get_pred_info()
+    upred_ind = group.upred_ind
+
+    for pred in upred_ind:
+        ind = group.upred_ind[pred].intersection(reduced_ind)
+        new_instance.chc = remove_clauses(new_instance.chc, ind)
+        new_instance.get_system_info()
 
         mut_instance = deepcopy(new_instance)
         mut = new_instance.mutation
-        mut.type = mut_type
         try:
             mut.apply(new_instance, mut_instance)
             same_res = not check_satis(mut_instance, mut.snd_inst, get_stats=False)
@@ -40,12 +44,13 @@ def reduce_instance(instance, mut_type, message):
         else:
             last_chc = new_instance.chc
             reduced_ind = reduced_ind.union(group.upred_ind[pred])
-    new_instance.chc = AstVector()
-    for clause in last_chc:
-        new_instance.chc.push(clause)
+    old_len = len(instance.chc)
+    new_len = len(new_instance.chc)
     print('Reduced:',
-          len(instance.chc), '->', len(new_instance.chc),
+          old_len, '->', new_len,
           '(number of clauses)')
+    if old_len != new_len:
+        new_instance.chc = reduce_instance(new_instance, mutation, message)
     return new_instance.chc
 
 
@@ -227,13 +232,17 @@ def log_run_info(group, status, message=None, mut_instance=None, snd_instance=No
             log['mut_chain'] = chain
 
             if status in {'mutant_unknown', 'bug'}:
-                reduced_inst = reduce_instance(group[-1],
-                                               mut_instance.mutation.type,
-                                               message).sexpr()
-                log['prev_chc'] = reduced_inst
-                filename = 'reduced/' + str(mut_instance.group_id) + '_' + str(mut_instance.id) + '.smt2'
-                with open(filename, 'w') as file:
-                    file.write(reduced_inst)
+                try:
+                    reduced_inst = reduce_instance(cur_instance,
+                                                   mut_instance.mutation,
+                                                   message)
+                    filename = 'reduced/' + str(mut_instance.group_id) + '_' + str(mut_instance.id) + '.smt2'
+                    with open(filename, 'w') as file:
+                        file.write(reduced_inst.sexpr())
+                except Exception:
+                    print(traceback.format_exc(), chain)
+                    reduced_inst = cur_instance.chc
+                log['prev_chc'] = reduced_inst.sexpr()
             else:
                 log['prev_chc'] = cur_instance.chc.sexpr()
 
@@ -246,7 +255,7 @@ def log_run_info(group, status, message=None, mut_instance=None, snd_instance=No
 
 def analyze_check_exception(err, group, counter,
                             mut_instance=None, is_seed=False):
-    """Log information about exceptions that occur during the check"""
+    """Log information about exceptions that occur during the check."""
     global queue
 
     if is_seed:
@@ -343,6 +352,7 @@ def fuzz(files, seeds):
                              'pass',
                              mut_instance=mut_instance,
                              snd_instance=mut.snd_inst)
+
         except Exception as err:
             if type(err).__name__ == 'TimeoutError':
                 counter['timeout'] += 1

@@ -263,3 +263,12 @@ def shuffle_vars(vars):
         random.shuffle(vars)
         new_order = [id(var) for var in vars]
         is_same = new_order == old_order
+
+
+def remove_clauses(chc_system: AstVector, ind):
+    new_system = AstVector()
+    for i, clause in enumerate(chc_system):
+        if i not in ind:
+            new_system.push(clause)
+    return new_system
+

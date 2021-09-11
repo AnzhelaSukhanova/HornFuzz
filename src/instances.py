@@ -89,10 +89,14 @@ class InstanceGroup(object):
                 body = child.body()
             else:
                 body = clause
+
+            child = body.children()[0]
             if is_implies(body):
                 expr = body.children()[0]
             elif is_and(body):
                 expr = body
+            elif is_not(body) and is_or(child):
+                expr = child
             elif body.decl().kind() == Z3_OP_UNINTERPRETED:
                 expr = None
             else:
@@ -110,7 +114,6 @@ class InstanceGroup(object):
                 if upred_num[0] > 1:
                     self.is_linear = False
         self.upred_num = len(self.uninter_pred)
-        #print(self.uninter_pred)
 
     def get_vars(self):
         """Get clause variables."""
@@ -217,6 +220,7 @@ class Mutation(object):
         self.type = MutType.ID
         self.number = prev_mutation.number + 1 if prev_mutation else 0
         self.path = []
+        self.trans_num = -1
         self.snd_inst = None
         self.prev_mutation = prev_mutation
         self.kind_ind = 0
@@ -241,7 +245,7 @@ class Mutation(object):
                            MutType.DUP_AND, MutType.DUP_OR,
                            MutType.BREAK_AND, MutType.BREAK_OR,
                            MutType.MIX_BOUND_VARS, MutType.ADD_INEQ}:
-            new_instance.chc = self.transform_rand(instance)
+            new_instance.chc = self.transform(instance)
 
         elif self.type == MutType.UNION:
             new_instance.chc, new_instance.info = self.unite(instance)
@@ -306,14 +310,16 @@ class Mutation(object):
                 if not fst_group.bound_vars.intersection(snd_group.bound_vars):
                     self.snd_inst = snd_group[-1]
 
-    def simplify_ineq(self, chc_system):
+    def simplify_ineq(self, chc_system, flags=None):
         """Simplify instance with arith_ineq_lhs, arith_lhs and eq2ineq"""
+        if flags is None:
+            flags = {0: True, 1: True, 2: True}
         mut_system = AstVector()
         for clause in chc_system:
             mut_clause = simplify(clause,
-                                  arith_ineq_lhs=True,
-                                  arith_lhs=True,
-                                  eq2ineq=True)
+                                  arith_ineq_lhs=flags[0],
+                                  arith_lhs=flags[1],
+                                  eq2ineq=flags[2])
             mut_system.push(mut_clause)
         return mut_system
 
@@ -336,7 +342,7 @@ class Mutation(object):
         new_info = fst_inst.info + self.snd_inst.info
         return new_instance, new_info
 
-    def transform_rand(self, instance):
+    def transform(self, instance):
         """Transform random expression of the specific kind."""
         global trans_n
         info = instance.info
@@ -344,12 +350,17 @@ class Mutation(object):
         mut_system = AstVector()
         kind = info_kinds[self.kind_ind]
 
-        ind = np.where(info.expr_num[self.kind_ind] != 0)[0]
-        i = int(random.choice(ind))
-        clause = chc_system[i]
-        num = info.expr_num[self.kind_ind][i]
-        trans_n = random.randint(0, num - 1)
+        if self.trans_num < 0:
+            ind = np.where(info.expr_num[self.kind_ind] != 0)[0]
+            i = int(random.choice(ind))
+            clause = chc_system[i]
+            num = info.expr_num[self.kind_ind][i]
+            self.trans_num = random.randint(0, num - 1)
+        else:
+            i = self.path[0]
+        trans_n = deepcopy(self.trans_num)
         self.path = [i]
+
         mut_clause = self.transform_nth(clause, kind, time.perf_counter(), [i])
         assert self.applied, 'Mutation ' + self.type.name + ' wasn\'t applied'
         for j, clause in enumerate(chc_system):
@@ -418,7 +429,14 @@ class Mutation(object):
         cur_mutation = self
         for i in range(self.number, 1, -1):
             cur_mutation = cur_mutation.prev_mutation
-            chain = cur_mutation.type.name + '->' + chain
+            if cur_mutation.type in {MutType.SWAP_AND, MutType.SWAP_OR,
+                                     MutType.DUP_AND, MutType.DUP_OR,
+                                     MutType.BREAK_AND, MutType.BREAK_OR,
+                                     MutType.MIX_BOUND_VARS, MutType.ADD_INEQ}:
+                mut_name = cur_mutation.type.name + '(' + str(cur_mutation.trans_num) + ')'
+            else:
+                mut_name = cur_mutation.type.name
+            chain = mut_name + '->' + chain
         return chain
 
     def debug_print(self, chc_system: AstVector, mut_system: AstVector):
