@@ -343,7 +343,7 @@ class Mutation(object):
         return new_instance, new_info
 
     def transform(self, instance):
-        """Transform random expression of the specific kind."""
+        """Transform an expression of the specific kind."""
         global trans_n
         info = instance.info
         chc_system = instance.chc
@@ -353,11 +353,11 @@ class Mutation(object):
         if self.trans_num < 0:
             ind = np.where(info.expr_num[self.kind_ind] != 0)[0]
             i = int(random.choice(ind))
-            clause = chc_system[i]
             num = info.expr_num[self.kind_ind][i]
             self.trans_num = random.randint(0, num - 1)
         else:
             i = self.path[0]
+        clause = chc_system[i]
         trans_n = deepcopy(self.trans_num)
         self.path = [i]
 
