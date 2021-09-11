@@ -46,10 +46,10 @@ def reduce_instance(instance, mutation, message=None):
             reduced_ind = reduced_ind.union(group.upred_ind[pred])
     old_len = len(instance.chc)
     new_len = len(new_instance.chc)
-    print('Reduced:',
-          old_len, '->', new_len,
-          '(number of clauses)')
     if old_len != new_len:
+        print('Reduced:',
+              old_len, '->', new_len,
+              '(number of clauses)')
         new_instance.chc = reduce_instance(new_instance, mutation, message)
     return new_instance.chc
 
@@ -140,7 +140,11 @@ def check_satis(instance, snd_instance=None, is_seed=False, get_stats=True):
     solver.set('engine', 'spacer')
 
     instance.check(solver, is_seed, get_stats)
-    satis = instance.satis
+    if not is_seed:
+        group = instance.get_group()
+        satis = group[-1].satis
+    else:
+        satis = instance.satis
     if snd_instance:
         if snd_instance.satis == unsat:
             satis = unsat
@@ -148,7 +152,7 @@ def check_satis(instance, snd_instance=None, is_seed=False, get_stats=True):
     if get_stats and (heuristic_flags['transitions'] or
                       heuristic_flags['states']):
         general_stats += instance.trace_stats
-    return True if is_seed else instance.satis == satis
+    return instance.satis == satis
 
 
 def sort_queue():
@@ -236,11 +240,12 @@ def log_run_info(group, status, message=None, mut_instance=None, snd_instance=No
                     reduced_inst = reduce_instance(cur_instance,
                                                    mut_instance.mutation,
                                                    message)
-                    filename = 'reduced/' + str(mut_instance.group_id) + '_' + str(mut_instance.id) + '.smt2'
+                    filename = 'reduced/' + str(mut_instance.group_id) + '_' + \
+                               str(mut_instance.id) + '.smt2'
                     with open(filename, 'w') as file:
                         file.write(reduced_inst.sexpr())
                 except Exception:
-                    print(traceback.format_exc(), chain)
+                    print(traceback.format_exc())
                     reduced_inst = cur_instance.chc
                 log['prev_chc'] = reduced_inst.sexpr()
             else:
@@ -297,6 +302,8 @@ def fuzz(files, seeds):
     stats_limit = len(seeds)
     cur_group = None
     for i, seed in enumerate(seeds):
+        if i > 0:
+            print_general_info(counter)
         counter['runs'] += 1
         instance_group[i] = InstanceGroup(files.pop())
         cur_group = instance_group[i]
