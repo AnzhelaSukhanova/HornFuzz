@@ -165,23 +165,28 @@ class Instance(object):
 
     def get_group(self):
         """Return the group of the instance."""
-        global instance_group
         return instance_group[self.group_id]
 
-    def get_log(self, is_seed=False, snd_id=None):
+    def get_log(self, is_seed=False, snd_instance=None):
         """Create a log entry with information about the instance."""
-        log = {'id': self.id}
         group = self.get_group()
+        log = {'filename': group.filename, 'id': self.id}
         if not is_seed:
             log['prev_inst_id'] = group[-1].id
-            if snd_id:
-                log['snd_inst_id'] = snd_id
+            if snd_instance:
+                log['snd_inst_id'] = snd_instance.id
+                log['snd_filename'] = snd_instance.get_group().filename
             log['mut_type'] = self.mutation.type.name
         return log
 
     def get_system_info(self):
         info = self.info
         info.expr_exists = expr_exists(self.chc, info_kinds)
+
+        shape = info.expr_num.shape
+        if shape[1] != len(self.chc):
+            exp_shape = (len(info_kinds), len(self.chc))
+            info.expr_num.resize(exp_shape)
 
         for i, clause in enumerate(self.chc):
             expr_numbers = count_expr(clause, info_kinds, vars_lim=2)
@@ -219,12 +224,14 @@ class Mutation(object):
     def __init__(self, prev_mutation=None):
         self.type = MutType.ID
         self.number = prev_mutation.number + 1 if prev_mutation else 0
-        self.path = []
-        self.trans_num = -1
+        self.path = [None]
+        self.kind_ind = 0
         self.snd_inst = None
         self.prev_mutation = prev_mutation
-        self.kind_ind = 0
         self.applied = False
+
+        self.trans_num = None
+        self.simp_flags = {0: True, 1: True, 2: True}
 
     def clear(self):
         self.type = MutType.ID
@@ -235,7 +242,7 @@ class Mutation(object):
 
     def apply(self, instance, new_instance):
         """Mutate instances."""
-        if self.type != MutType.ID:
+        if self.type == MutType.ID:
             self.next_mutation(instance)
 
         if self.type == MutType.ID:
@@ -279,7 +286,7 @@ class Mutation(object):
             ind.append(random.choice(ineq_ind))
 
             if not ind:
-                return MutType.ID
+                self.type = MutType.ID
             else:
                 group = instance.get_group()
                 self.kind_ind = random.choice(ind)
@@ -310,16 +317,14 @@ class Mutation(object):
                 if not fst_group.bound_vars.intersection(snd_group.bound_vars):
                     self.snd_inst = snd_group[-1]
 
-    def simplify_ineq(self, chc_system, flags=None):
+    def simplify_ineq(self, chc_system):
         """Simplify instance with arith_ineq_lhs, arith_lhs and eq2ineq"""
-        if flags is None:
-            flags = {0: True, 1: True, 2: True}
         mut_system = AstVector()
         for clause in chc_system:
             mut_clause = simplify(clause,
-                                  arith_ineq_lhs=flags[0],
-                                  arith_lhs=flags[1],
-                                  eq2ineq=flags[2])
+                                  arith_ineq_lhs=self.simp_flags[0],
+                                  arith_lhs=self.simp_flags[1],
+                                  eq2ineq=self.simp_flags[2])
             mut_system.push(mut_clause)
         return mut_system
 
@@ -350,7 +355,7 @@ class Mutation(object):
         mut_system = AstVector()
         kind = info_kinds[self.kind_ind]
 
-        if self.trans_num < 0:
+        if not self.trans_num:
             ind = np.where(info.expr_num[self.kind_ind] != 0)[0]
             i = int(random.choice(ind))
             num = info.expr_num[self.kind_ind][i]
@@ -361,23 +366,21 @@ class Mutation(object):
         trans_n = deepcopy(self.trans_num)
         self.path = [i]
 
-        mut_clause = self.transform_nth(clause, kind, time.perf_counter(), [i])
+        expr_num = info.expr_num[:, i]
+        mut_clause = self.transform_nth(clause, kind, expr_num,
+                                        [i], time.perf_counter())
         assert self.applied, 'Mutation ' + self.type.name + ' wasn\'t applied'
         for j, clause in enumerate(chc_system):
             if j == i:
                 mut_system.push(mut_clause)
             else:
                 mut_system.push(chc_system[j])
-        if self.type in {MutType.BREAK_AND, MutType.BREAK_OR}:
-            info.expr_num[self.kind_ind][i] += 1
-        elif self.type == MutType.ADD_INEQ:
-            info.expr_num[0][i] += 1
-            info.expr_num[self.kind_ind][i] += 1
+
         assert bool(chc_system != mut_system), \
             'Mutation ' + self.type.name + ' didn\'t change the CHC'
         return mut_system
 
-    def transform_nth(self, expr, expr_kind, st_time, path):
+    def transform_nth(self, expr, expr_kind, expr_num, path, st_time):
         """Transform nth expression of the specific kind in dfs-order."""
         global trans_n
         if time.perf_counter() - st_time >= MUT_APPLY_TIME_LIMIT:
@@ -391,11 +394,20 @@ class Mutation(object):
                 if self.type in {MutType.SWAP_AND, MutType.SWAP_OR}:
                     children = children[1:] + children[:1]
                 elif self.type in {MutType.DUP_AND, MutType.DUP_OR}:
-                    children.append(children[0])
+                    child = children[0]
+                    children.append(child)
+                    for i, kind in enumerate(info_kinds):
+                        if is_app_of(child, kind) or check_ast_kind(child, kind):
+                            expr_num[i] += 1
                 elif self.type in {MutType.BREAK_AND, MutType.BREAK_OR}:
                     children = mut_break(children, expr_kind)
+                    expr_num[self.kind_ind] += 1
                 elif self.type == MutType.ADD_INEQ:
                     new_ineq = create_add_ineq(children, expr_kind)
+                    if expr_kind in {Z3_OP_LE, Z3_OP_LT}:
+                        expr_num[6] += 1
+                    else:
+                        expr_num[7] += 1
                 else:
                     pass
 
@@ -409,6 +421,7 @@ class Mutation(object):
                     mut_expr = update_expr(expr, children, vars)
                 else:
                     mut_expr = And([expr, new_ineq])
+                    expr_num[0] += 1
                 self.path = path
                 self.applied = True
                 return mut_expr
@@ -418,26 +431,35 @@ class Mutation(object):
         for i, child in enumerate(expr.children()):
             new_path = path + [i]
             if trans_n >= 0:
-                mut_children.append(self.transform_nth(child, expr_kind, st_time, new_path))
+                mut_children.append(self.transform_nth(child, expr_kind, expr_num,
+                                                       new_path, st_time))
             else:
                 mut_children.append(child)
         return update_expr(expr, mut_children)
 
     def get_chain(self):
         """Return the full mutation chain."""
-        chain = self.type.name
+        chain = self.get_name()
         cur_mutation = self
         for i in range(self.number, 1, -1):
             cur_mutation = cur_mutation.prev_mutation
-            if cur_mutation.type in {MutType.SWAP_AND, MutType.SWAP_OR,
-                                     MutType.DUP_AND, MutType.DUP_OR,
-                                     MutType.BREAK_AND, MutType.BREAK_OR,
-                                     MutType.MIX_BOUND_VARS, MutType.ADD_INEQ}:
-                mut_name = cur_mutation.type.name + '(' + str(cur_mutation.trans_num) + ')'
-            else:
-                mut_name = cur_mutation.type.name
+            mut_name = cur_mutation.get_name()
             chain = mut_name + '->' + chain
         return chain
+
+    def get_name(self):
+        if self.type in {MutType.SWAP_AND, MutType.SWAP_OR,
+                         MutType.DUP_AND, MutType.DUP_OR,
+                         MutType.BREAK_AND, MutType.BREAK_OR,
+                         MutType.MIX_BOUND_VARS, MutType.ADD_INEQ}:
+            return self.type.name + '(' + \
+                   str(self.path[0]) + ', ' + \
+                   str(self.trans_num) + ')'
+        elif self.type == MutType.SIMPLIFY:
+            flags = list(map(int, self.simp_flags.values()))
+            return self.type.name + '(' + str(flags) + ')'
+        else:
+            return self.type.name
 
     def debug_print(self, chc_system: AstVector, mut_system: AstVector):
         print(chc_system[self.path[0]], '\n->\n', mut_system[self.path[0]])
