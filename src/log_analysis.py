@@ -1,6 +1,7 @@
 import json
 import sys
 from collections import defaultdict
+from prettytable import PrettyTable
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -59,16 +60,21 @@ class Stats:
                 unique_traces_axis,
                 colors[color_i])
 
-    def create_mutation_graph(self, fig, is_end=False):
+    def get_mutation_stats(self, fig, is_end=False):
         global unique_traces
-        ind = self.df['mut_type'].notnull()
+        type_ind = self.df['mut_type'].notnull()
+        chain_ind = self.df['mut_chain'].notnull()
+        ind = type_ind + chain_ind
         ax = fig.gca()
         legend = []
 
         for i, entry in self.df[ind].iterrows():
             if not unique_traces:
                 unique_traces = self.df.loc[i - 1]['unique_traces']
-            mut = entry['mut_type'].split('(')[0]
+            if pd.notna(entry['mut_type']):
+                mut = entry['mut_type'].split('(')[0]
+            else:
+                mut = entry['mut_chain'].split('->')[-1]
             new_unique_traces = self.df.loc[i + 1]['unique_traces']
             mut_traces[mut] += new_unique_traces - unique_traces
             mut_traces_axis[mut].append(mut_traces[mut])
@@ -79,17 +85,33 @@ class Stats:
         if is_end:
             ax.set_ylabel('Unique traces')
             ax.set_xlabel('Inputs solved')
+            table = PrettyTable()
+            rows = [1000, 2000, 4000, 6000, 8000, 10000, 15000]
+            table.add_column('Mutated inputs', rows)
+
             for i, mut in enumerate(mutations):
+                column = []
+                for j in range(len(rows)):
+                    num = rows[j]
+                    if mut_num_axis[mut][-1] > num:
+                        column.append(int(mut_traces_axis[mut][num]))
+                    else:
+                        column.append('')
+                table.add_column(mut, column)
+
                 legend.append(mut)
                 mut_num_axis[mut].insert(0, 0)
                 mut_traces_axis[mut].insert(0, 0)
                 ax.plot(mut_num_axis[mut],
                         mut_traces_axis[mut],
                         colors[i])
+
+            print(table)
             fig.legend(legend, bbox_to_anchor=(0.9, 0.5))
 
     def analyze_entries(self, status):
-        ind = self.df['status'] == 'error'
+        print('____________' + status + '____________', end='\n')
+        ind = self.df['status'] == status
         for i, entry in self.df.loc[ind].iterrows():
             print(entry['filename'], entry['message'], end='\n')
 
@@ -123,10 +145,13 @@ def main(log_names):
                 legend.append('Complexity heuristic')
             else:
                 legend.append('Default')
-        cur_stats.analyze_entries('mutant_unknown')  # mutant_timeout, error, bug
+        cur_stats.analyze_entries('mutant_unknown')
+        # cur_stats.analyze_entries('mutant_timeout')
+        # cur_stats.analyze_entries('error')
+        # cur_stats.analyze_entries('bug')
         cur_stats.create_traces_graph(traces, i)
         cur_stats.create_time_graph(times, i)
-        cur_stats.create_mutation_graph(mut, i == len(stats) - 1)
+        cur_stats.get_mutation_stats(mut, i == len(stats) - 1)
 
     for cur_stats in stats:
         traces.gca().axvline(x=cur_stats.seed_num, linestyle='--', color='k')
