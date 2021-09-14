@@ -1,10 +1,20 @@
 import json
 import sys
+from collections import defaultdict
 
 import pandas as pd
 import matplotlib.pyplot as plt
 
-colors = ['firebrick', '#3dea62', '#6b57ff', '#434343']
+colors = ['red', 'gold', 'aqua', '#3dea62', '#6b57ff',
+          'deeppink', 'indigo', 'coral']
+unique_traces = 0
+mutations = ['SWAP_AND', 'DUP_AND', 'BREAK_AND',
+             'SWAP_OR', 'MIX_BOUND_VARS', 'UNION',
+             'SIMPLIFY', 'ADD_INEQ']
+mut_traces_axis = defaultdict(list)
+mut_num_axis = defaultdict(list)
+mut_traces = defaultdict(int)
+mut_num = defaultdict(int)
 
 
 class Stats:
@@ -49,25 +59,45 @@ class Stats:
                 unique_traces_axis,
                 colors[color_i])
 
-    def analyze_errors(self):
+    def create_mutation_graph(self, fig, is_end=False):
+        global unique_traces
+        ind = self.df['mut_type'].notnull()
+        ax = fig.gca()
+        legend = []
+
+        for i, entry in self.df[ind].iterrows():
+            if not unique_traces:
+                unique_traces = self.df.loc[i - 1]['unique_traces']
+            mut = entry['mut_type'].split('(')[0]
+            new_unique_traces = self.df.loc[i + 1]['unique_traces']
+            mut_traces[mut] += new_unique_traces - unique_traces
+            mut_traces_axis[mut].append(mut_traces[mut])
+            mut_num[mut] += 1
+            mut_num_axis[mut].append(mut_num[mut])
+            unique_traces = new_unique_traces
+
+        if is_end:
+            ax.set_ylabel('Unique traces')
+            ax.set_xlabel('Inputs solved')
+            for i, mut in enumerate(mutations):
+                legend.append(mut)
+                mut_num_axis[mut].insert(0, 0)
+                mut_traces_axis[mut].insert(0, 0)
+                ax.plot(mut_num_axis[mut],
+                        mut_traces_axis[mut],
+                        colors[i])
+            fig.legend(legend, bbox_to_anchor=(0.9, 0.5))
+
+    def analyze_entries(self, status):
         ind = self.df['status'] == 'error'
         for i, entry in self.df.loc[ind].iterrows():
             print(entry['filename'], entry['message'], end='\n')
-
-    # def analyze_unknown(self):
-    #     ind = self.df['status'] == 'mutant_unknown'
-    #     for i, entry in self.df.loc[ind].iterrows():
-    #         print(entry['message'], entry['mut_chain'], end='\n')
-    #
-    # def analyze_bugs(self):
-    #     ind = self.df['status'] == 'bug'
-    #     for i, entry in self.df.loc[ind].iterrows():
-    #         print(entry['mut_chain'], end='\n')
 
 
 def main(log_names):
     traces = plt.figure()
     times = plt.figure()
+    mut = plt.figure()
     stats = []
     min_len = -1
     legend = []
@@ -93,9 +123,10 @@ def main(log_names):
                 legend.append('Complexity heuristic')
             else:
                 legend.append('Default')
-        cur_stats.analyze_errors()
+        cur_stats.analyze_entries('mutant_unknown')  # mutant_timeout, error, bug
         cur_stats.create_traces_graph(traces, i)
         cur_stats.create_time_graph(times, i)
+        cur_stats.create_mutation_graph(mut, i == len(stats) - 1)
 
     for cur_stats in stats:
         traces.gca().axvline(x=cur_stats.seed_num, linestyle='--', color='k')
@@ -105,6 +136,7 @@ def main(log_names):
     traces.savefig('traces.png', bbox_inches='tight')
     times.legend(legend, bbox_to_anchor=(0.9, 0.28))  # (0.49, 0.88)
     times.savefig('times.png', bbox_inches='tight')
+    mut.savefig('mut.png', bbox_inches='tight')
 
 
 if __name__ == '__main__':
