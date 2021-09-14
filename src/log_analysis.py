@@ -2,6 +2,7 @@ import json
 import sys
 from collections import defaultdict
 from prettytable import PrettyTable
+from statistics import mean
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -62,9 +63,8 @@ class Stats:
 
     def get_mutation_stats(self, fig, is_end=False):
         global unique_traces
-        type_ind = self.df['mut_type'].notnull()
-        chain_ind = self.df['mut_chain'].notnull()
-        ind = type_ind + chain_ind
+        ind = self.df['mut_type'].notnull()
+        ind += self.df['mut_chain'].notnull()
         ax = fig.gca()
         legend = []
 
@@ -85,29 +85,44 @@ class Stats:
         if is_end:
             ax.set_ylabel('Unique traces')
             ax.set_xlabel('Inputs solved')
-            table = PrettyTable()
-            rows = [1000, 2000, 4000, 6000, 8000, 10000, 15000]
-            table.add_column('Mutated inputs', rows)
 
             for i, mut in enumerate(mutations):
-                column = []
-                for j in range(len(rows)):
-                    num = rows[j]
-                    if mut_num_axis[mut][-1] > num:
-                        column.append(int(mut_traces_axis[mut][num]))
-                    else:
-                        column.append('')
-                table.add_column(mut, column)
-
                 legend.append(mut)
                 mut_num_axis[mut].insert(0, 0)
                 mut_traces_axis[mut].insert(0, 0)
                 ax.plot(mut_num_axis[mut],
                         mut_traces_axis[mut],
                         colors[i])
-
-            print(table)
+            with open('mut_table.txt', 'w+') as file:
+                file.write(self.get_mutation_table().get_string())
             fig.legend(legend, bbox_to_anchor=(0.9, 0.5))
+
+    def get_mutation_table(self):
+        table = PrettyTable()
+        rows = [1000 * i for i in range(1, 19)] + ['——', 'Average']
+        columns = defaultdict(list)
+        table.add_column('Mutated inputs', rows)
+
+        for mut in mutations:
+            avg = 0
+            for i in range(len(rows[:-2])):
+                num = rows[i]
+                if mut_num_axis[mut][-1] >= num:
+                    columns[mut].append(
+                        round(mut_traces_axis[mut][num] / num, 4))
+                else:
+                    if not avg:
+                        avg = mean(columns[mut])
+                    columns[mut].append('')
+            if not avg:
+                avg = mean(columns[mut])
+            columns[mut] += ['——', (round(avg, 4))]
+
+        columns = {mut: col for mut, col in
+                   sorted(columns.items(), key=lambda item: item[-1])}
+        for mut in columns:
+            table.add_column(mut, columns[mut])
+        return table
 
     def analyze_entries(self, status):
         print('____________' + status + '____________', end='\n')
@@ -145,7 +160,7 @@ def main(log_names):
                 legend.append('Complexity heuristic')
             else:
                 legend.append('Default')
-        cur_stats.analyze_entries('mutant_unknown')
+        # cur_stats.analyze_entries('mutant_unknown')
         # cur_stats.analyze_entries('mutant_timeout')
         # cur_stats.analyze_entries('error')
         # cur_stats.analyze_entries('bug')

@@ -22,7 +22,6 @@ class InstanceGroup(object):
         self.upred_num = 0
         self.uninter_pred = set()
         self.upred_ind = defaultdict(set)
-        self.bound_vars = set()
         self.is_simplified = False
 
     def __getitem__(self, item):
@@ -37,7 +36,6 @@ class InstanceGroup(object):
         self.instances[length] = instance
         if length == 0:
             self.get_pred_info()
-            self.get_vars()
             instance.get_system_info()
 
     def roll_back(self):
@@ -47,7 +45,6 @@ class InstanceGroup(object):
         self.is_simplified = False
         self.same_stats_limit = 5 * len(seed.chc)
         self.get_pred_info()
-        self.get_vars()
 
     def check_stats(self, stats_limit):
         """
@@ -115,13 +112,6 @@ class InstanceGroup(object):
                     self.is_linear = False
         self.upred_num = len(self.uninter_pred)
 
-    def get_vars(self):
-        """Get clause variables."""
-        instance = self[-1]
-        for clause in instance.chc:
-            for var in get_bound_vars(clause):
-                self.bound_vars.add(var)
-
 
 instance_group = defaultdict(InstanceGroup)
 
@@ -167,15 +157,12 @@ class Instance(object):
         """Return the group of the instance."""
         return instance_group[self.group_id]
 
-    def get_log(self, is_seed=False, snd_instance=None):
+    def get_log(self, is_seed=False):
         """Create a log entry with information about the instance."""
         group = self.get_group()
         log = {'filename': group.filename, 'id': self.id}
         if not is_seed:
             log['prev_inst_id'] = group[-1].id
-            if snd_instance:
-                log['snd_inst_id'] = snd_instance.id
-                log['snd_filename'] = snd_instance.get_group().filename
             log['mut_type'] = self.mutation.type.name
         return log
 
@@ -214,9 +201,8 @@ class MutType(Enum):
     # _______________________________________
 
     MIX_BOUND_VARS = 8
-    UNION = 9
-    SIMPLIFY = 10
-    ADD_INEQ = 11
+    SIMPLIFY = 9
+    ADD_INEQ = 10
 
 
 class Mutation(object):
@@ -226,7 +212,6 @@ class Mutation(object):
         self.number = prev_mutation.number + 1 if prev_mutation else 0
         self.path = [None]
         self.kind_ind = 0
-        self.snd_inst = None
         self.prev_mutation = prev_mutation
         self.applied = False
 
@@ -237,7 +222,6 @@ class Mutation(object):
         self.type = MutType.ID
         self.path.clear()
         self.number = 0
-        self.snd_inst = None
         self.prev_mutation = None
 
     def apply(self, instance, new_instance):
@@ -254,9 +238,6 @@ class Mutation(object):
                            MutType.MIX_BOUND_VARS, MutType.ADD_INEQ}:
             new_instance.chc = self.transform(instance)
 
-        elif self.type == MutType.UNION:
-            new_instance.chc, new_instance.info = self.unite(instance)
-
         elif self.type == MutType.SIMPLIFY:
             new_instance.chc = self.simplify_ineq(instance.chc)
             new_instance.get_system_info()
@@ -269,53 +250,38 @@ class Mutation(object):
         Return the next mutation based on the instance,
         type of the previous mutation etc.
         """
-        instance_num = random.randrange(1, 3)
-        if instance_num == 2:
-            self.find_inst_for_union(instance)
-        if self.snd_inst:
-            self.type = MutType.UNION
-        else:
-            ind = ineq_ind = []
-            info = instance.info
-            for i in range(len(info_kinds)):
-                if info.expr_exists[i]:
-                    if 2 < i < 8:
-                        ineq_ind.append(i)
-                    else:
-                        ind.append(i)
-            ind.append(random.choice(ineq_ind))
+        ind = ineq_ind = []
+        info = instance.info
+        for i in range(len(info_kinds)):
+            if info.expr_exists[i]:
+                if 2 < i < 8:
+                    ineq_ind.append(i)
+                else:
+                    ind.append(i)
+        ind.append(random.choice(ineq_ind))
 
-            if not ind:
-                self.type = MutType.ID
+        if not ind:
+            self.type = MutType.ID
+        else:
+            group = instance.get_group()
+            self.kind_ind = random.choice(ind)
+            if self.kind_ind == 0:
+                value = random.randrange(2, 5)
+                self.type = MutType(value)
+            elif self.kind_ind == 1:
+                value = 5  # random.randrange(5, 8)
+                self.type = MutType(value)
+            elif self.kind_ind == 2:
+                self.type = MutType.MIX_BOUND_VARS
+            elif self.kind_ind == 7:
+                self.type = MutType.SIMPLIFY
+                group.is_simplified = True
             else:
-                group = instance.get_group()
-                self.kind_ind = random.choice(ind)
-                if self.kind_ind == 0:
-                    value = random.randrange(2, 5)
-                    self.type = MutType(value)
-                elif self.kind_ind == 1:
-                    value = 5  # random.randrange(5, 8)
-                    self.type = MutType(value)
-                elif self.kind_ind == 2:
-                    self.type = MutType.MIX_BOUND_VARS
-                elif self.kind_ind == 7:
+                if not group.is_simplified:
                     self.type = MutType.SIMPLIFY
                     group.is_simplified = True
                 else:
-                    if not group.is_simplified:
-                        self.type = MutType.SIMPLIFY
-                        group.is_simplified = True
-                    else:
-                        self.type = MutType.ADD_INEQ
-
-    def find_inst_for_union(self, instance):
-        """Find an instance that is independent of this instance."""
-        fst_group = instance.get_group()
-        for key in instance_group:
-            snd_group = instance_group[key]
-            if not fst_group.uninter_pred.intersection(snd_group.uninter_pred):
-                if not fst_group.bound_vars.intersection(snd_group.bound_vars):
-                    self.snd_inst = snd_group[-1]
+                    self.type = MutType.ADD_INEQ
 
     def simplify_ineq(self, chc_system):
         """Simplify instance with arith_ineq_lhs, arith_lhs and eq2ineq"""
@@ -327,25 +293,6 @@ class Mutation(object):
                                   eq2ineq=self.simp_flags[2])
             mut_system.push(mut_clause)
         return mut_system
-
-    def unite(self, fst_inst):
-        """Unite formulas of two independent instances."""
-        fst_group = fst_inst.get_group()
-        snd_group = self.snd_inst.get_group()
-        fst_group.uninter_pred = \
-            fst_group.uninter_pred.union(snd_group.uninter_pred)
-        fst_group.bound_vars = \
-            fst_group.bound_vars.union(snd_group.bound_vars)
-        fst_group.is_simplified &= snd_group.is_simplified
-        fst_group.same_stats_limit += snd_group.same_stats_limit
-
-        new_instance = AstVector()
-        for clause in fst_inst.chc:
-            new_instance.push(clause)
-        for clause in self.snd_inst.chc:
-            new_instance.push(clause)
-        new_info = fst_inst.info + self.snd_inst.info
-        return new_instance, new_info
 
     def transform(self, instance):
         """Transform an expression of the specific kind."""

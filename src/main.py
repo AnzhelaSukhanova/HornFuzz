@@ -19,9 +19,6 @@ def reduce_instance(instance, mutation, message=None):
     new_instance.mutation = mutation
     last_chc = instance.chc
     reduced_ind = set()
-
-    if mutation.type == MutType.UNION:
-        group.get_pred_info()
     upred_ind = group.upred_ind
 
     for pred in upred_ind:
@@ -40,7 +37,7 @@ def reduce_instance(instance, mutation, message=None):
 
         try:
             mut.apply(new_instance, mut_instance)
-            same_res = not check_satis(mut_instance, mut.snd_inst, get_stats=False)
+            same_res = not check_satis(mut_instance, get_stats=False)
             if message:
                 same_res = False
         except AssertionError as err:
@@ -136,7 +133,7 @@ def parse_seeds(filenames):
     return seeds
 
 
-def check_satis(instance, snd_instance=None, is_seed=False, get_stats=True):
+def check_satis(instance, is_seed=False, get_stats=True):
     """
     Return True if the test suites have the same satisfiability and
     False otherwise.
@@ -152,9 +149,6 @@ def check_satis(instance, snd_instance=None, is_seed=False, get_stats=True):
         satis = group[-1].satis
     else:
         satis = instance.satis
-    if snd_instance:
-        if snd_instance.satis == unsat:
-            satis = unsat
 
     if get_stats and (heuristic_flags['transitions'] or
                       heuristic_flags['states']):
@@ -214,7 +208,7 @@ def print_general_info(counter):
     logging.info(json.dumps({'general_info': log}))
 
 
-def log_run_info(status, message=None, cur_instance=None, mut_instance=None, snd_instance=None):
+def log_run_info(status, message=None, cur_instance=None, mut_instance=None):
     """Create a log entry with information about the run."""
 
     log = {'status': status}
@@ -232,7 +226,7 @@ def log_run_info(status, message=None, cur_instance=None, mut_instance=None, snd
                 log['satis'] = str(cur_instance.satis)
 
         else:
-            mutant_info = mut_instance.get_log(snd_instance)
+            mutant_info = mut_instance.get_log()
             log.update(mutant_info)
 
             if status != 'pass':
@@ -279,14 +273,12 @@ def analyze_check_exception(cur_instance, err, counter,
                      repr(err),
                      cur_instance)
     else:
-        snd_instance = mut_instance.mutation.snd_inst
         if str(err) == 'timeout':
             counter['timeout'] += 1
             log_run_info('mutant_timeout',
                          repr(err),
                          cur_instance,
-                         mut_instance,
-                         snd_instance)
+                         mut_instance)
             group.roll_back()
             queue.append(group[0])
         else:
@@ -294,8 +286,7 @@ def analyze_check_exception(cur_instance, err, counter,
             log_run_info('mutant_unknown',
                          repr(err),
                          cur_instance,
-                         mut_instance,
-                         snd_instance)
+                         mut_instance)
             group.roll_back()
             queue.append(group[0])
 
@@ -341,7 +332,7 @@ def fuzz(files, seeds):
             mut.apply(cur_instance, mut_instance)
 
             try:
-                res = check_satis(mut_instance, mut.snd_inst)
+                res = check_satis(mut_instance)
             except AssertionError as err:
                 analyze_check_exception(cur_instance, err, counter, mut_instance)
                 continue
@@ -350,8 +341,7 @@ def fuzz(files, seeds):
                 counter['bug'] += 1
                 log_run_info('bug',
                              cur_instance=cur_instance,
-                             mut_instance=mut_instance,
-                             snd_instance=mut.snd_inst)
+                             mut_instance=mut_instance)
                 queue.append(cur_instance)
 
             else:
@@ -361,8 +351,7 @@ def fuzz(files, seeds):
                     stats_limit = cur_group.check_stats(stats_limit)
                 log_run_info('pass',
                              cur_instance=cur_instance,
-                             mut_instance=mut_instance,
-                             snd_instance=mut.snd_inst)
+                             mut_instance=mut_instance)
 
         except Exception as err:
             if type(err).__name__ == 'TimeoutError':
