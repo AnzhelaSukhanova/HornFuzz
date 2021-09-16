@@ -163,7 +163,7 @@ class Instance(object):
         log = {'filename': group.filename, 'id': self.id}
         if not is_seed:
             log['prev_inst_id'] = group[-1].id
-            log['mut_type'] = self.mutation.type.name
+            log['mut_type'] = self.mutation.get_name()
         return log
 
     def get_system_info(self):
@@ -286,8 +286,9 @@ class Mutation(object):
     def simplify_ineq(self, chc_system):
         """Simplify instance with arith_ineq_lhs, arith_lhs and eq2ineq"""
         mut_system = AstVector()
-        for clause in chc_system:
-            mut_clause = simplify(clause,
+        ind = range(0, len(chc_system)) if not self.path[0] else self.path[0]
+        for i in ind:
+            mut_clause = simplify(chc_system[i],
                                   arith_ineq_lhs=self.simp_flags[0],
                                   arith_lhs=self.simp_flags[1],
                                   eq2ineq=self.simp_flags[2])
@@ -404,7 +405,10 @@ class Mutation(object):
                    str(self.trans_num) + ')'
         elif self.type == MutType.SIMPLIFY:
             flags = list(map(int, self.simp_flags.values()))
-            return self.type.name + '(' + str(flags) + ')'
+            info = str(flags)
+            if self.path[0]:
+                info = str(info) + ', ' + str(self.path[0])
+            return self.type.name + '(' + info + ')'
         else:
             return self.type.name
 

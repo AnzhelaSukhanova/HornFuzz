@@ -13,6 +13,16 @@ heuristic_flags = defaultdict(bool)
 queue = []
 
 
+def is_same_res(instance, result=False, message=None):
+    try:
+        same_res = result == check_satis(instance, get_stats=False)
+        if message:
+            same_res = False
+    except AssertionError as err:
+        same_res = repr(err) == message
+    return same_res
+
+
 def reduce_instance(instance, mutation, message=None):
     group = instance.get_group()
     new_instance = deepcopy(instance)
@@ -35,15 +45,9 @@ def reduce_instance(instance, mutation, message=None):
                     mut.path[0] -= 1
         new_instance.get_system_info()
 
-        try:
-            mut.apply(new_instance, mut_instance)
-            same_res = not check_satis(mut_instance, get_stats=False)
-            if message:
-                same_res = False
-        except AssertionError as err:
-            same_res = repr(err) == message
+        mut.apply(new_instance, mut_instance)
 
-        if not same_res:
+        if not is_same_res(mut_instance):
             new_instance.chc = last_chc
         else:
             last_chc = new_instance.chc
@@ -58,38 +62,79 @@ def reduce_instance(instance, mutation, message=None):
     return new_instance.chc
 
 
-def reduce(instance):
+def reduce(instance, message=None):
     """
     Search for a reduced version of mutation chain that is
     the minimal set of bug-triggering transformations.
     """
     group = instance.get_group()
     initial_size = len(group.instances)
-    chunk_size = initial_size // 2
+    chunk_size = initial_size // 2 if initial_size > 1 else 1
     while chunk_size:
-        for i in range(initial_size - 1, 0, -chunk_size):
+        for i in range(initial_size, 0, -chunk_size):
             from_ind = max(i - chunk_size + 1, 1)
             ind_chunk = range(from_ind, i + 1)
-            new_group = undo(instance, ind_chunk)
-            new_instance = group[-1]
-            try:
-                res = check_satis(new_instance)
-            except AssertionError as err:
-                log_run_info(instance,
-                             'reduce_problem',
-                             repr(err),
-                             new_instance)
-                continue
-            if not res:
+            new_group = undo_mutations(instance, ind_chunk)
+            new_instance = new_group[-1]
+            if is_same_res(new_instance, message=message):
                 group = new_group
+            if chunk_size == 1:
+                cur_instance = group[ind_chunk[0]] \
+                    if ind_chunk[0] < len(group.instances) else instance
+                if cur_instance.mutation.type == MutType.SIMPLIFY:
+                    cur_instance = reduce_simplify(group[ind_chunk[0] - 1], message)
         chunk_size //= 2
 
 
-def undo(instance, ind):
-    """Undo the mutation and return the resulting instance."""
-    # TODO
-    group = instance.get_group
-    return group
+def undo_mutations(instance, ind):
+    """Undo the mutations from a given interval."""
+    cur_group = instance.get_group()
+    new_group = deepcopy(cur_group)
+    new_group.instances.clear()
+    for i in range(ind[0]):
+        new_group.push(cur_group[i])
+    last_instance = new_group[ind[0] - 1]
+    for i in range(ind[-1] + 1, len(cur_group.instances)):
+        mut_instance = Instance(last_instance.group_id)
+        mut = mut_instance.mutation
+        info = last_instance.info
+        clause_ind = mut.path[0]
+        if clause_ind:
+            expr_num = info.expr_num[mut.kind_ind][clause_ind]
+            if mut.trans_num >= expr_num:
+                return None
+        mut.apply(last_instance, mut_instance)
+        new_group.push(mut_instance)
+        last_instance = mut_instance
+
+    return new_group
+
+
+def reduce_simplify(instance, message=None):
+    mut_instance = Instance(instance.group_id)
+    mut = mut_instance.mutation
+    mut.type = MutType.SIMPLIFY
+    flags_num = len(mut.simp_flags)
+
+    for i in range(flags_num):
+        mut.simp_flags[i] = False
+        mut.apply(instance, mut_instance)
+        if not is_same_res(mut_instance, message=message):
+            mut.simp_flags[i] = True
+        mut_instance.chc = instance.chc
+
+    mut.path[0] = [i for i in range(len(instance.chc))]
+    for i in range(len(instance.chc)):
+        mut.path[0].remove(i)
+        mut.apply(instance, mut_instance)
+        if not is_same_res(mut_instance, message=message):
+            mut.path[0].append(i)
+        mut_instance.chc = instance.chc
+    if mut.path[0] == range(len(instance.chc)):
+        mut.path[0] = None
+
+    mut.apply(instance, mut_instance)
+    return mut_instance
 
 
 def calc_sort_key(heuristic, stats, weights=None):
@@ -164,7 +209,8 @@ def sort_queue():
     for i in range(length):
         heur = heuristics[i]
         if heur in {'transitions', 'states'}:
-            type = StatsType.TRANSITIONS if heur == 'transitions' else StatsType.STATES
+            type = StatsType.TRANSITIONS if heur == 'transitions' \
+                else StatsType.STATES
             weights = general_stats.get_weights(type)
         chunk_size = len(queue) // (i + 1)
         queue_chunks = [queue[j:j + chunk_size]
@@ -230,11 +276,8 @@ def log_run_info(status, message=None, cur_instance=None, mut_instance=None):
             log.update(mutant_info)
 
             if status != 'pass':
-                # reduce(mut_instance)
-                chain = mut_instance.mutation.get_chain()
-                log['mut_chain'] = chain
-
                 if status in {'mutant_unknown', 'bug'}:
+                    reduce(mut_instance, message)
                     try:
                         reduced_inst = reduce_instance(cur_instance,
                                                        mut_instance.mutation,
@@ -252,6 +295,8 @@ def log_run_info(status, message=None, cur_instance=None, mut_instance=None):
 
                 log['current_chc'] = mut_instance.chc.sexpr()
                 log['excepted_satis'] = str(cur_instance.satis)
+                chain = mut_instance.mutation.get_chain()
+                log['mut_chain'] = chain
 
     logging.info(json.dumps({'run_info': log}))
 
