@@ -290,7 +290,6 @@ class Mutation(object):
                     group.is_simplified = True
                 else:
                     self.type = MutType.ADD_INEQ
-        self.type = MutType.SIMPLIFY
 
     def simplify_ineq(self, chc_system):
         """Simplify instance with arith_ineq_lhs, arith_lhs and eq2ineq"""
