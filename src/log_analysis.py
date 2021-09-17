@@ -1,5 +1,6 @@
 import json
 import sys
+import os
 from collections import defaultdict
 from prettytable import PrettyTable
 from statistics import mean
@@ -93,7 +94,7 @@ class Stats:
                 ax.plot(mut_num_axis[mut],
                         mut_traces_axis[mut],
                         colors[i])
-            with open('mut_table.txt', 'w+') as file:
+            with open('stats/mut_table.txt', 'w+') as file:
                 file.write(self.get_mutation_table().get_string())
             fig.legend(legend, bbox_to_anchor=(0.9, 0.5))
 
@@ -132,6 +133,8 @@ class Stats:
 
 
 def main(log_names):
+    if not os.path.exists('stats'):
+        os.makedirs('stats')
     traces = plt.figure()
     times = plt.figure()
     mut = plt.figure()
@@ -173,10 +176,10 @@ def main(log_names):
         times.gca().axhline(y=cur_stats.seed_num, linestyle='--', color='k')
 
     traces.legend(legend, bbox_to_anchor=(0.9, 0.28))
-    traces.savefig('traces.png', bbox_inches='tight')
+    traces.savefig('stats/traces.png', bbox_inches='tight')
     times.legend(legend, bbox_to_anchor=(0.9, 0.28))  # (0.49, 0.88)
-    times.savefig('times.png', bbox_inches='tight')
-    mut.savefig('mut.png', bbox_inches='tight')
+    times.savefig('stats/times.png', bbox_inches='tight')
+    mut.savefig('stats/mut.png', bbox_inches='tight')
 
 
 if __name__ == '__main__':

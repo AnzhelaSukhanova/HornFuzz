@@ -68,22 +68,27 @@ def reduce(instance, message=None):
     the minimal set of bug-triggering transformations.
     """
     group = instance.get_group()
+    group.push(instance)
     initial_size = len(group.instances)
-    chunk_size = initial_size // 2 if initial_size > 1 else 1
+    chunk_size = initial_size // 2
+
     while chunk_size:
-        for i in range(initial_size, 0, -chunk_size):
+        for i in range(initial_size - 1, 0, -chunk_size):
             from_ind = max(i - chunk_size + 1, 1)
             ind_chunk = range(from_ind, i + 1)
             new_group = undo_mutations(instance, ind_chunk)
             new_instance = new_group[-1]
             if is_same_res(new_instance, message=message):
                 group = new_group
+
             if chunk_size == 1:
-                cur_instance = group[ind_chunk[0]] \
-                    if ind_chunk[0] < len(group.instances) else instance
-                if cur_instance.mutation.type == MutType.SIMPLIFY:
-                    cur_instance = reduce_simplify(group[ind_chunk[0] - 1], message)
+                if group[ind_chunk[0]].mutation.type == MutType.SIMPLIFY:
+                    group[ind_chunk[0]] = reduce_simplify(group[ind_chunk[0] - 1], message)
         chunk_size //= 2
+
+    instance = group[-1]
+    group.pop()
+    return instance
 
 
 def undo_mutations(instance, ind):
@@ -272,12 +277,13 @@ def log_run_info(status, message=None, cur_instance=None, mut_instance=None):
                 log['satis'] = str(cur_instance.satis)
 
         else:
+            if status in {'mutant_unknown', 'bug'}:
+                mut_instance = reduce(mut_instance, message)
             mutant_info = mut_instance.get_log()
             log.update(mutant_info)
 
             if status != 'pass':
                 if status in {'mutant_unknown', 'bug'}:
-                    reduce(mut_instance, message)
                     try:
                         reduced_inst = reduce_instance(cur_instance,
                                                        mut_instance.mutation,
@@ -436,6 +442,7 @@ def main():
     # help_simplify()
     logging.basicConfig(format='%(message)s',
                         filename='logfile',
+                        filemode='w',
                         level=logging.INFO)
     if not os.path.exists('reduced'):
         os.mkdir('reduced')

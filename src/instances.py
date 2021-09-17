@@ -24,11 +24,15 @@ class InstanceGroup(object):
         self.upred_ind = defaultdict(set)
         self.is_simplified = False
 
-    def __getitem__(self, item):
-        ins = self.instances
-        if item < 0:
-            item = len(ins) + item
-        return ins[item]
+    def __getitem__(self, index):
+        if index < 0:
+            index = len(self.instances) + index
+        return self.instances[index]
+
+    def __setitem__(self, index, instance):
+        if index < 0:
+            index = len(self.instances) + index
+        self.instances[index] = instance
 
     def push(self, instance):
         """Add an instance to the group."""
@@ -37,6 +41,10 @@ class InstanceGroup(object):
         if length == 0:
             self.get_pred_info()
             instance.get_system_info()
+
+    def pop(self):
+        length = len(self.instances)
+        self.instances.pop(length - 1)
 
     def roll_back(self):
         """Roll back the group to the seed."""
@@ -282,6 +290,7 @@ class Mutation(object):
                     group.is_simplified = True
                 else:
                     self.type = MutType.ADD_INEQ
+        self.type = MutType.SIMPLIFY
 
     def simplify_ineq(self, chc_system):
         """Simplify instance with arith_ineq_lhs, arith_lhs and eq2ineq"""
