@@ -258,38 +258,42 @@ class Mutation(object):
         Return the next mutation based on the instance,
         type of the previous mutation etc.
         """
-        ind = ineq_ind = []
+        mut_weights = {2: 0.3256, 3: 0.4086, 4: 0.3443, 5: 0.501,
+                       8: 0.5061, 9: 0.6435, 10: 0.5847}
+        type_kind_corr = {2: 0, 3: 0, 4: 0, 5: 1, 8: 2, 9: [], 10: []}
+
+        mut_types = []
         info = instance.info
+        group = instance.get_group()
+
         for i in range(len(info_kinds)):
             if info.expr_exists[i]:
-                if 2 < i < 8:
-                    ineq_ind.append(i)
+                if i == 0:
+                    mut_types += [2, 3, 4]
+                elif i == 1:
+                    mut_types.append(5)
+                elif i == 2:
+                    mut_types.append(8)
                 else:
-                    ind.append(i)
-        ind.append(random.choice(ineq_ind))
+                    if 9 not in type_kind_corr:
+                        if not group.is_simplified:
+                            mut_types.append(9)
+                        mut_types.append(10)
+                    type_kind_corr[9].append(i)
+                    if i != 8:
+                        type_kind_corr[10].append(i)
+        weights = []
+        for i in mut_types:
+            weights.append(mut_weights[i])
 
-        if not ind:
-            self.type = MutType.ID
+        mut_id = random.choices(mut_types, weights)[0]
+        self.type = MutType(mut_id)
+        if self.type == MutType.SIMPLIFY:
+            group.is_simplified = True
+        if mut_id in {9, 10}:
+            self.kind_ind = random.choices(type_kind_corr[mut_id])
         else:
-            group = instance.get_group()
-            self.kind_ind = random.choice(ind)
-            if self.kind_ind == 0:
-                value = random.randrange(2, 5)
-                self.type = MutType(value)
-            elif self.kind_ind == 1:
-                value = 5  # random.randrange(5, 8)
-                self.type = MutType(value)
-            elif self.kind_ind == 2:
-                self.type = MutType.MIX_BOUND_VARS
-            elif self.kind_ind == 7:
-                self.type = MutType.SIMPLIFY
-                group.is_simplified = True
-            else:
-                if not group.is_simplified:
-                    self.type = MutType.SIMPLIFY
-                    group.is_simplified = True
-                else:
-                    self.type = MutType.ADD_INEQ
+            self.kind_ind = type_kind_corr[mut_id]
 
     def simplify_ineq(self, chc_system):
         """Simplify instance with arith_ineq_lhs, arith_lhs and eq2ineq"""

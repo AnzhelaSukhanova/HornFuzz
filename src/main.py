@@ -398,7 +398,8 @@ def fuzz(files, seeds):
             else:
                 queue.append(mut_instance)
                 cur_group.push(mut_instance)
-                if not heuristic_flags['default']:
+                if not heuristic_flags['default'] and \
+                        len(instance_group) > 1:
                     stats_limit = cur_group.check_stats(stats_limit)
                 log_run_info('pass',
                              cur_instance=cur_instance,

@@ -8,6 +8,8 @@ from statistics import mean
 import pandas as pd
 import matplotlib.pyplot as plt
 
+INPUTS_GROUP_NUM = 500
+
 colors = ['red', 'gold', 'aqua', '#3dea62', '#6b57ff',
           'deeppink', 'indigo', 'coral']
 unique_traces = 0
@@ -100,7 +102,12 @@ class Stats:
 
     def get_mutation_table(self):
         table = PrettyTable()
-        rows = [1000 * i for i in range(1, 19)] + ['——', 'Average']
+        groups_num = []
+        for mut in mutations:
+            groups_num.append(mut_num[mut] // INPUTS_GROUP_NUM)
+        groups_lim = mean(groups_num)
+        rows = [INPUTS_GROUP_NUM * i for i in range(1, groups_lim)] + \
+               ['——', 'Average']
         columns = defaultdict(list)
         table.add_column('Mutated inputs', rows)
 
@@ -120,7 +127,7 @@ class Stats:
             columns[mut] += ['——', (round(avg, 4))]
 
         columns = {mut: col for mut, col in
-                   sorted(columns.items(), key=lambda item: item[-1])}
+                   sorted(columns.items(), key=lambda item: item[1][-1])}
         for mut in columns:
             table.add_column(mut, columns[mut])
         return table
@@ -163,10 +170,12 @@ def main(log_names):
                 legend.append('Complexity heuristic')
             else:
                 legend.append('Default')
+
         # cur_stats.analyze_entries('mutant_unknown')
         # cur_stats.analyze_entries('mutant_timeout')
         # cur_stats.analyze_entries('error')
         # cur_stats.analyze_entries('bug')
+
         cur_stats.create_traces_graph(traces, i)
         cur_stats.create_time_graph(times, i)
         cur_stats.get_mutation_stats(mut, i == len(stats) - 1)
