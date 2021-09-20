@@ -299,12 +299,15 @@ class Mutation(object):
         """Simplify instance with arith_ineq_lhs, arith_lhs and eq2ineq"""
         mut_system = AstVector()
         ind = range(0, len(chc_system)) if not self.path[0] else self.path[0]
-        for i in ind:
-            mut_clause = simplify(chc_system[i],
+        for i in range(len(chc_system)):
+            if i in ind:
+                clause = simplify(chc_system[i],
                                   arith_ineq_lhs=self.simp_flags[0],
                                   arith_lhs=self.simp_flags[1],
                                   eq2ineq=self.simp_flags[2])
-            mut_system.push(mut_clause)
+            else:
+                clause = chc_system[i]
+            mut_system.push(clause)
         return mut_system
 
     def transform(self, instance):
