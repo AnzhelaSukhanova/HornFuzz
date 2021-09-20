@@ -13,9 +13,7 @@ INPUTS_GROUP_NUM = 500
 colors = ['red', 'gold', 'aqua', '#3dea62', '#6b57ff',
           'deeppink', 'indigo', 'coral']
 unique_traces = 0
-mutations = ['SWAP_AND', 'DUP_AND', 'BREAK_AND',
-             'SWAP_OR', 'MIX_BOUND_VARS', 'UNION',
-             'SIMPLIFY', 'ADD_INEQ']
+mutations = set()
 mut_traces_axis = defaultdict(list)
 mut_num_axis = defaultdict(list)
 mut_traces = defaultdict(int)
@@ -67,17 +65,14 @@ class Stats:
     def get_mutation_stats(self, fig, is_end=False):
         global unique_traces
         ind = self.df['mut_type'].notnull()
-        ind += self.df['mut_chain'].notnull()
         ax = fig.gca()
         legend = []
 
         for i, entry in self.df[ind].iterrows():
             if not unique_traces:
                 unique_traces = self.df.loc[i - 1]['unique_traces']
-            if pd.notna(entry['mut_type']):
-                mut = entry['mut_type'].split('(')[0]
-            else:
-                mut = entry['mut_chain'].split('->')[-1]
+            mut = entry['mut_type'].split('(')[0]
+            mutations.add(mut)
             new_unique_traces = self.df.loc[i + 1]['unique_traces']
             mut_traces[mut] += new_unique_traces - unique_traces
             mut_traces_axis[mut].append(mut_traces[mut])
@@ -105,7 +100,7 @@ class Stats:
         groups_num = []
         for mut in mutations:
             groups_num.append(mut_num[mut] // INPUTS_GROUP_NUM)
-        groups_lim = mean(groups_num)
+        groups_lim = round(mean(groups_num))
         rows = [INPUTS_GROUP_NUM * i for i in range(1, groups_lim)] + \
                ['——', 'Average']
         columns = defaultdict(list)

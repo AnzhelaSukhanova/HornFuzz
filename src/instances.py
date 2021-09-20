@@ -275,7 +275,7 @@ class Mutation(object):
                 elif i == 2:
                     mut_types.append(8)
                 else:
-                    if 9 not in type_kind_corr:
+                    if not type_kind_corr[9]:
                         if not group.is_simplified:
                             mut_types.append(9)
                         mut_types.append(10)
@@ -291,7 +291,7 @@ class Mutation(object):
         if self.type == MutType.SIMPLIFY:
             group.is_simplified = True
         if mut_id in {9, 10}:
-            self.kind_ind = random.choices(type_kind_corr[mut_id])
+            self.kind_ind = random.choices(type_kind_corr[mut_id])[0]
         else:
             self.kind_ind = type_kind_corr[mut_id]
 
