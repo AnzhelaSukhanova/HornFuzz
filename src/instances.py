@@ -25,13 +25,11 @@ class InstanceGroup(object):
         self.is_simplified = False
 
     def __getitem__(self, index):
-        if index < 0:
-            index = len(self.instances) + index
+        index = index % len(self.instances)
         return self.instances[index]
 
     def __setitem__(self, index, instance):
-        if index < 0:
-            index = len(self.instances) + index
+        index = index % len(self.instances)
         self.instances[index] = instance
 
     def push(self, instance):
@@ -95,13 +93,17 @@ class InstanceGroup(object):
             else:
                 body = clause
 
-            child = body.children()[0]
             if is_implies(body):
                 expr = body.children()[0]
             elif is_and(body):
                 expr = body
-            elif is_not(body) and is_or(child):
-                expr = child
+            elif is_not(body):
+                expr = body.children()[0]
+            elif is_or(body):
+                for child in body.children():
+                    if not is_not(child):
+                        expr = child
+                        break
             elif body.decl().kind() == Z3_OP_UNINTERPRETED:
                 expr = None
             else:

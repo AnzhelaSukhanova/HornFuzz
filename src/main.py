@@ -78,7 +78,8 @@ def reduce(instance, message=None):
             ind_chunk = range(from_ind, i + 1)
             new_group = undo_mutations(instance, ind_chunk)
             new_instance = new_group[-1]
-            if is_same_res(new_instance, message=message):
+            if group != new_group and \
+                    is_same_res(new_instance, message=message):
                 group = new_group
 
             if chunk_size == 1:
@@ -101,13 +102,14 @@ def undo_mutations(instance, ind):
     last_instance = new_group[ind[0] - 1]
     for i in range(ind[-1] + 1, len(cur_group.instances)):
         mut_instance = Instance(last_instance.group_id)
+        mut_instance.mutation = cur_group[i].mutation
         mut = mut_instance.mutation
         info = last_instance.info
-        clause_ind = mut.path[0]
-        if clause_ind:
+        if mut.trans_num is not None:
+            clause_ind = mut.path[0]
             expr_num = info.expr_num[mut.kind_ind][clause_ind]
             if mut.trans_num >= expr_num:
-                return None
+                return cur_group
         mut.apply(last_instance, mut_instance)
         new_group.push(mut_instance)
         last_instance = mut_instance

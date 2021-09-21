@@ -131,7 +131,8 @@ class Stats:
         print('____________' + status + '____________', end='\n')
         ind = self.df['status'] == status
         for i, entry in self.df.loc[ind].iterrows():
-            print(entry['filename'], entry['message'], end='\n')
+            print(entry['filename'], entry['message'], entry['mut_chain'],
+                  end='\n')
 
 
 def main(log_names):
@@ -166,7 +167,7 @@ def main(log_names):
             else:
                 legend.append('Default')
 
-        # cur_stats.analyze_entries('mutant_unknown')
+        cur_stats.analyze_entries('mutant_unknown')
         # cur_stats.analyze_entries('mutant_timeout')
         # cur_stats.analyze_entries('error')
         # cur_stats.analyze_entries('bug')
