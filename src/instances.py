@@ -236,6 +236,7 @@ class Mutation(object):
 
     def apply(self, instance, new_instance):
         """Mutate instances."""
+
         if self.type == MutType.ID:
             self.next_mutation(instance)
 
