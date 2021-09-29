@@ -16,6 +16,25 @@ info_kinds = [Z3_OP_AND, Z3_OP_OR, Z3_QUANTIFIER_AST,
               Z3_OP_EQ]
 
 
+class State(object):
+
+    def __init__(self, line):
+        parts = line.rstrip().split('/')
+        self.state = parts[0].split('..')[0]  # function
+        self.state += parts[-1]  # file:line
+
+    def __eq__(self, other):
+        if self.state != other.state:
+            return False
+        return True
+
+    def __hash__(self):
+        return hash(self.state)
+
+    def encode(self, standart):
+        return self.state.encode(standart)
+
+
 class ClauseInfo(object):
 
     def __init__(self, number):
@@ -95,26 +114,26 @@ class TraceStats(object):
         trace.seek(trans_offset)
         lines = trace.readlines()
         hash_builder = hashlib.sha512()
-        states = [state.rstrip() for state in lines]
-        for state in states:
+        prev_state = None
+
+        for line in lines:
+            state = State(line)
             hash_builder.update(state.encode('utf-8'))
             if stats_type.value > 0:
                 if state not in trace_states:
                     trace_states[state] = len(trace_states)
 
-        self.hash = hash_builder.digest()
-
-        if stats_type in {StatsType.TRANSITIONS, StatsType.ALL}:
-            size = len(trace_states)
-            self.matrix = dok_matrix((size, size), dtype=int)
-            state = states[0]
-            for next_state in states[1:]:
-                self.add_trans(state, next_state)
-                state = next_state
-
-        if stats_type in {StatsType.STATES, StatsType.ALL}:
-            for state in states:
+            if stats_type in {StatsType.STATES, StatsType.ALL}:
                 self.states_num[state] += 1
+
+            if stats_type in {StatsType.TRANSITIONS, StatsType.ALL}:
+                size = len(trace_states)
+                self.matrix = dok_matrix((size, size), dtype=int)
+                if prev_state:
+                    self.add_trans(prev_state, state)
+                prev_state = state
+
+        self.hash = hash_builder.digest()
 
         trans_offset = trace.tell()
         trace.close()

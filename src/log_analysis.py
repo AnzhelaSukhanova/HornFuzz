@@ -1,5 +1,6 @@
 import json
 import sys
+import os
 from collections import defaultdict
 from prettytable import PrettyTable
 from statistics import mean
@@ -7,12 +8,12 @@ from statistics import mean
 import pandas as pd
 import matplotlib.pyplot as plt
 
+INPUTS_GROUP_NUM = 500
+
 colors = ['red', 'gold', 'aqua', '#3dea62', '#6b57ff',
           'deeppink', 'indigo', 'coral']
 unique_traces = 0
-mutations = ['SWAP_AND', 'DUP_AND', 'BREAK_AND',
-             'SWAP_OR', 'MIX_BOUND_VARS', 'UNION',
-             'SIMPLIFY', 'ADD_INEQ']
+mutations = set()
 mut_traces_axis = defaultdict(list)
 mut_num_axis = defaultdict(list)
 mut_traces = defaultdict(int)
@@ -64,17 +65,14 @@ class Stats:
     def get_mutation_stats(self, fig, is_end=False):
         global unique_traces
         ind = self.df['mut_type'].notnull()
-        ind += self.df['mut_chain'].notnull()
         ax = fig.gca()
         legend = []
 
         for i, entry in self.df[ind].iterrows():
             if not unique_traces:
                 unique_traces = self.df.loc[i - 1]['unique_traces']
-            if pd.notna(entry['mut_type']):
-                mut = entry['mut_type'].split('(')[0]
-            else:
-                mut = entry['mut_chain'].split('->')[-1]
+            mut = entry['mut_type'].split('(')[0]
+            mutations.add(mut)
             new_unique_traces = self.df.loc[i + 1]['unique_traces']
             mut_traces[mut] += new_unique_traces - unique_traces
             mut_traces_axis[mut].append(mut_traces[mut])
@@ -93,13 +91,18 @@ class Stats:
                 ax.plot(mut_num_axis[mut],
                         mut_traces_axis[mut],
                         colors[i])
-            with open('mut_table.txt', 'w+') as file:
+            with open('stats/mut_table.txt', 'w+') as file:
                 file.write(self.get_mutation_table().get_string())
             fig.legend(legend, bbox_to_anchor=(0.9, 0.5))
 
     def get_mutation_table(self):
         table = PrettyTable()
-        rows = [1000 * i for i in range(1, 19)] + ['——', 'Average']
+        groups_num = []
+        for mut in mutations:
+            groups_num.append(mut_num[mut] // INPUTS_GROUP_NUM)
+        groups_lim = round(mean(groups_num))
+        rows = [INPUTS_GROUP_NUM * i for i in range(1, groups_lim)] + \
+               ['——', 'Average']
         columns = defaultdict(list)
         table.add_column('Mutated inputs', rows)
 
@@ -119,7 +122,7 @@ class Stats:
             columns[mut] += ['——', (round(avg, 4))]
 
         columns = {mut: col for mut, col in
-                   sorted(columns.items(), key=lambda item: item[-1])}
+                   sorted(columns.items(), key=lambda item: item[1][-1])}
         for mut in columns:
             table.add_column(mut, columns[mut])
         return table
@@ -128,10 +131,13 @@ class Stats:
         print('____________' + status + '____________', end='\n')
         ind = self.df['status'] == status
         for i, entry in self.df.loc[ind].iterrows():
-            print(entry['filename'], entry['message'], end='\n')
+            print(entry['filename'], entry['message'], entry['mut_chain'],
+                  end='\n')
 
 
 def main(log_names):
+    if not os.path.exists('stats'):
+        os.makedirs('stats')
     traces = plt.figure()
     times = plt.figure()
     mut = plt.figure()
@@ -160,10 +166,12 @@ def main(log_names):
                 legend.append('Complexity heuristic')
             else:
                 legend.append('Default')
-        # cur_stats.analyze_entries('mutant_unknown')
+
+        cur_stats.analyze_entries('mutant_unknown')
         # cur_stats.analyze_entries('mutant_timeout')
         # cur_stats.analyze_entries('error')
         # cur_stats.analyze_entries('bug')
+
         cur_stats.create_traces_graph(traces, i)
         cur_stats.create_time_graph(times, i)
         cur_stats.get_mutation_stats(mut, i == len(stats) - 1)
@@ -173,10 +181,10 @@ def main(log_names):
         times.gca().axhline(y=cur_stats.seed_num, linestyle='--', color='k')
 
     traces.legend(legend, bbox_to_anchor=(0.9, 0.28))
-    traces.savefig('traces.png', bbox_inches='tight')
+    traces.savefig('stats/traces.png', bbox_inches='tight')
     times.legend(legend, bbox_to_anchor=(0.9, 0.28))  # (0.49, 0.88)
-    times.savefig('times.png', bbox_inches='tight')
-    mut.savefig('mut.png', bbox_inches='tight')
+    times.savefig('stats/times.png', bbox_inches='tight')
+    mut.savefig('stats/mut.png', bbox_inches='tight')
 
 
 if __name__ == '__main__':
