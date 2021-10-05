@@ -40,6 +40,13 @@ class InstanceGroup(object):
             self.get_pred_info()
             instance.get_system_info()
 
+            filename = 'ctx/' + self.filename
+            with open(self.filename, 'r') as seed_file:
+                formula = seed_file.read()
+                ctx = formula.split('(assert')[0]
+                with open(filename, 'w') as ctx_file:
+                    ctx_file.write(ctx)
+
     def pop(self):
         length = len(self.instances)
         self.instances.pop(length - 1)
@@ -167,11 +174,11 @@ class Instance(object):
         """Return the group of the instance."""
         return instance_group[self.group_id]
 
-    def get_log(self, is_seed=False):
+    def get_log(self, is_mutant=True):
         """Create a log entry with information about the instance."""
         group = self.get_group()
         log = {'filename': group.filename, 'id': self.id}
-        if not is_seed:
+        if is_mutant:
             log['prev_inst_id'] = group[-1].id
             log['mut_type'] = self.mutation.get_name()
         return log
@@ -189,6 +196,24 @@ class Instance(object):
             expr_numbers = count_expr(clause, info_kinds, vars_lim=2)
             for j in range(len(info_kinds)):
                 info.expr_num[j, i] = expr_numbers[j]
+
+    def restore(self):
+        group = self.get_group()
+        filename = 'mutants/' + group.filename
+        self.chc = z3.parse_smt2_file(filename)
+        self.get_system_info()
+
+    def dump(self, dir, filename):
+        ctx_path = 'ctx/' + filename
+        with open(ctx_path, 'r') as ctx_file:
+            ctx = ctx_file.read()
+        cur_path = dir + '/' + filename
+        with open(cur_path, 'w') as file:
+            file.write(ctx)
+            for clause in self.chc:
+                file.write('(assert ' + clause.sexpr() + ')\n')
+        self.chc = AstVector()
+        self.chc.ctx = Context()
 
 
 class MutType(Enum):
@@ -236,7 +261,6 @@ class Mutation(object):
 
     def apply(self, instance, new_instance):
         """Mutate instances."""
-
         if self.type == MutType.ID:
             self.next_mutation(instance)
 
@@ -300,7 +324,7 @@ class Mutation(object):
 
     def simplify_ineq(self, chc_system):
         """Simplify instance with arith_ineq_lhs, arith_lhs and eq2ineq"""
-        mut_system = AstVector()
+        mut_system = AstVector(ctx=chc_system.ctx)
         ind = range(0, len(chc_system)) if not self.path[0] else self.path[0]
         for i in range(len(chc_system)):
             if i in ind:
@@ -318,7 +342,7 @@ class Mutation(object):
         global trans_n
         info = instance.info
         chc_system = instance.chc
-        mut_system = AstVector()
+        mut_system = AstVector(ctx=chc_system.ctx)
         kind = info_kinds[self.kind_ind]
 
         if not self.trans_num:

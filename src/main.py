@@ -12,6 +12,8 @@ heuristics = ''
 heuristic_flags = defaultdict(bool)
 queue = []
 
+ONE_INST_MUT_LIMIT = 10
+
 
 def is_same_res(instance, result=False, message=None):
     try:
@@ -192,11 +194,12 @@ def check_satis(instance, is_seed=False, get_stats=True):
     """
 
     global general_stats
-    group = instance.get_group()
-    solver = SolverFor('HORN')
+    ctx = instance.chc.ctx
+    solver = SolverFor('HORN', ctx=ctx)
     solver.set('engine', 'spacer')
 
     instance.check(solver, is_seed, get_stats)
+    group = instance.get_group()
     satis = group[-1].satis if not is_seed else instance.satis
 
     if get_stats and (heuristic_flags['transitions'] or
@@ -266,7 +269,7 @@ def log_run_info(status, message=None, instance=None, mut_instance=None):
         log['message'] = message
     if instance:
         if not mut_instance:
-            instance_info = instance.get_log(is_seed=True)
+            instance_info = instance.get_log(is_mutant=False)
             log.update(instance_info)
             if status == 'error':
                 log['chc'] = instance.chc.sexpr()
@@ -276,8 +279,8 @@ def log_run_info(status, message=None, instance=None, mut_instance=None):
                 log['satis'] = str(instance.satis)
 
         else:
-            if status == 'bug':
-                mut_instance = reduce(mut_instance, message)
+            # if status == 'bug':
+            #     mut_instance = reduce(mut_instance, message)
             mutant_info = mut_instance.get_log()
             log.update(mutant_info)
 
@@ -287,10 +290,10 @@ def log_run_info(status, message=None, instance=None, mut_instance=None):
                         reduced_inst = reduce_instance(instance,
                                                        mut_instance.mutation,
                                                        message)
-                        filename = 'reduced/' + str(mut_instance.group_id) + '_' + \
+                        group = instance.get_group()
+                        filename = group.filename + '_' + \
                                    str(mut_instance.id) + '.smt2'
-                        with open(filename, 'w') as file:
-                            file.write(reduced_inst.sexpr())
+                        reduced_inst.dump('reduced', filename)
                     except Exception:
                         print(traceback.format_exc())
                         reduced_inst = instance.chc
@@ -345,7 +348,7 @@ def fuzz(files, seeds):
     global queue, instance_group
 
     counter = defaultdict(int)
-    stats_limit = len(seeds)
+    stats_limit = seed_number
     for i, seed in enumerate(seeds):
         if i > 0:
             print_general_info(counter)
@@ -365,44 +368,56 @@ def fuzz(files, seeds):
         queue.append(instance)
 
     while queue:
-        print_general_info(counter)
         queue_len = len(queue)
         counter['runs'] += 1
         instance = None
         try:
-            if not heuristic_flags['default'] and stats_limit == 0:
+            if not heuristic_flags['default'] and not stats_limit:
                 sort_queue()
                 stats_limit = random.randint(queue_len // 5, queue_len)
             instance = queue.pop(0)
+            if counter['runs'] > 2*seed_number:
+                instance.restore()
+                mut_limit = ONE_INST_MUT_LIMIT
+            else:
+                mut_limit = 1
             stats_limit -= 1
             group = instance.get_group()
 
-            mut_instance = Instance(instance.group_id)
-            mut = mut_instance.mutation
-            mut.apply(instance, mut_instance)
+            for i in range(mut_limit):
+                print_general_info(counter)
 
-            try:
-                res = check_satis(mut_instance)
-            except AssertionError as err:
-                analyze_check_exception(instance, err, counter, mut_instance)
-                continue
+                mut_instance = Instance(instance.group_id)
+                mut = mut_instance.mutation
+                mut.apply(instance, mut_instance)
 
-            if not res:
-                counter['bug'] += 1
-                log_run_info('bug',
-                             instance=instance,
-                             mut_instance=mut_instance)
-                queue.append(instance)
+                try:
+                    res = check_satis(mut_instance)
+                except AssertionError as err:
+                    analyze_check_exception(instance, err, counter, mut_instance)
+                    continue
 
-            else:
-                queue.append(mut_instance)
-                group.push(mut_instance)
-                if not heuristic_flags['default'] and \
-                        len(instance_group) > 1:
-                    stats_limit = group.check_stats(stats_limit)
-                log_run_info('pass',
-                             instance=instance,
-                             mut_instance=mut_instance)
+                if not res:
+                    counter['bug'] += 1
+                    log_run_info('bug',
+                                 instance=instance,
+                                 mut_instance=mut_instance)
+                    queue.append(instance)
+                    continue
+
+                else:
+                    queue.append(mut_instance)
+                    group.push(mut_instance)
+                    if not heuristic_flags['default'] and \
+                            len(instance_group) > 1:
+                        stats_limit = group.check_stats(stats_limit)
+                    log_run_info('pass',
+                                 instance=instance,
+                                 mut_instance=mut_instance)
+
+                    instance = mut_instance
+                    if i == mut_limit - 1:
+                        mut_instance.dump('mutants', group.filename)
 
         except Exception as err:
             if type(err).__name__ == 'TimeoutError':
@@ -444,8 +459,7 @@ def main():
                         filename='logfile',
                         filemode='w',
                         level=logging.INFO)
-    if not os.path.exists('reduced'):
-        os.mkdir('reduced')
+
     np.set_printoptions(suppress=True)
     set_option(max_args=int(1e6), max_lines=int(1e6),
                max_depth=int(1e6), max_visited=int(1e6))
@@ -462,6 +476,7 @@ def main():
     if directory:
         directory += '/'
     files = get_seeds(argv.seeds, directory)
+    create_output_dirs()
 
     seed_number = len(files)
     assert seed_number > 0, 'Seeds not found'
@@ -470,6 +485,24 @@ def main():
     logging.info(json.dumps({'seed_number': seed_number, 'heuristics': heuristics}))
 
     fuzz(files, seeds)
+
+
+def create_output_dirs():
+    if not os.path.exists('reduced'):
+        os.mkdir('reduced')
+    if not os.path.exists('mutants'):
+        os.mkdir('mutants')
+    for dir in {'mutants', 'reduced', 'ctx'}:
+        if not os.path.exists(dir):
+            os.mkdir(dir)
+        for subdir in os.walk('spacer-benchmarks/'):
+            dir_path = dir + '/' + subdir[0]
+            if not os.path.exists(dir_path):
+                os.mkdir(dir_path)
+        for subdir in os.walk('chc-comp21-benchmarks/'):
+            dir_path = dir + '/' + subdir[0]
+            if not os.path.exists(dir_path):
+                os.mkdir(dir_path)
 
 
 if __name__ == '__main__':
