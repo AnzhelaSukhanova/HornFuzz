@@ -12,7 +12,7 @@ heuristics = ''
 heuristic_flags = defaultdict(bool)
 queue = []
 
-ONE_INST_MUT_LIMIT = 10
+ONE_INST_MUT_LIMIT = 1000
 
 
 def is_same_res(instance, result=False, message=None):
@@ -376,13 +376,16 @@ def fuzz(files, seeds):
                 sort_queue()
                 stats_limit = random.randint(queue_len // 5, queue_len)
             instance = queue.pop(0)
+            group = instance.get_group()
+
             if counter['runs'] > 2*seed_number:
+                start_mut_ind = len(group.instances)
                 instance.restore()
                 mut_limit = ONE_INST_MUT_LIMIT
             else:
+                start_mut_ind = 0
                 mut_limit = 1
             stats_limit -= 1
-            group = instance.get_group()
 
             for i in range(mut_limit):
                 print_general_info(counter)
@@ -395,7 +398,10 @@ def fuzz(files, seeds):
                     res = check_satis(mut_instance)
                 except AssertionError as err:
                     analyze_check_exception(instance, err, counter, mut_instance)
-                    continue
+                    instance.dump('last_mutants',
+                                  group.filename,
+                                  start_mut_ind)
+                    break
 
                 if not res:
                     counter['bug'] += 1
@@ -403,7 +409,10 @@ def fuzz(files, seeds):
                                  instance=instance,
                                  mut_instance=mut_instance)
                     queue.append(instance)
-                    continue
+                    instance.dump('last_mutants',
+                                  group.filename,
+                                  start_mut_ind)
+                    break
 
                 else:
                     queue.append(mut_instance)
@@ -416,8 +425,11 @@ def fuzz(files, seeds):
                                  mut_instance=mut_instance)
 
                     instance = mut_instance
-                    if i == mut_limit - 1:
-                        mut_instance.dump('mutants', group.filename)
+
+                if i == mut_limit - 1:
+                    mut_instance.dump('last_mutants',
+                                      group.filename,
+                                      start_mut_ind)
 
         except Exception as err:
             if type(err).__name__ == 'TimeoutError':
@@ -488,11 +500,7 @@ def main():
 
 
 def create_output_dirs():
-    if not os.path.exists('reduced'):
-        os.mkdir('reduced')
-    if not os.path.exists('mutants'):
-        os.mkdir('mutants')
-    for dir in {'mutants', 'reduced', 'ctx'}:
+    for dir in {'last_mutants', 'reduced', 'ctx'}:
         if not os.path.exists(dir):
             os.mkdir(dir)
         for subdir in os.walk('spacer-benchmarks/'):

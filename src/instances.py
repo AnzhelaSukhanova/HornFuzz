@@ -199,20 +199,25 @@ class Instance(object):
 
     def restore(self):
         group = self.get_group()
-        filename = 'mutants/' + group.filename
+        filename = 'last_mutants/' + group.filename
         self.chc = z3.parse_smt2_file(filename)
         self.get_system_info()
 
-    def dump(self, dir, filename):
+    def dump(self, dir, filename, start_ind):
         ctx_path = 'ctx/' + filename
         with open(ctx_path, 'r') as ctx_file:
             ctx = ctx_file.read()
         cur_path = dir + '/' + filename
         with open(cur_path, 'w') as file:
+            file.write('; ' + self.mutation.get_chain() + '\n')
             file.write(ctx)
             for clause in self.chc:
                 file.write('(assert ' + clause.sexpr() + ')\n')
-        self.chc = AstVector()
+
+        group = self.get_group()
+        length = len(group.instances)
+        for i in range(length - 1, start_ind - 1, -1):
+            group[i].chc = AstVector()
         self.chc.ctx = Context()
 
 
