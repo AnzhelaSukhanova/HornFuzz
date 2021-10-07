@@ -285,9 +285,8 @@ def shuffle_vars(vars):
 
 
 def remove_clauses(chc_system: AstVector, ind):
-    new_system = AstVector(chc_system.ctx)
+    new_system = AstVector()
     for i, clause in enumerate(chc_system):
         if i not in ind:
             new_system.push(clause)
     return new_system
-

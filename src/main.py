@@ -12,138 +12,8 @@ heuristics = ''
 heuristic_flags = defaultdict(bool)
 queue = []
 
-ONE_INST_MUT_LIMIT = 1000
-
-
-def is_same_res(instance, result=False, message=None):
-    try:
-        same_res = result == check_satis(instance, get_stats=False)
-        if message:
-            same_res = False
-    except AssertionError as err:
-        same_res = repr(err) == message
-    return same_res
-
-
-def reduce_instance(instance, mutation, message=None):
-    group = instance.get_group()
-    new_instance = deepcopy(instance)
-    new_instance.mutation = mutation
-    last_chc = instance.chc
-    reduced_ind = set()
-    upred_ind = group.upred_ind
-
-    for pred in upred_ind:
-        ind = group.upred_ind[pred].intersection(reduced_ind)
-        new_instance.chc = remove_clauses(new_instance.chc, ind)
-
-        mut_instance = deepcopy(new_instance)
-        mut = new_instance.mutation
-        if mut.path[0]:
-            for i in ind:
-                if mut.path[0] == i:
-                    continue
-                elif mut.path[0] > i:
-                    mut.path[0] -= 1
-        new_instance.get_system_info()
-
-        mut.apply(new_instance, mut_instance)
-
-        if not is_same_res(mut_instance):
-            new_instance.chc = last_chc
-        else:
-            last_chc = new_instance.chc
-            reduced_ind = reduced_ind.union(group.upred_ind[pred])
-    old_len = len(instance.chc)
-    new_len = len(new_instance.chc)
-    if old_len != new_len:
-        print('Reduced:',
-              old_len, '->', new_len,
-              '(number of clauses)')
-        new_instance.chc = reduce_instance(new_instance, mutation, message)
-    return new_instance.chc
-
-
-def reduce(instance, message=None):
-    """
-    Search for a reduced version of mutation chain that is
-    the minimal set of bug-triggering transformations.
-    """
-    group = instance.get_group()
-    group.push(instance)
-    initial_size = len(group.instances)
-    chunk_size = initial_size // 2
-
-    while chunk_size:
-        for i in range(initial_size - 1, 0, -chunk_size):
-            from_ind = max(i - chunk_size + 1, 1)
-            ind_chunk = range(from_ind, i + 1)
-            new_group = undo_mutations(instance, ind_chunk)
-            new_instance = new_group[-1]
-            if group != new_group and \
-                    is_same_res(new_instance, message=message):
-                group = new_group
-
-            if chunk_size == 1:
-                if group[ind_chunk[0]].mutation.type == MutType.SIMPLIFY:
-                    group[ind_chunk[0]] = reduce_simplify(group[ind_chunk[0] - 1], message)
-        chunk_size //= 2
-
-    instance = group[-1]
-    group.pop()
-    return instance
-
-
-def undo_mutations(instance, ind):
-    """Undo the mutations from a given interval."""
-    group = instance.get_group()
-    new_group = deepcopy(group)
-    new_group.instances.clear()
-    for i in range(ind[0]):
-        new_group.push(group[i])
-    last_instance = new_group[ind[0] - 1]
-    for i in range(ind[-1] + 1, len(group.instances)):
-        mut_instance = Instance(last_instance.group_id)
-        mut_instance.mutation = group[i].mutation
-        mut = mut_instance.mutation
-        info = last_instance.info
-        if mut.trans_num is not None:
-            clause_ind = mut.path[0]
-            expr_num = info.expr_num[mut.kind_ind][clause_ind]
-            if mut.trans_num >= expr_num:
-                return group
-        mut.apply(last_instance, mut_instance)
-        new_group.push(mut_instance)
-        last_instance = mut_instance
-
-    return new_group
-
-
-def reduce_simplify(instance, message=None):
-    mut_instance = Instance(instance.group_id)
-    mut = mut_instance.mutation
-    mut.type = MutType.SIMPLIFY
-    flags_num = len(mut.simp_flags)
-
-    for i in range(flags_num):
-        mut.simp_flags[i] = False
-        mut.apply(instance, mut_instance)
-        if not is_same_res(mut_instance, message=message):
-            mut.simp_flags[i] = True
-        mut_instance.chc = instance.chc
-
-    mut.path[0] = [i for i in range(len(instance.chc))]
-    for i in range(len(instance.chc)):
-        mut.path[0].remove(i)
-        mut.apply(instance, mut_instance)
-        if not is_same_res(mut_instance, message=message):
-            mut.path[0].append(i)
-        mut_instance.chc = instance.chc
-    if mut.path[0] == range(len(instance.chc)):
-        mut.path[0] = None
-
-    mut.apply(instance, mut_instance)
-    return mut_instance
+ONE_INST_MUT_LIMIT = 10
+MUT_AFTER_PROBLEM = 10
 
 
 def calc_sort_key(heuristic, stats, weights=None):
@@ -279,32 +149,13 @@ def log_run_info(status, message=None, instance=None, mut_instance=None):
                 log['satis'] = str(instance.satis)
 
         else:
-            # if status == 'bug':
-            #     mut_instance = reduce(mut_instance, message)
             mutant_info = mut_instance.get_log()
             log.update(mutant_info)
-
             if status != 'pass':
-                if status == 'bug':
-                    try:
-                        reduced_inst = reduce_instance(instance,
-                                                       mut_instance.mutation,
-                                                       message)
-                        group = instance.get_group()
-                        filename = group.filename + '_' + \
-                                   str(mut_instance.id) + '.smt2'
-                        reduced_inst.dump('reduced', filename)
-                    except Exception:
-                        print(traceback.format_exc())
-                        reduced_inst = instance.chc
-                    log['prev_chc'] = reduced_inst.sexpr()
-                else:
-                    log['prev_chc'] = instance.chc.sexpr()
-
-                log['current_chc'] = mut_instance.chc.sexpr()
-                log['excepted_satis'] = str(instance.satis)
                 chain = mut_instance.mutation.get_chain()
                 log['mut_chain'] = chain
+                log['prev_chc'] = instance.chc.sexpr()
+                log['excepted_satis'] = str(instance.satis)
 
     logging.info(json.dumps({'run_info': log}))
 
@@ -345,7 +196,7 @@ def analyze_check_exception(instance, err, counter,
 
 
 def fuzz(files, seeds):
-    global queue, instance_group
+    global queue
 
     counter = defaultdict(int)
     stats_limit = seed_number
@@ -353,8 +204,7 @@ def fuzz(files, seeds):
         if i > 0:
             print_general_info(counter)
         counter['runs'] += 1
-        instance_group[i] = InstanceGroup(files.pop())
-        group = instance_group[i]
+        group = InstanceGroup(i, files.pop())
         instance = Instance(i, seed)
         group.same_stats_limit = 5 * len(seed)
         group.push(instance)
@@ -369,7 +219,6 @@ def fuzz(files, seeds):
 
     while queue:
         queue_len = len(queue)
-        counter['runs'] += 1
         instance = None
         try:
             if not heuristic_flags['default'] and not stats_limit:
@@ -378,7 +227,7 @@ def fuzz(files, seeds):
             instance = queue.pop(0)
             group = instance.get_group()
 
-            if counter['runs'] > 2*seed_number:
+            if counter['runs'] >= 2*seed_number:
                 start_mut_ind = len(group.instances)
                 instance.restore()
                 mut_limit = ONE_INST_MUT_LIMIT
@@ -387,7 +236,10 @@ def fuzz(files, seeds):
                 mut_limit = 1
             stats_limit -= 1
 
-            for i in range(mut_limit):
+            i = 0
+            while i < mut_limit:
+                i += 1
+                counter['runs'] += 1
                 print_general_info(counter)
 
                 mut_instance = Instance(instance.group_id)
@@ -398,10 +250,14 @@ def fuzz(files, seeds):
                     res = check_satis(mut_instance)
                 except AssertionError as err:
                     analyze_check_exception(instance, err, counter, mut_instance)
-                    instance.dump('last_mutants',
-                                  group.filename,
-                                  start_mut_ind)
-                    break
+                    filename = group.filename[:-4] + '_' + \
+                               str(mut_instance.id) + '.smt2'
+                    mut_instance.dump('output/problems',
+                                      filename,
+                                      0,
+                                      repr(err))
+                    i = max(i, mut_limit - MUT_AFTER_PROBLEM)
+                    continue
 
                 if not res:
                     counter['bug'] += 1
@@ -409,27 +265,28 @@ def fuzz(files, seeds):
                                  instance=instance,
                                  mut_instance=mut_instance)
                     queue.append(instance)
-                    instance.dump('last_mutants',
-                                  group.filename,
-                                  start_mut_ind)
-                    break
+                    filename = group.filename[:-4] + '_' + \
+                               str(mut_instance.id) + '.smt2'
+                    mut_instance.dump('output/bugs',
+                                      filename,
+                                      0)
+                    i = max(i, mut_limit - MUT_AFTER_PROBLEM)
+                    continue
 
                 else:
                     queue.append(mut_instance)
                     group.push(mut_instance)
                     if not heuristic_flags['default'] and \
-                            len(instance_group) > 1:
+                            len(instance_groups) > 1:
                         stats_limit = group.check_stats(stats_limit)
                     log_run_info('pass',
                                  instance=instance,
                                  mut_instance=mut_instance)
-
                     instance = mut_instance
 
-                if i == mut_limit - 1:
-                    mut_instance.dump('last_mutants',
-                                      group.filename,
-                                      start_mut_ind)
+            instance.dump('output/last_mutants',
+                          group.filename,
+                          start_mut_ind)
 
         except Exception as err:
             if type(err).__name__ == 'TimeoutError':
@@ -500,17 +357,22 @@ def main():
 
 
 def create_output_dirs():
-    for dir in {'last_mutants', 'reduced', 'ctx'}:
+    if not os.path.exists('output'):
+        os.mkdir('output')
+    for dir in {'output/last_mutants', 'output/reduced',
+                'output/ctx', 'output/bugs',
+                'output/problems'}:
         if not os.path.exists(dir):
             os.mkdir(dir)
-        for subdir in os.walk('spacer-benchmarks/'):
-            dir_path = dir + '/' + subdir[0]
-            if not os.path.exists(dir_path):
-                os.mkdir(dir_path)
-        for subdir in os.walk('chc-comp21-benchmarks/'):
-            dir_path = dir + '/' + subdir[0]
-            if not os.path.exists(dir_path):
-                os.mkdir(dir_path)
+        if dir != 'output':
+            for subdir in os.walk('spacer-benchmarks/'):
+                dir_path = dir + '/' + subdir[0]
+                if not os.path.exists(dir_path):
+                    os.mkdir(dir_path)
+            for subdir in os.walk('chc-comp21-benchmarks/'):
+                dir_path = dir + '/' + subdir[0]
+                if not os.path.exists(dir_path):
+                    os.mkdir(dir_path)
 
 
 if __name__ == '__main__':

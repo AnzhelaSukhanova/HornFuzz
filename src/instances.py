@@ -1,4 +1,5 @@
 import time
+import json
 
 from utils import *
 
@@ -9,11 +10,13 @@ INSTANCE_ID = 0
 
 trans_n = 0
 unique_traces = set()
+instance_groups = defaultdict()
 
 
 class InstanceGroup(object):
 
-    def __init__(self, filename):
+    def __init__(self, id, filename):
+        instance_groups[id] = self
         self.filename = filename
         self.instances = defaultdict(Instance)
         self.same_stats = 0
@@ -40,7 +43,7 @@ class InstanceGroup(object):
             self.get_pred_info()
             instance.get_system_info()
 
-            filename = 'ctx/' + self.filename
+            filename = 'output/ctx/' + self.filename
             with open(self.filename, 'r') as seed_file:
                 formula = seed_file.read()
                 ctx = formula.split('(assert')[0]
@@ -129,8 +132,18 @@ class InstanceGroup(object):
                     self.is_linear = False
         self.upred_num = len(self.uninter_pred)
 
+    def restore(self, id, mutations):
+        seed = parse_smt2_file(self.filename)
+        instance = Instance(id, seed)
+        self.push(instance)
 
-instance_group = defaultdict(InstanceGroup)
+        for mut in mutations:
+            mut_instance = Instance(id)
+            for field in mut:
+                setattr(mut_instance.mutation, field, mut[field])
+            mut_instance.mutation.apply(instance, mut_instance)
+            self.push(mut_instance)
+            instance = mut_instance
 
 
 class Instance(object):
@@ -140,20 +153,28 @@ class Instance(object):
         self.id = INSTANCE_ID
         INSTANCE_ID += 1
         self.group_id = group_id
-        self.chc = chc
+        self.chc = None
+        if chc is not None:
+            self.set_chc(chc)
         self.satis = unknown
         self.trace_stats = TraceStats()
         self.sort_key = 0
-        group = self.get_group()
 
+        group = self.get_group()
         if not group.instances:
-            chc_len = len(self.chc)
             self.mutation = Mutation()
-            self.info = ClauseInfo(chc_len)
         else:
             prev_instance = group[-1]
             self.mutation = Mutation(prev_instance.mutation)
             self.info = deepcopy(prev_instance.info)
+
+    def set_chc(self, chc):
+        assert chc is not None, 'CHC-system wasn\'t given'
+        self.chc = chc
+        group = self.get_group()
+        if not group.instances:
+            chc_len = len(self.chc)
+            self.info = ClauseInfo(chc_len)
 
     def check(self, solver, is_seed=False, get_stats=True):
         """Check the satisfiability of the instance."""
@@ -172,7 +193,7 @@ class Instance(object):
 
     def get_group(self):
         """Return the group of the instance."""
-        return instance_group[self.group_id]
+        return instance_groups[self.group_id]
 
     def get_log(self, is_mutant=True):
         """Create a log entry with information about the instance."""
@@ -199,17 +220,21 @@ class Instance(object):
 
     def restore(self):
         group = self.get_group()
-        filename = 'last_mutants/' + group.filename
+        filename = 'output/last_mutants/' + group.filename
+        self.chc.ctx = Context()
         self.chc = z3.parse_smt2_file(filename)
         self.get_system_info()
 
-    def dump(self, dir, filename, start_ind):
-        ctx_path = 'ctx/' + filename
+    def dump(self, dir, filename, start_ind, message=None):
+        ctx_path = 'output/ctx/' + filename
         with open(ctx_path, 'r') as ctx_file:
             ctx = ctx_file.read()
         cur_path = dir + '/' + filename
         with open(cur_path, 'w') as file:
-            file.write('; ' + self.mutation.get_chain() + '\n')
+            mut_info = self.mutation.get_chain(in_log_format=True)
+            file.write('; ' + json.dumps(mut_info) + '\n')
+            if message:
+                file.write('; ' + message + '\n')
             file.write(ctx)
             for clause in self.chc:
                 file.write('(assert ' + clause.sexpr() + ')\n')
@@ -217,11 +242,10 @@ class Instance(object):
         group = self.get_group()
         length = len(group.instances)
         for i in range(length - 1, start_ind - 1, -1):
-            group[i].chc = AstVector()
-        self.chc.ctx = Context()
+            group[i].set_chc(AstVector())
 
 
-class MutType(Enum):
+class MutType(int, Enum):
     ID = 1
 
     """And(a, b) -> And(b, a)"""
@@ -276,10 +300,10 @@ class Mutation(object):
                            MutType.DUP_AND, MutType.DUP_OR,
                            MutType.BREAK_AND, MutType.BREAK_OR,
                            MutType.MIX_BOUND_VARS, MutType.ADD_INEQ}:
-            new_instance.chc = self.transform(instance)
+            new_instance.set_chc(self.transform(instance))
 
         elif self.type == MutType.SIMPLIFY:
-            new_instance.chc = self.simplify_ineq(instance.chc)
+            new_instance.set_chc(self.simplify_ineq(instance.chc))
             new_instance.get_system_info()
 
         else:
@@ -432,14 +456,21 @@ class Mutation(object):
                 mut_children.append(child)
         return update_expr(expr, mut_children)
 
-    def get_chain(self):
+    def get_chain(self, in_log_format=False):
         """Return the full mutation chain."""
-        chain = self.get_name()
+        if not in_log_format:
+            chain = self.get_name()
+        else:
+            chain = [self.get_log()]
         cur_mutation = self
         for i in range(self.number, 1, -1):
             cur_mutation = cur_mutation.prev_mutation
-            mut_name = cur_mutation.get_name()
-            chain = mut_name + '->' + chain
+            if not in_log_format:
+                mut_name = cur_mutation.get_name()
+                chain = mut_name + '->' + chain
+            else:
+                cur_log = [cur_mutation.get_log()]
+                chain = cur_log + chain
         return chain
 
     def get_name(self):
@@ -461,6 +492,15 @@ class Mutation(object):
 
     def debug_print(self, chc_system: AstVector, mut_system: AstVector):
         print(chc_system[self.path[0]], '\n->\n', mut_system[self.path[0]])
+
+    def get_log(self):
+        log = {'type': self.type,
+               'path': self.path,
+               'kind_ind': self.kind_ind,
+               'trans_num': self.trans_num,
+               'simp_flags': self.simp_flags
+               }
+        return log
 
 
 def mut_break(children, expr_kind):
