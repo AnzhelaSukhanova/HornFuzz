@@ -276,12 +276,20 @@ def check_ast_kind(expr, kind):
 
 
 def shuffle_vars(vars):
-    old_order = [id(var) for var in vars]
-    is_same = True
-    while is_same:
-        random.shuffle(vars)
-        new_order = [id(var) for var in vars]
-        is_same = new_order == old_order
+    sort_groups = defaultdict(list)
+    sort_order = []
+
+    for var in vars:
+        sort = var.sort()
+        sort_order.append(sort)
+        sort_groups[var.sort()].append(var)
+    for sort in sort_groups:
+        random.shuffle(sort_groups[sort])
+    vars.clear()
+
+    for sort in sort_order:
+        next_var = sort_groups[sort].pop()
+        vars.append(next_var)
 
 
 def remove_clauses(chc_system: AstVector, ind):

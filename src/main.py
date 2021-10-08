@@ -12,7 +12,7 @@ heuristics = ''
 heuristic_flags = defaultdict(bool)
 queue = []
 
-ONE_INST_MUT_LIMIT = 10
+ONE_INST_MUT_LIMIT = 1000
 MUT_AFTER_PROBLEM = 10
 
 
@@ -41,20 +41,6 @@ def calc_sort_key(heuristic, stats, weights=None):
         else:
             sort_key = 1 / sum_num
     return sort_key
-
-
-def parse_seeds(filenames):
-    """Return the parsed seeds given by files in smt2-format."""
-
-    global seed_number
-    seeds = []
-    for name in filenames:
-        seed = z3.parse_smt2_file(name)
-        if seed:
-            seeds.append(seed)
-        else:
-            seed_number -= 1
-    return seeds
 
 
 def check_satis(instance, is_seed=False, get_stats=True):
@@ -195,19 +181,22 @@ def analyze_check_exception(instance, err, counter,
             queue.append(group[0])
 
 
-def fuzz(files, seeds):
-    global queue
+def run_seeds(files, counter):
+    global queue, seed_number
 
-    counter = defaultdict(int)
-    stats_limit = seed_number
-    for i, seed in enumerate(seeds):
+    for i, filename in enumerate(files):
+        seed = z3.parse_smt2_file(filename)
+        if not seed:
+            seed_number -= 1
+            continue
         if i > 0:
             print_general_info(counter)
         counter['runs'] += 1
-        group = InstanceGroup(i, files.pop())
+        group = InstanceGroup(i, filename)
         instance = Instance(i, seed)
         group.same_stats_limit = 5 * len(seed)
         group.push(instance)
+
         try:
             check_satis(instance, is_seed=True)
         except AssertionError as err:
@@ -216,13 +205,22 @@ def fuzz(files, seeds):
         log_run_info('seed',
                      instance=instance)
         queue.append(instance)
+    assert seed_number > 0, 'All seeds were given in incorrect format'
+
+
+def fuzz(files):
+    global queue
+
+    counter = defaultdict(int)
+    run_seeds(files, counter)
+    stats_limit = seed_number
 
     while queue:
-        queue_len = len(queue)
         instance = None
         try:
             if not heuristic_flags['default'] and not stats_limit:
                 sort_queue()
+                queue_len = len(queue)
                 stats_limit = random.randint(queue_len // 5, queue_len)
             instance = queue.pop(0)
             group = instance.get_group()
@@ -349,11 +347,9 @@ def main():
 
     seed_number = len(files)
     assert seed_number > 0, 'Seeds not found'
-    seeds = parse_seeds(files)
-    assert seed_number > 0, 'All seeds were given in incorrect format'
     logging.info(json.dumps({'seed_number': seed_number, 'heuristics': heuristics}))
 
-    fuzz(files, seeds)
+    fuzz(files)
 
 
 def create_output_dirs():

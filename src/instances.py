@@ -336,7 +336,7 @@ class Mutation(object):
                             mut_types.append(9)
                         mut_types.append(10)
                     type_kind_corr[9].append(i)
-                    if i != 8:
+                    if i != 7:
                         type_kind_corr[10].append(i)
         weights = []
         for i in mut_types:
@@ -520,7 +520,9 @@ def create_add_ineq(children, expr_kind):
     if expr_kind in {Z3_OP_LE, Z3_OP_LT}:
         new_child = children[1] + 1
         new_ineq = children[0] < new_child
-    else:
+    elif expr_kind in {Z3_OP_GE, Z3_OP_GT}:
         new_child = children[1] - 1
         new_ineq = children[0] > new_child
+    else:
+        assert False, 'Incorrect kind of expression'
     return new_ineq
