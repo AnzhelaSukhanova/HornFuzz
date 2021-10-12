@@ -51,8 +51,9 @@ class InstanceGroup(object):
                     ctx_file.write(ctx)
 
     def pop(self):
+        """Take an instance from the group."""
         length = len(self.instances)
-        self.instances.pop(length - 1)
+        return self.instances.pop(length - 1)
 
     def roll_back(self):
         """Roll back the group to the seed."""
@@ -62,7 +63,7 @@ class InstanceGroup(object):
         self.same_stats_limit = 5 * len(seed.chc)
         self.get_pred_info()
 
-    def check_stats(self, stats_limit):
+    def check_stats(self, stats_limit) -> int:
         """
         Increase the counter if the current trace is the same as the previous
         one. Reset the number of steps before sorting instances if their
@@ -139,8 +140,7 @@ class InstanceGroup(object):
 
         for mut in mutations:
             mut_instance = Instance(id)
-            for field in mut:
-                setattr(mut_instance.mutation, field, mut[field])
+            mut_instance.mutation.restore(mut)
             mut_instance.mutation.apply(instance, mut_instance)
             self.push(mut_instance)
             instance = mut_instance
@@ -169,6 +169,7 @@ class Instance(object):
             self.info = deepcopy(prev_instance.info)
 
     def set_chc(self, chc):
+        """Set the chc-system of the instance."""
         assert chc is not None, 'CHC-system wasn\'t given'
         self.chc = chc
         group = self.get_group()
@@ -195,7 +196,7 @@ class Instance(object):
         """Return the group of the instance."""
         return instance_groups[self.group_id]
 
-    def get_log(self, is_mutant=True):
+    def get_log(self, is_mutant=True) -> dict:
         """Create a log entry with information about the instance."""
         group = self.get_group()
         log = {'filename': group.filename, 'id': self.id}
@@ -205,6 +206,10 @@ class Instance(object):
         return log
 
     def get_system_info(self):
+        """
+        Get information about the existence of subexpressions of kind
+        from info_kinds and about their .
+        """
         info = self.info
         info.expr_exists = expr_exists(self.chc, info_kinds)
 
@@ -219,17 +224,21 @@ class Instance(object):
                 info.expr_num[j, i] = expr_numbers[j]
 
     def restore(self):
+        """Restore the instance from output/last_mutants/."""
         group = self.get_group()
         filename = 'output/last_mutants/' + group.filename
         self.chc.ctx = Context()
         self.chc = z3.parse_smt2_file(filename)
         self.get_system_info()
 
-    def dump(self, dir, filename, start_ind, message=None):
+    def dump(self, dir, filename, start_ind, message=None, to_name=None):
+        """Dump the instance to the specified directory."""
         ctx_path = 'output/ctx/' + filename
         with open(ctx_path, 'r') as ctx_file:
             ctx = ctx_file.read()
         cur_path = dir + '/' + filename
+        if to_name:
+            cur_path = cur_path[:-4] + '_' + str(to_name) + '.smt2'
         with open(cur_path, 'w') as file:
             mut_info = self.mutation.get_chain(in_log_format=True)
             file.write('; ' + json.dumps(mut_info) + '\n')
@@ -296,7 +305,7 @@ class Mutation(object):
         if self.type == MutType.ID:
             assert False, 'No mutation can be applied'
 
-        elif self.type in {MutType.SWAP_AND, MutType.SWAP_OR,
+        if self.type in {MutType.SWAP_AND, MutType.SWAP_OR,
                            MutType.DUP_AND, MutType.DUP_OR,
                            MutType.BREAK_AND, MutType.BREAK_OR,
                            MutType.MIX_BOUND_VARS, MutType.ADD_INEQ}:
@@ -334,9 +343,9 @@ class Mutation(object):
                     if not type_kind_corr[9]:
                         if not group.is_simplified:
                             mut_types.append(9)
-                        mut_types.append(10)
                     type_kind_corr[9].append(i)
                     if i != 7:
+                        mut_types.append(10)
                         type_kind_corr[10].append(i)
         weights = []
         for i in mut_types:
@@ -351,8 +360,8 @@ class Mutation(object):
         else:
             self.kind_ind = type_kind_corr[mut_id]
 
-    def simplify_ineq(self, chc_system):
-        """Simplify instance with arith_ineq_lhs, arith_lhs and eq2ineq"""
+    def simplify_ineq(self, chc_system) -> AstVector:
+        """Simplify instance with arith_ineq_lhs, arith_lhs and eq2ineq."""
         mut_system = AstVector(ctx=chc_system.ctx)
         ind = range(0, len(chc_system)) if not self.path[0] else self.path[0]
         for i in range(len(chc_system)):
@@ -366,7 +375,7 @@ class Mutation(object):
             mut_system.push(clause)
         return mut_system
 
-    def transform(self, instance):
+    def transform(self, instance) -> AstVector:
         """Transform an expression of the specific kind."""
         global trans_n
         info = instance.info
@@ -377,11 +386,14 @@ class Mutation(object):
         if not self.trans_num:
             ind = np.where(info.expr_num[self.kind_ind] != 0)[0]
             i = int(random.choice(ind))
+            clause = chc_system[i]
+            info.expr_num[self.kind_ind][i] = \
+                count_expr(clause, [kind], vars_lim=2)[0]
             num = info.expr_num[self.kind_ind][i]
             self.trans_num = random.randint(0, num - 1)
         else:
             i = self.path[0]
-        clause = chc_system[i]
+            clause = chc_system[i]
         trans_n = deepcopy(self.trans_num)
         self.path = [i]
 
@@ -474,6 +486,7 @@ class Mutation(object):
         return chain
 
     def get_name(self):
+        """Get mutation name with some information about it."""
         if self.type in {MutType.SWAP_AND, MutType.SWAP_OR,
                          MutType.DUP_AND, MutType.DUP_OR,
                          MutType.BREAK_AND, MutType.BREAK_OR,
@@ -482,8 +495,8 @@ class Mutation(object):
                    str(self.path[0]) + ', ' + \
                    str(self.trans_num) + ')'
         elif self.type == MutType.SIMPLIFY:
-            flags = list(map(int, self.simp_flags.values()))
-            info = str(flags)
+            flags = list(map(str, self.simp_flags.values()))
+            info = ', '.join(flags)
             if self.path[0]:
                 info = str(info) + ', ' + str(self.path[0])
             return self.type.name + '(' + info + ')'
@@ -493,7 +506,8 @@ class Mutation(object):
     def debug_print(self, chc_system: AstVector, mut_system: AstVector):
         print(chc_system[self.path[0]], '\n->\n', mut_system[self.path[0]])
 
-    def get_log(self):
+    def get_log(self) -> dict:
+        """Create a log entry with information about the mutation."""
         log = {'type': self.type,
                'path': self.path,
                'kind_ind': self.kind_ind,
@@ -502,8 +516,30 @@ class Mutation(object):
                }
         return log
 
+    def restore(self, mut_entry):
+        """Restore mutations by log or chain."""
+        if type(mut_entry) == list:
+            for field in mut_entry:
+                setattr(self, field, mut_entry[field])
+        elif type(mut_entry) == str:
+            mut_info = mut_entry[:-1].split('(')
+            mut_info[1] = mut_info[1].split(', ')
+            self.type = MutType[mut_info[0]]
+            if self.type == MutType.SIMPLIFY:
+                self.simp_flags = mut_info[1]
+            else:
+                self.path = [int(mut_info[1][0])]
+                self.trans_num = int(mut_info[1][1])
+        else:
+            assert False, 'Incorrect mutation entry'
+
 
 def mut_break(children, expr_kind):
+    """
+    Return the children of the expression
+    after applying the mutation BREAK_AND/BREAK_OR
+    """
+
     children_part = children[-2:]
     if len(children) == 2:
         mut_children = children[:-1]
@@ -517,6 +553,8 @@ def mut_break(children, expr_kind):
 
 
 def create_add_ineq(children, expr_kind):
+    """Return a stronger inequality than given."""
+
     if expr_kind in {Z3_OP_LE, Z3_OP_LT}:
         new_child = children[1] + 1
         new_ineq = children[0] < new_child

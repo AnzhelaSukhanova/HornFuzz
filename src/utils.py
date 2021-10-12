@@ -178,7 +178,7 @@ class TraceStats(object):
         return weights
 
 
-def get_bound_vars(expr):
+def get_bound_vars(expr) -> list:
     """Return bound variables."""
 
     vars = []
@@ -213,7 +213,7 @@ def update_expr(expr, children, vars=None):
     return upd_expr
 
 
-def expr_exists(instance, kinds):
+def expr_exists(instance, kinds) -> defaultdict:
     """Return if there is a subexpression of the specific kind."""
 
     expr_ex = defaultdict(bool)
@@ -269,13 +269,15 @@ def count_expr(instance, kinds, is_unique=False, vars_lim=None):
         return expr_num
 
 
-def check_ast_kind(expr, kind):
+def check_ast_kind(expr, kind) -> bool:
     ctx_ref = expr.ctx.ref()
     ast = expr.as_ast()
     return Z3_get_ast_kind(ctx_ref, ast) == kind
 
 
 def shuffle_vars(vars):
+    """Shuffle the variables preserving sort order."""
+
     sort_groups = defaultdict(list)
     sort_order = []
 
@@ -292,7 +294,8 @@ def shuffle_vars(vars):
         vars.append(next_var)
 
 
-def remove_clauses(chc_system: AstVector, ind):
+def remove_clauses(chc_system: AstVector, ind) -> AstVector:
+    """Remove the clauses from the chc-system at the given indices."""
     new_system = AstVector()
     for i, clause in enumerate(chc_system):
         if i not in ind:

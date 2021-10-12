@@ -16,7 +16,7 @@ ONE_INST_MUT_LIMIT = 1000
 MUT_AFTER_PROBLEM = 10
 
 
-def calc_sort_key(heuristic, stats, weights=None):
+def calc_sort_key(heuristic, stats, weights=None) -> int:
     """Calculate the priority of an instance in the sorted queue."""
 
     if heuristic == 'transitions':
@@ -43,7 +43,7 @@ def calc_sort_key(heuristic, stats, weights=None):
     return sort_key
 
 
-def check_satis(instance, is_seed=False, get_stats=True):
+def check_satis(instance, is_seed=False, get_stats=True) -> bool:
     """
     Return True if the test suites have the same satisfiability and
     False otherwise.
@@ -182,6 +182,7 @@ def analyze_check_exception(instance, err, counter,
 
 
 def run_seeds(files, counter):
+    """Read and solve the seeds."""
     global queue, seed_number
 
     for i, filename in enumerate(files):
@@ -213,6 +214,8 @@ def fuzz(files):
 
     counter = defaultdict(int)
     run_seeds(files, counter)
+    logging.info(json.dumps({'seed_number': seed_number,
+                             'heuristics': heuristics}))
     stats_limit = seed_number
 
     while queue:
@@ -248,12 +251,11 @@ def fuzz(files):
                     res = check_satis(mut_instance)
                 except AssertionError as err:
                     analyze_check_exception(instance, err, counter, mut_instance)
-                    filename = group.filename[:-4] + '_' + \
-                               str(mut_instance.id) + '.smt2'
                     mut_instance.dump('output/problems',
-                                      filename,
+                                      group.filename,
                                       0,
-                                      repr(err))
+                                      repr(err),
+                                      to_name=mut_instance.id)
                     i = max(i, mut_limit - MUT_AFTER_PROBLEM)
                     continue
 
@@ -263,11 +265,10 @@ def fuzz(files):
                                  instance=instance,
                                  mut_instance=mut_instance)
                     queue.append(instance)
-                    filename = group.filename[:-4] + '_' + \
-                               str(mut_instance.id) + '.smt2'
                     mut_instance.dump('output/bugs',
-                                      filename,
-                                      0)
+                                      group.filename,
+                                      0,
+                                      to_name=mut_instance.id)
                     i = max(i, mut_limit - MUT_AFTER_PROBLEM)
                     continue
 
@@ -347,12 +348,13 @@ def main():
 
     seed_number = len(files)
     assert seed_number > 0, 'Seeds not found'
-    logging.info(json.dumps({'seed_number': seed_number, 'heuristics': heuristics}))
 
     fuzz(files)
 
 
 def create_output_dirs():
+    """Create directories for storing instances"""
+
     if not os.path.exists('output'):
         os.mkdir('output')
     for dir in {'output/last_mutants', 'output/reduced',

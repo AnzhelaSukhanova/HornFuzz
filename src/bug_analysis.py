@@ -1,11 +1,17 @@
 import traceback
+import argparse
 
 from main import check_satis
 from instances import *
 from seeds import get_filenames
 
 
-def is_same_res(instance, result=False, message=None):
+def is_same_res(instance, result=False, message=None) -> bool:
+    """
+    Return True if solving an instance returns
+    the expected result and False otherwise.
+    """
+
     try:
         same_res = result == check_satis(instance, get_stats=False)
         if message:
@@ -15,7 +21,9 @@ def is_same_res(instance, result=False, message=None):
     return same_res
 
 
-def reduce_instance(instance, mutation, message=None):
+def reduce_instance(instance, mutation, message=None) -> Instance:
+    """Reduce the chc-system causing the problem."""
+
     group = instance.get_group()
     new_instance = deepcopy(instance)
     new_instance.mutation = mutation
@@ -54,7 +62,7 @@ def reduce_instance(instance, mutation, message=None):
     return new_instance
 
 
-def reduce_mut_chain(instance, message=None):
+def reduce_mut_chain(instance, message=None) -> Instance:
     """
     Search for a reduced version of mutation chain that is
     the minimal set of bug-triggering transformations.
@@ -84,8 +92,9 @@ def reduce_mut_chain(instance, message=None):
     return instance
 
 
-def undo_mutations(instance, ind):
+def undo_mutations(instance, ind) -> InstanceGroup:
     """Undo the mutations from a given interval."""
+
     group = instance.get_group()
     new_group = deepcopy(group)
     new_group.instances.clear()
@@ -110,7 +119,9 @@ def undo_mutations(instance, ind):
     return new_group
 
 
-def reduce_simplify(instance, message=None):
+def reduce_simplify(instance, message=None) -> Instance:
+    """Reduce the applying of SIMPLIFY"""
+
     mut_instance = Instance(instance.group_id)
     mut = mut_instance.mutation
     mut.type = MutType.SIMPLIFY
@@ -137,7 +148,7 @@ def reduce_simplify(instance, message=None):
     return mut_instance
 
 
-def main():
+def reduce():
     filenames = get_filenames('output/bugs')
     for i, filename in enumerate(filenames):
         with open(filename) as file:
@@ -165,6 +176,44 @@ def main():
             print(traceback.format_exc())
 
         instance.ctx = Context()
+
+
+def redo_mutations(filename, mutations):
+    """Reproduce the bug."""
+
+    id = 0
+    group = InstanceGroup(id, filename)
+    group.restore(id, mutations)
+    instance = group[-1]
+    res = check_satis(instance)
+    if not res:
+        instance.dump('output/bugs',
+                      group.filename,
+                      0,
+                      to_name=instance.id)
+    else:
+        assert False, 'Bug not found'
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('file',
+                        nargs='?',
+                        default=None,
+                        help='file to reproduce the bug')
+    parser.add_argument('-mut_chain',
+                        nargs='?',
+                        default='',
+                        help='chain of mutations to be applied '
+                             'to the instance from the file')
+    argv = parser.parse_args()
+    if not argv.file:
+        reduce()
+    else:
+        if not argv.mut_chain:
+            assert False, 'The chain of mutations not given'
+        mutations = argv.mut_chain.split('->')
+        redo_mutations(argv.file, mutations)
 
 
 if __name__ == '__main__':

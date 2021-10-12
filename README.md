@@ -27,3 +27,7 @@ Download benchmarks from
 
 and place them in the root directory of this repository.  
 
+## Output analysis
+You can look at bugs in in the auto-generated directory _output/bugs/_.  
+Use `python src/bug_analysis.py` to reduce bug-сausing examples (results of reducing are placed in _output/reduced/_). Also you can specify the file and mutation chain to reproduce the bug: `python src/bug_analysis.py <filename> -mut_chain=<mutation chain>`.
+
