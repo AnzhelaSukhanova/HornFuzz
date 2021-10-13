@@ -521,12 +521,16 @@ class Mutation(object):
         if type(mut_entry) == list:
             for field in mut_entry:
                 setattr(self, field, mut_entry[field])
+
         elif type(mut_entry) == str:
             mut_info = mut_entry[:-1].split('(')
             mut_info[1] = mut_info[1].split(', ')
             self.type = MutType[mut_info[0]]
+
             if self.type == MutType.SIMPLIFY:
-                self.simp_flags = mut_info[1]
+                for i in range(len(mut_info[1])):
+                    self.simp_flags[i] = bool(mut_info[1][i])
+                    print(self.simp_flags)
             else:
                 self.path = [int(mut_info[1][0])]
                 self.trans_num = int(mut_info[1][1])

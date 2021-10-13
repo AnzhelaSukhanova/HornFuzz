@@ -128,7 +128,8 @@ class Stats:
         return table
 
     def analyze_entries(self, status):
-        print('____________' + status + '____________', end='\n')
+        print('_______________' + status +
+              '_______________', end='\n')
         ind = self.df['status'] == status
         for i, entry in self.df.loc[ind].iterrows():
             print(entry['filename'], entry['message'], entry['mut_chain'],
@@ -151,11 +152,16 @@ def main(log_names):
 
     for i, cur_stats in enumerate(stats):
         entries = []
-        info = json.loads(cur_stats.lines[0])
-        cur_stats.seed_num = info['seed_number']
-        for line in cur_stats.lines[1:]:  # or stats[i].lines[1:min_len]:
-            entry = json.loads(line)
-            entries.append(list(entry.values())[0])
+        for line in cur_stats.lines:  # or stats[i].lines[:min_len]:
+            try:
+                entry = json.loads(line)
+                if not cur_stats.seed_num and 'seed_number' in entry:
+                    info = entry
+                    cur_stats.seed_num = info['seed_number']
+                else:
+                    entries.append(list(entry.values())[0])
+            except Exception:
+                print('Can\'t read the line:', line)
         cur_stats.df = pd.DataFrame(entries)
         for heur in info['heuristics']:
             if heur == 'transitions':
@@ -167,14 +173,14 @@ def main(log_names):
             else:
                 legend.append('Default')
 
-        cur_stats.analyze_entries('mutant_unknown')
+        # cur_stats.analyze_entries('mutant_unknown')
         # cur_stats.analyze_entries('mutant_timeout')
         # cur_stats.analyze_entries('error')
-        # cur_stats.analyze_entries('bug')
+        cur_stats.analyze_entries('bug')
 
-        cur_stats.create_traces_graph(traces, i)
-        cur_stats.create_time_graph(times, i)
-        cur_stats.get_mutation_stats(mut, i == len(stats) - 1)
+        # cur_stats.create_traces_graph(traces, i)
+        # cur_stats.create_time_graph(times, i)
+        # cur_stats.get_mutation_stats(mut, i == len(stats) - 1)
 
     for cur_stats in stats:
         traces.gca().axvline(x=cur_stats.seed_num, linestyle='--', color='k')
