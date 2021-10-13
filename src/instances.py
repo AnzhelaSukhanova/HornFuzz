@@ -530,7 +530,6 @@ class Mutation(object):
             if self.type == MutType.SIMPLIFY:
                 for i in range(len(mut_info[1])):
                     self.simp_flags[i] = bool(mut_info[1][i])
-                    print(self.simp_flags)
             else:
                 self.path = [int(mut_info[1][0])]
                 self.trans_num = int(mut_info[1][1])
