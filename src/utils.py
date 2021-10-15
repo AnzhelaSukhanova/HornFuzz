@@ -18,7 +18,7 @@ info_kinds = [Z3_OP_AND, Z3_OP_OR, Z3_QUANTIFIER_AST,
 
 class State(object):
 
-    def __init__(self, line):
+    def __init__(self, line: str):
         parts = line.rstrip().split('/')
         self.state = parts[0].split('..')[0]  # function
         self.state += parts[-1]  # file:line
@@ -31,13 +31,13 @@ class State(object):
     def __hash__(self):
         return hash(self.state)
 
-    def encode(self, standart):
+    def encode(self, standart: str):
         return self.state.encode(standart)
 
 
 class ClauseInfo(object):
 
-    def __init__(self, number):
+    def __init__(self, number: int):
         self.expr_exists = defaultdict(bool)
         self.expr_num = np.zeros((len(info_kinds), number), dtype=int)
 
@@ -59,7 +59,7 @@ class StatsType(Enum):
 stats_type = StatsType.DEFAULT
 
 
-def set_stats_type(heuristics):
+def set_stats_type(heuristics: defaultdict):
     """Set the type of statistics based on heuristics."""
     global stats_type
 
@@ -100,7 +100,7 @@ class TraceStats(object):
                 sum.states_num[state] += other.states_num[state]
         return sum
 
-    def add_trans(self, i, j):
+    def add_trans(self, i: int, j: int):
         """Add transition to matrix."""
         global trace_states
         i_ind = trace_states[i]
@@ -138,7 +138,7 @@ class TraceStats(object):
         trans_offset = trace.tell()
         trace.close()
 
-    def get_probability(self, type):
+    def get_probability(self, type: StatsType):
         """
         Return the transition matrix in probabilistic form
         or state probabilities.
@@ -159,7 +159,7 @@ class TraceStats(object):
                           'for this type of statistics'
         return prob
 
-    def get_weights(self, type):
+    def get_weights(self, type: StatsType):
         """Return the weights of trace transitions or states."""
         if type == StatsType.TRANSITIONS:
             prob_matrix = self.get_probability(type)
@@ -213,7 +213,7 @@ def update_expr(expr, children, vars=None):
     return upd_expr
 
 
-def expr_exists(instance, kinds) -> defaultdict:
+def expr_exists(instance, kinds: list) -> defaultdict:
     """Return if there is a subexpression of the specific kind."""
 
     expr_ex = defaultdict(bool)
@@ -237,7 +237,7 @@ def expr_exists(instance, kinds) -> defaultdict:
     return expr_ex
 
 
-def count_expr(instance, kinds, is_unique=False, vars_lim=None):
+def count_expr(instance, kinds: list, is_unique=False, vars_lim=None):
     """Return the number of subexpressions of the specific kind."""
 
     unique_expr = defaultdict(set)

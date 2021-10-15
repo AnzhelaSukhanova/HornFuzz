@@ -6,7 +6,7 @@ from instances import *
 from seeds import get_filenames
 
 
-def is_same_res(instance, result=False, message=None) -> bool:
+def is_same_res(instance: Instance, result=False, message=None) -> bool:
     """
     Return True if solving an instance returns
     the expected result and False otherwise.
@@ -21,7 +21,8 @@ def is_same_res(instance, result=False, message=None) -> bool:
     return same_res
 
 
-def reduce_instance(instance, mutation, message=None) -> Instance:
+def reduce_instance(instance: Instance, mutation: Mutation,
+                    message=None) -> Instance:
     """Reduce the chc-system causing the problem."""
 
     group = instance.get_group()
@@ -62,7 +63,7 @@ def reduce_instance(instance, mutation, message=None) -> Instance:
     return new_instance
 
 
-def reduce_mut_chain(instance, message=None) -> Instance:
+def reduce_mut_chain(instance: Instance, message=None) -> Instance:
     """
     Search for a reduced version of mutation chain that is
     the minimal set of bug-triggering transformations.
@@ -92,7 +93,7 @@ def reduce_mut_chain(instance, message=None) -> Instance:
     return instance
 
 
-def undo_mutations(instance, ind) -> InstanceGroup:
+def undo_mutations(instance: Instance, ind: range) -> InstanceGroup:
     """Undo the mutations from a given interval."""
 
     group = instance.get_group()
@@ -119,7 +120,7 @@ def undo_mutations(instance, ind) -> InstanceGroup:
     return new_group
 
 
-def reduce_simplify(instance, message=None) -> Instance:
+def reduce_simplify(instance: Instance, message=None) -> Instance:
     """Reduce the applying of SIMPLIFY"""
 
     mut_instance = Instance(instance.group_id)
@@ -178,7 +179,7 @@ def reduce():
         instance.ctx = Context()
 
 
-def redo_mutations(filename, mutations):
+def redo_mutations(filename: str, mutations):
     """Reproduce the bug."""
 
     id = 0

@@ -12,11 +12,11 @@ heuristics = ''
 heuristic_flags = defaultdict(bool)
 queue = []
 
-ONE_INST_MUT_LIMIT = 1000
+ONE_INST_MUT_LIMIT = 10
 MUT_AFTER_PROBLEM = 10
 
 
-def calc_sort_key(heuristic, stats, weights=None) -> int:
+def calc_sort_key(heuristic: str, stats, weights=None) -> int:
     """Calculate the priority of an instance in the sorted queue."""
 
     if heuristic == 'transitions':
@@ -43,7 +43,7 @@ def calc_sort_key(heuristic, stats, weights=None) -> int:
     return sort_key
 
 
-def check_satis(instance, is_seed=False, get_stats=True) -> bool:
+def check_satis(instance: Instance, is_seed=False, get_stats=True) -> bool:
     """
     Return True if the test suites have the same satisfiability and
     False otherwise.
@@ -98,11 +98,13 @@ def sort_queue():
             queue += chunk
 
 
-def print_general_info(counter):
+def print_general_info(counter: defaultdict, mut_time=None):
     """Print and log information about runs."""
 
     traces_num = len(unique_traces)
-    log = {'runs': counter['runs'], 'time': time.perf_counter()}
+    log = {'runs': counter['runs'],
+           'time': time.perf_counter(),
+           'mut_time': mut_time}
     if counter['runs']:
         print('Total:', counter['runs'],
               'Bugs:', counter['bug'],
@@ -117,7 +119,8 @@ def print_general_info(counter):
     logging.info(json.dumps({'general_info': log}))
 
 
-def log_run_info(status, message=None, instance=None, mut_instance=None):
+def log_run_info(status: str, message=None,
+                 instance=None, mut_instance=None):
     """Create a log entry with information about the run."""
 
     log = {'status': status}
@@ -146,7 +149,8 @@ def log_run_info(status, message=None, instance=None, mut_instance=None):
     logging.info(json.dumps({'run_info': log}))
 
 
-def analyze_check_exception(instance, err, counter,
+def analyze_check_exception(instance: Instance, err: AssertionError,
+                            counter: defaultdict,
                             mut_instance=None, is_seed=False):
     """Log information about exceptions that occur during the check."""
     global queue
@@ -181,7 +185,7 @@ def analyze_check_exception(instance, err, counter,
             queue.append(group[0])
 
 
-def run_seeds(files, counter):
+def run_seeds(files: set, counter: defaultdict):
     """Read and solve the seeds."""
     global queue, seed_number
 
@@ -190,8 +194,6 @@ def run_seeds(files, counter):
         if not seed:
             seed_number -= 1
             continue
-        if i > 0:
-            print_general_info(counter)
         counter['runs'] += 1
         group = InstanceGroup(i, filename)
         instance = Instance(i, seed)
@@ -202,61 +204,67 @@ def run_seeds(files, counter):
             check_satis(instance, is_seed=True)
         except AssertionError as err:
             analyze_check_exception(instance, err, counter, is_seed=True)
+            log_run_info('seed',
+                         instance=instance)
+            print_general_info(counter)
             continue
+
+        queue.append(instance)
         log_run_info('seed',
                      instance=instance)
-        queue.append(instance)
-    assert seed_number > 0, 'All seeds were given in incorrect format'
+        print_general_info(counter)
+    assert seed_number > 0, 'All seeds are unknown or ' \
+                            'in the incorrect format'
 
 
-def fuzz(files):
+def fuzz(files: set):
     global queue
 
     counter = defaultdict(int)
     run_seeds(files, counter)
+    init_runs_number = 2 * seed_number - \
+                      counter['unknown'] - counter['timeout']
     logging.info(json.dumps({'seed_number': seed_number,
                              'heuristics': heuristics}))
     stats_limit = seed_number
 
     while queue:
-        instance = None
+        instance = queue.pop(0)
+        counter['runs'] += 1
         try:
-            if not heuristic_flags['default'] and not stats_limit:
-                sort_queue()
-                queue_len = len(queue)
-                stats_limit = random.randint(queue_len // 5, queue_len)
-            instance = queue.pop(0)
             group = instance.get_group()
-
-            if counter['runs'] >= 2*seed_number:
+            if counter['runs'] > init_runs_number:
                 start_mut_ind = len(group.instances)
                 instance.restore()
                 mut_limit = ONE_INST_MUT_LIMIT
             else:
-                start_mut_ind = 0
+                start_mut_ind = 1
                 mut_limit = 1
             stats_limit -= 1
 
             i = 0
             while i < mut_limit:
-                i += 1
-                counter['runs'] += 1
-                print_general_info(counter)
+                if i > 0:
+                    counter['runs'] += 1
 
                 mut_instance = Instance(instance.group_id)
                 mut = mut_instance.mutation
+                mut_time = time.perf_counter()
                 mut.apply(instance, mut_instance)
+                mut_time = time.perf_counter() - mut_time
 
                 try:
                     res = check_satis(mut_instance)
                 except AssertionError as err:
-                    analyze_check_exception(instance, err, counter, mut_instance)
+                    analyze_check_exception(instance, err,
+                                            counter, mut_instance)
                     mut_instance.dump('output/problems',
                                       group.filename,
-                                      0,
+                                      len(group.instances),
                                       repr(err),
-                                      to_name=mut_instance.id)
-                    i = max(i, mut_limit - MUT_AFTER_PROBLEM)
+                                      mut_instance.id)
+                    i = max(i + 1, mut_limit - MUT_AFTER_PROBLEM)
+                    print_general_info(counter, mut_time)
                     continue
 
                 if not res:
@@ -267,9 +275,10 @@ def fuzz(files):
                     queue.append(instance)
                     mut_instance.dump('output/bugs',
                                       group.filename,
-                                      0,
+                                      len(group.instances),
                                       to_name=mut_instance.id)
-                    i = max(i, mut_limit - MUT_AFTER_PROBLEM)
+                    i = max(i + 1, mut_limit - MUT_AFTER_PROBLEM)
+                    print_general_info(counter, mut_time)
                     continue
 
                 else:
@@ -282,10 +291,17 @@ def fuzz(files):
                                  instance=instance,
                                  mut_instance=mut_instance)
                     instance = mut_instance
+                    i += 1
+                    print_general_info(counter, mut_time)
 
             instance.dump('output/last_mutants',
                           group.filename,
                           start_mut_ind)
+
+            if not heuristic_flags['default'] and not stats_limit:
+                sort_queue()
+                queue_len = len(queue)
+                stats_limit = random.randint(queue_len // 5, queue_len)
 
         except Exception as err:
             if type(err).__name__ == 'TimeoutError':
@@ -299,9 +315,7 @@ def fuzz(files):
                          message,
                          instance)
             print(message)
-
-    if not queue:
-        print_general_info(counter)
+            print_general_info(counter)
 
 
 def main():

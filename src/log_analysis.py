@@ -1,4 +1,5 @@
 import json
+import math
 import sys
 import os
 from collections import defaultdict
@@ -32,21 +33,25 @@ class Stats:
     def create_time_graph(self, fig, color_i):
         num_axis = []
         time_axis = []
-        total_time = 0
-        last_time = 0
+        total_time = fst_time = total_mut_time = 0
         ax = fig.gca()
         ind = self.df['time'].notnull()
         for i, entry in self.df[ind].iterrows():
             time = entry['time']
-            num = entry['runs']
-            if last_time:
-                total_time += (time - last_time) / 3600
+            if not math.isnan(entry['mut_time']):
+                total_mut_time += entry['mut_time'] / 3600
+            if fst_time:
+                total_time = (time - fst_time) / 3600
                 time_axis.append(total_time)
+                num = entry['runs']
                 num_axis.append(num)
-            last_time = time
+            else:
+                fst_time = time
         ax.set_xlabel('Time, h')
         ax.set_ylabel('Inputs solved')
         ax.plot(time_axis, num_axis, colors[color_i])
+        print('The ratio of mutation time to total time:',
+              total_mut_time/total_time)
 
     def create_traces_graph(self, fig, color_i):
         num_axis = []
@@ -136,9 +141,10 @@ class Stats:
                   end='\n')
 
 
-def main(log_names):
+def main(log_names: list):
     if not os.path.exists('stats'):
         os.makedirs('stats')
+
     traces = plt.figure()
     times = plt.figure()
     mut = plt.figure()
@@ -175,11 +181,11 @@ def main(log_names):
 
         # cur_stats.analyze_entries('mutant_unknown')
         # cur_stats.analyze_entries('mutant_timeout')
-        # cur_stats.analyze_entries('error')
-        cur_stats.analyze_entries('bug')
+        cur_stats.analyze_entries('error')
+        # cur_stats.analyze_entries('bug')
 
         # cur_stats.create_traces_graph(traces, i)
-        # cur_stats.create_time_graph(times, i)
+        cur_stats.create_time_graph(times, i)
         # cur_stats.get_mutation_stats(mut, i == len(stats) - 1)
 
     for cur_stats in stats:

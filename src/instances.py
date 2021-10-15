@@ -15,7 +15,7 @@ instance_groups = defaultdict()
 
 class InstanceGroup(object):
 
-    def __init__(self, id, filename):
+    def __init__(self, id: int, filename: str):
         instance_groups[id] = self
         self.filename = filename
         self.instances = defaultdict(Instance)
@@ -27,11 +27,11 @@ class InstanceGroup(object):
         self.upred_ind = defaultdict(set)
         self.is_simplified = False
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int):
         index = index % len(self.instances)
         return self.instances[index]
 
-    def __setitem__(self, index, instance):
+    def __setitem__(self, index: int, instance):
         index = index % len(self.instances)
         self.instances[index] = instance
 
@@ -63,7 +63,7 @@ class InstanceGroup(object):
         self.same_stats_limit = 5 * len(seed.chc)
         self.get_pred_info()
 
-    def check_stats(self, stats_limit) -> int:
+    def check_stats(self, stats_limit: int) -> int:
         """
         Increase the counter if the current trace is the same as the previous
         one. Reset the number of steps before sorting instances if their
@@ -133,7 +133,7 @@ class InstanceGroup(object):
                     self.is_linear = False
         self.upred_num = len(self.uninter_pred)
 
-    def restore(self, id, mutations):
+    def restore(self, id: int, mutations):
         seed = parse_smt2_file(self.filename)
         instance = Instance(id, seed)
         self.push(instance)
@@ -168,7 +168,7 @@ class Instance(object):
             self.mutation = Mutation(prev_instance.mutation)
             self.info = deepcopy(prev_instance.info)
 
-    def set_chc(self, chc):
+    def set_chc(self, chc: AstVector):
         """Set the chc-system of the instance."""
         assert chc is not None, 'CHC-system wasn\'t given'
         self.chc = chc
@@ -177,7 +177,7 @@ class Instance(object):
             chc_len = len(self.chc)
             self.info = ClauseInfo(chc_len)
 
-    def check(self, solver, is_seed=False, get_stats=True):
+    def check(self, solver: Solver, is_seed=False, get_stats=True):
         """Check the satisfiability of the instance."""
         solver.reset()
         if is_seed:
@@ -229,16 +229,18 @@ class Instance(object):
         filename = 'output/last_mutants/' + group.filename
         self.chc.ctx = Context()
         self.chc = z3.parse_smt2_file(filename)
+        assert len(self.chc) > 0, "Empty chc-system"
         self.get_system_info()
 
-    def dump(self, dir, filename, start_ind, message=None, to_name=None):
+    def dump(self, dir: str, filename: str,
+             start_ind=1, message=None, to_name=None):
         """Dump the instance to the specified directory."""
         ctx_path = 'output/ctx/' + filename
         with open(ctx_path, 'r') as ctx_file:
             ctx = ctx_file.read()
         cur_path = dir + '/' + filename
         if to_name:
-            cur_path = cur_path[:-4] + '_' + str(to_name) + '.smt2'
+            cur_path = cur_path[:-5] + '_' + str(to_name) + '.smt2'
         with open(cur_path, 'w') as file:
             mut_info = self.mutation.get_chain(in_log_format=True)
             file.write('; ' + json.dumps(mut_info) + '\n')
@@ -247,6 +249,7 @@ class Instance(object):
             file.write(ctx)
             for clause in self.chc:
                 file.write('(assert ' + clause.sexpr() + ')\n')
+            file.write('\n')
 
         group = self.get_group()
         length = len(group.instances)
@@ -297,7 +300,7 @@ class Mutation(object):
         self.number = 0
         self.prev_mutation = None
 
-    def apply(self, instance, new_instance):
+    def apply(self, instance: Instance, new_instance: Instance):
         """Mutate instances."""
         if self.type == MutType.ID:
             self.next_mutation(instance)
@@ -318,7 +321,7 @@ class Mutation(object):
         else:
             assert False
 
-    def next_mutation(self, instance):
+    def next_mutation(self, instance: Instance):
         """
         Return the next mutation based on the instance,
         type of the previous mutation etc.
@@ -345,7 +348,8 @@ class Mutation(object):
                             mut_types.append(9)
                     type_kind_corr[9].append(i)
                     if i != 7:
-                        mut_types.append(10)
+                        if not type_kind_corr[10]:
+                            mut_types.append(10)
                         type_kind_corr[10].append(i)
         weights = []
         for i in mut_types:
@@ -360,7 +364,7 @@ class Mutation(object):
         else:
             self.kind_ind = type_kind_corr[mut_id]
 
-    def simplify_ineq(self, chc_system) -> AstVector:
+    def simplify_ineq(self, chc_system: AstVector) -> AstVector:
         """Simplify instance with arith_ineq_lhs, arith_lhs and eq2ineq."""
         mut_system = AstVector(ctx=chc_system.ctx)
         ind = range(0, len(chc_system)) if not self.path[0] else self.path[0]
@@ -375,7 +379,7 @@ class Mutation(object):
             mut_system.push(clause)
         return mut_system
 
-    def transform(self, instance) -> AstVector:
+    def transform(self, instance: Instance) -> AstVector:
         """Transform an expression of the specific kind."""
         global trans_n
         info = instance.info
@@ -411,7 +415,8 @@ class Mutation(object):
             'Mutation ' + self.type.name + ' didn\'t change the CHC'
         return mut_system
 
-    def transform_nth(self, expr, expr_kind, expr_num, path, st_time):
+    def transform_nth(self, expr, expr_kind: int, expr_num: int,
+                      path: list, st_time: float):
         """Transform nth expression of the specific kind in dfs-order."""
         global trans_n
         if time.perf_counter() - st_time >= MUT_APPLY_TIME_LIMIT:
@@ -537,7 +542,7 @@ class Mutation(object):
             assert False, 'Incorrect mutation entry'
 
 
-def mut_break(children, expr_kind):
+def mut_break(children, expr_kind: int):
     """
     Return the children of the expression
     after applying the mutation BREAK_AND/BREAK_OR
@@ -555,7 +560,7 @@ def mut_break(children, expr_kind):
     return mut_children
 
 
-def create_add_ineq(children, expr_kind):
+def create_add_ineq(children, expr_kind: int) -> BoolRef:
     """Return a stronger inequality than given."""
 
     if expr_kind in {Z3_OP_LE, Z3_OP_LT}:
