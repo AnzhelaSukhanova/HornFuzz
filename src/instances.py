@@ -249,7 +249,7 @@ class Instance(object):
             file.write(ctx)
             for clause in self.chc:
                 file.write('(assert ' + clause.sexpr() + ')\n')
-            file.write('\n')
+            file.write('(check-sat)\n(exit)\n\n')
 
         group = self.get_group()
         length = len(group.instances)
