@@ -12,7 +12,7 @@ heuristics = ''
 heuristic_flags = defaultdict(bool)
 queue = []
 
-ONE_INST_MUT_LIMIT = 10
+ONE_INST_MUT_LIMIT = 1000
 MUT_AFTER_PROBLEM = 10
 
 
