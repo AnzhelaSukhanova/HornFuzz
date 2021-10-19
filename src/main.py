@@ -51,6 +51,7 @@ def check_satis(instance: Instance, is_seed=False, get_stats=True) -> bool:
 
     global general_stats
     ctx = instance.chc.ctx
+    set_cur_ctx(ctx)
     solver = SolverFor('HORN', ctx=ctx)
     solver.set('engine', 'spacer')
 
@@ -190,7 +191,7 @@ def run_seeds(files: set, counter: defaultdict):
     global queue, seed_number
 
     for i, filename in enumerate(files):
-        seed = z3.parse_smt2_file(filename)
+        seed = z3.parse_smt2_file(filename, ctx=Context())
         if not seed:
             seed_number -= 1
             continue
@@ -342,6 +343,7 @@ def main():
                         filemode='w',
                         level=logging.INFO)
 
+    # z3.z3.main_ctx.__code__ = global_ctx_access_exception.__code__
     np.set_printoptions(suppress=True)
     set_option(max_args=int(1e6), max_lines=int(1e6),
                max_depth=int(1e6), max_visited=int(1e6))
