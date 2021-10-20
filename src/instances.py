@@ -225,7 +225,6 @@ class Instance(object):
         """Restore the instance from output/last_mutants/."""
         group = self.get_group()
         filename = 'output/last_mutants/' + group.filename
-        self.chc.ctx = Context()
         self.chc = z3.parse_smt2_file(filename, ctx=self.chc.ctx)
         assert len(self.chc) > 0, "Empty chc-system"
         self.get_system_info()
@@ -251,8 +250,11 @@ class Instance(object):
 
         group = self.get_group()
         length = len(group.instances)
+        old_ctx = self.chc.ctx
+        self.chc.ctx = Context()
         for i in range(length - 1, start_ind - 1, -1):
-            group[i].set_chc(AstVector())
+            group[i].set_chc(AstVector(ctx=self.chc.ctx))
+        del old_ctx
 
 
 class MutType(int, Enum):

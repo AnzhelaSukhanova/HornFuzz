@@ -11,19 +11,12 @@ TRACE_FILE = '.z3-trace'
 
 trace_states = defaultdict(int)
 trans_offset = 0
-cur_ctx = None
 info_kinds = [Z3_OP_AND, Z3_OP_OR, Z3_QUANTIFIER_AST,
               Z3_OP_LE, Z3_OP_GE, Z3_OP_LT, Z3_OP_GT]
 
 
 def global_ctx_access_exception():
-    print('Trying to access the global context')
-    return cur_ctx
-
-
-def set_cur_ctx(ctx):
-    global cur_ctx
-    cur_ctx = ctx
+    raise Exception('Global z3 context access')
 
 
 class State(object):
