@@ -1,6 +1,6 @@
 import time
 import json
-
+from re import findall
 from utils import *
 
 MUT_APPLY_TIME_LIMIT = 10
@@ -666,13 +666,12 @@ class Mutation(object):
                 setattr(self, field, mut_entry[field])
 
         elif type(mut_entry) == str:
-            mut_info = mut_entry[:-1].split('(')
-            mut_info[1] = mut_info[1].split(', ')
+            mut_info = findall(r"[\w]+|[0-9]+", mut_entry)
             self.type = MutType[mut_info[0]]
 
             if self.type.value < 10:
-                self.path = [int(mut_info[1][0])]
-                self.trans_num = int(mut_info[1][1])
+                self.path = [int(mut_info[1])]
+                self.trans_num = int(mut_info[2])
         else:
             assert False, 'Incorrect mutation entry'
 
