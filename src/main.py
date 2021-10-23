@@ -11,6 +11,7 @@ seed_number = 0
 heuristics = ''
 heuristic_flags = defaultdict(bool)
 queue = []
+current_ctx = None
 
 ONE_INST_MUT_LIMIT = 1000
 MUT_AFTER_PROBLEM = 10
@@ -103,8 +104,9 @@ def print_general_info(counter: defaultdict, mut_time=None):
 
     traces_num = len(unique_traces)
     log = {'runs': counter['runs'],
-           'time': time.perf_counter(),
-           'mut_time': mut_time}
+           'time': time.perf_counter()}
+    if mut_time:
+           log['mut_time'] = mut_time
     if counter['runs']:
         print('Total:', counter['runs'],
               'Bugs:', counter['bug'],
@@ -187,10 +189,11 @@ def analyze_check_exception(instance: Instance, err: AssertionError,
 
 def run_seeds(files: set, counter: defaultdict):
     """Read and solve the seeds."""
-    global queue, seed_number
+    global queue, seed_number, current_ctx
 
+    current_ctx = Context()
     for i, filename in enumerate(files):
-        seed = z3.parse_smt2_file(filename, ctx=Context())
+        seed = z3.parse_smt2_file(filename, ctx=current_ctx)
         if not seed:
             seed_number -= 1
             continue
@@ -218,7 +221,7 @@ def run_seeds(files: set, counter: defaultdict):
 
 
 def fuzz(files: set):
-    global queue
+    global queue, current_ctx
 
     counter = defaultdict(int)
     run_seeds(files, counter)
@@ -234,8 +237,10 @@ def fuzz(files: set):
         try:
             group = instance.get_group()
             if counter['runs'] > init_runs_number:
+                del current_ctx
                 start_mut_ind = len(group.instances)
                 instance.restore()
+                current_ctx = instance.chc.ctx
                 mut_limit = ONE_INST_MUT_LIMIT
             else:
                 start_mut_ind = 1

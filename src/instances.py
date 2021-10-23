@@ -58,6 +58,8 @@ class InstanceGroup(object):
         """Roll back the group to the seed."""
         seed = self[0]
         self.instances = {0: seed}
+        if not seed.chc:
+            seed.restore(is_seed=True)
         self.same_stats_limit = 5 * len(seed.chc)
         self.get_pred_info()
 
@@ -221,11 +223,13 @@ class Instance(object):
             for j in range(len(info_kinds)):
                 info.expr_num[j, i] = expr_numbers[j]
 
-    def restore(self):
+    def restore(self, is_seed=False):
         """Restore the instance from output/last_mutants/."""
         group = self.get_group()
-        filename = 'output/last_mutants/' + group.filename
-        self.chc = z3.parse_smt2_file(filename, ctx=self.chc.ctx)
+        filename = group.filename if is_seed else \
+            'output/last_mutants/' + group.filename
+        ctx = Context()
+        self.set_chc(z3.parse_smt2_file(filename, ctx=ctx))
         assert len(self.chc) > 0, "Empty chc-system"
         self.get_system_info()
 
@@ -250,11 +254,8 @@ class Instance(object):
 
         group = self.get_group()
         length = len(group.instances)
-        old_ctx = self.chc.ctx
-        self.chc.ctx = Context()
         for i in range(length - 1, start_ind - 1, -1):
-            group[i].set_chc(AstVector(ctx=self.chc.ctx))
-        del old_ctx
+            group[i].set_chc([])
 
 
 class MutType(int, Enum):
