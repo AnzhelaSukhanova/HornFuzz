@@ -1,5 +1,7 @@
 import argparse
 import logging
+import gc
+import objgraph
 import traceback
 from os.path import dirname
 
@@ -230,8 +232,13 @@ def fuzz(files: set):
         try:
             group = instance.get_group()
             if counter['runs'] > init_runs_number:
+                if len(gc.get_referrers(current_ctx)) > 1:
+                    objgraph.show_backrefs([current_ctx],
+                                           max_depth=7,
+                                           filename='problem_ctx.png')
+                    assert False, 'The context cannot be deleted'
                 del current_ctx
-                start_mut_ind = len(group.instances)
+                start_mut_ind = len(group.instances) - 1
                 instance.restore()
                 current_ctx = instance.chc.ctx
                 mut_limit = ONE_INST_MUT_LIMIT
@@ -270,17 +277,19 @@ def fuzz(files: set):
                     log_run_info('bug',
                                  instance=instance,
                                  mut_instance=mut_instance)
-                    queue.append(instance)
+                    i = max(i + 1, mut_limit - MUT_AFTER_PROBLEM)
+                    if i == mut_limit - 1:
+                        queue.append(instance)
                     mut_instance.dump('output/bugs',
                                       group.filename,
                                       len(group.instances),
                                       to_name=mut_instance.id)
-                    i = max(i + 1, mut_limit - MUT_AFTER_PROBLEM)
                     print_general_info(counter, mut_time)
                     continue
 
                 else:
-                    queue.append(mut_instance)
+                    if i == mut_limit - 1:
+                        queue.append(mut_instance)
                     group.push(mut_instance)
                     if not heuristic_flags['default'] and \
                             len(instance_groups) > 1:
