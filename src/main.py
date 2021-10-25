@@ -35,12 +35,7 @@ def calc_sort_key(heuristic: str, stats, weights=None) -> int:
         upred_num = stats[1]
         sort_key = (is_nonlinear, upred_num)
     else:
-        expr_num = stats.expr_num
-        sum_num = expr_num.sum()
-        if heuristic == 'many-targets':
-            sort_key = sum_num
-        else:
-            sort_key = 1 / sum_num
+        assert False, "Incorrect heuristic"
     return sort_key
 
 
@@ -87,9 +82,6 @@ def sort_queue():
                     instance.sort_key = calc_sort_key(heur,
                                                       ins_stats,
                                                       weights)
-                elif heur == 'many-targets' or heur == 'few-targets':
-                    instance.sort_key = calc_sort_key(heur,
-                                                      instance.info)
                 else:
                     group = instance.get_group()
                     instance.sort_key = calc_sort_key(heur,
@@ -133,7 +125,8 @@ def log_run_info(status: str, message=None,
             instance_info = instance.get_log(is_mutant=False)
             log.update(instance_info)
             if status == 'error':
-                log['chc'] = instance.chc.sexpr()
+                if instance.chc:
+                    log['chc'] = instance.chc.sexpr()
                 chain = instance.mutation.get_chain()
                 log['mut_chain'] = chain
             elif status == 'seed':
@@ -243,7 +236,7 @@ def fuzz(files: set):
                 current_ctx = instance.chc.ctx
                 mut_limit = ONE_INST_MUT_LIMIT
             else:
-                start_mut_ind = 1
+                start_mut_ind = 0
                 mut_limit = 1
             stats_limit -= 1
 
@@ -333,9 +326,7 @@ def main():
                         help='directory with seeds or keyword \'all\'')
     parser.add_argument('-heuristics', '-heur',
                         nargs='*',
-                        choices=['transitions', 'states',
-                                 'many-targets', 'few-targets',
-                                 'difficulty'],
+                        choices=['transitions', 'states', 'difficulty'],
                         default=['default'],
                         help='trace data which will be used to '
                              'select an instance for mutation')

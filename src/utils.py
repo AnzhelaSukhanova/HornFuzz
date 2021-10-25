@@ -1,7 +1,7 @@
 from z3 import *
 from collections import defaultdict
 from scipy.sparse import dok_matrix
-from copy import deepcopy, copy
+from copy import deepcopy
 from enum import Enum
 import numpy as np
 import hashlib
@@ -42,14 +42,8 @@ class ClauseInfo(object):
 
     def __init__(self, number: int):
         self.expr_exists = defaultdict(bool)
-        self.expr_num = np.zeros((len(info_kinds), number), dtype=int)
-
-    def __add__(self, other):
-        sum = ClauseInfo(1)
-        for key in self.expr_exists:
-            sum.expr_exists[key] = self.expr_exists[key] | other.expr_exists[key]
-        sum.expr_num = np.concatenate((self.expr_num, other.expr_num), axis=1)
-        return sum
+        self.is_expr_in_clause = np.zeros((len(info_kinds), number),
+                                              dtype=bool)
 
 
 class StatsType(Enum):
@@ -240,7 +234,7 @@ def expr_exists(instance, kinds: list) -> defaultdict:
     return expr_ex
 
 
-def count_expr(instance, kinds: list, is_unique=False, vars_lim=None):
+def count_expr(instance, kinds: list, is_unique=False):
     """Return the number of subexpressions of the specific kind."""
 
     unique_expr = defaultdict(set)
@@ -254,9 +248,6 @@ def count_expr(instance, kinds: list, is_unique=False, vars_lim=None):
             for j in range(len(kinds)):
                 if check_ast_kind(cur_expr, kinds[j]) or \
                         is_app_of(cur_expr, kinds[j]):
-                    if kinds[j] == Z3_QUANTIFIER_AST and vars_lim:
-                        if len(get_bound_vars(cur_expr)) < vars_lim:
-                            break
                     if is_unique:
                         expr_num[j] += 1
                         unique_expr[j].add(cur_expr.decl())

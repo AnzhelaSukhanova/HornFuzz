@@ -23,8 +23,6 @@ class InstanceGroup(object):
         self.same_stats_limit = 0
         self.is_linear = True
         self.upred_num = 0
-        self.uninter_pred = set()
-        self.upred_ind = defaultdict(set)
 
     def __getitem__(self, index: int):
         index = index % len(self.instances)
@@ -94,6 +92,7 @@ class InstanceGroup(object):
         assert len(self.instances) > 0, "Instance group is empty"
         instance = self[-1]
         chc_system = instance.chc
+        all_uninter_pred = set()
 
         for i, clause in enumerate(chc_system):
             child = clause.children()[0]
@@ -125,13 +124,10 @@ class InstanceGroup(object):
                 upred_num, uninter_pred = count_expr(expr,
                                                      [Z3_OP_UNINTERPRETED],
                                                      is_unique=True)
-                for pred in uninter_pred[0]:
-                    self.uninter_pred.add(pred)
-                    self.upred_ind[pred].add(i)
-
+                all_uninter_pred.update(uninter_pred[0])
                 if upred_num[0] > 1:
                     self.is_linear = False
-        self.upred_num = len(self.uninter_pred)
+        self.upred_num = len(all_uninter_pred)
 
     def restore(self, id: int, mutations):
         seed = parse_smt2_file(self.filename)
@@ -213,15 +209,15 @@ class Instance(object):
         info = self.info
         info.expr_exists = expr_exists(self.chc, info_kinds)
 
-        shape = info.expr_num.shape
+        shape = info.is_expr_in_clause.shape
         if shape[1] != len(self.chc):
             exp_shape = (len(info_kinds), len(self.chc))
-            info.expr_num.resize(exp_shape)
+            info.is_expr_in_clause.resize(exp_shape)
 
         for i, clause in enumerate(self.chc):
-            expr_numbers = count_expr(clause, info_kinds, vars_lim=2)
+            is_there_expr = expr_exists(clause, info_kinds)
             for j in range(len(info_kinds)):
-                info.expr_num[j, i] = expr_numbers[j]
+                info.is_expr_in_clause[j, i] = is_there_expr[j]
 
     def restore(self, is_seed=False):
         """Restore the instance from output/last_mutants/."""
@@ -234,7 +230,7 @@ class Instance(object):
         self.get_system_info()
 
     def dump(self, dir: str, filename: str,
-             start_ind=1, message=None, to_name=None):
+             start_ind=0, message=None, to_name=None):
         """Dump the instance to the specified directory."""
         ctx_path = 'output/ctx/' + filename
         with open(ctx_path, 'r') as ctx_file:
@@ -327,102 +323,99 @@ class MutType(int, Enum):
     Expand equalities into two inequalities."""
     EQ2INEQ = 23
     """
-    Replace nested stores by a lambda expression."""
-    EXPAND_NESTED_STORES = 24
-    """
     Expand (^ t k) into (* t ... t) if  1 < k <= max_degree."""
-    EXPAND_POWER = 25
+    EXPAND_POWER = 24
     """
     Expand select over ite expressions."""
-    EXPAND_SELECT_ITE = 26
+    EXPAND_SELECT_ITE = 25
     """
     Conservatively replace a (select (store ...) ...) term 
     by an if-then-else term."""
-    EXPAND_SELECT_STORE = 27
+    EXPAND_SELECT_STORE = 26
     """
     Reduce (store ...) = (store ...) with a common base into selects."""
-    EXPAND_STORE_EQ = 28
+    EXPAND_STORE_EQ = 27
     """
     Replace (tan x) with (/ (sin x) (cos x))."""
-    EXPAND_TAN = 29
+    EXPAND_TAN = 28
     """
     Use gcd rounding on integer arithmetic atoms."""
-    GCD_ROUNDING = 30
+    GCD_ROUNDING = 29
     """
     Hoist shared summands under ite expressions."""
-    HOIST_ITE = 31
+    HOIST_ITE = 30
     """
     Hoist multiplication over summation 
     to minimize number of multiplications."""
-    HOIST_MUL = 32
+    HOIST_MUL = 31
     """
     Extra ite simplifications, these additional simplifications 
     may reduce size locally but increase globally."""
-    ITE_EXTRA_RULES = 33
+    ITE_EXTRA_RULES = 32
     """
     Perform local (i.e., cheap) context simplifications."""
-    LOCAL_CTX = 34
+    LOCAL_CTX = 33
     """
     Replace multiplication by a power of two into a concatenation."""
-    MUL2CONCAT = 35
+    MUL2CONCAT = 34
     """
     Collpase (* t ... t) into (^ t k), 
     it is ignored if expand_power is true."""
-    MUL_TO_POWER = 36
+    MUL_TO_POWER = 35
     """
     Pull if-then-else terms when cheap."""
-    PULL_CHEAP_ITE = 37
+    PULL_CHEAP_ITE = 36
     """
     Push if-then-else over arithmetic terms."""
-    PUSH_ITE_ARITH = 38
+    PUSH_ITE_ARITH = 37
     """
     Push if-then-else over bit-vector terms."""
-    PUSH_ITE_BV = 39
+    PUSH_ITE_BV = 38
     """
     Rewrite patterns."""
-    REWRITE_PATTERNS = 40
+    REWRITE_PATTERNS = 39
     """
     Put polynomials in sum-of-monomials form."""
-    SOM = 41
+    SOM = 40
     """
     Sort nested stores when the indices are known to be different."""
-    SORT_STORE = 42
+    SORT_STORE = 41
     """
     Sort the arguments of + application."""
-    SORT_SUMS = 43
+    SORT_SUMS = 42
     """
     Split equalities of the form (= (concat t1 t2) t3)."""
-    SPLIT_CONCAT_EQ = 44
+    SPLIT_CONCAT_EQ = 43
 
     """
     Simplify/evaluate expressions containing 
     (algebraic) irrational numbers."""
-    ALGEBRAIC_NUMBER_EVALUATOR = 45
+    ALGEBRAIC_NUMBER_EVALUATOR = 44
     """
     Try to convert bit-vector terms of size 1 
     into Boolean terms."""
-    BIT2BOOL = 46
+    BIT2BOOL = 45
     """
     Eliminate ite in favor of and/or."""
-    ELIM_ITE = 47
+    ELIM_ITE = 46
     """
     Expand sign-ext operator using concat and extract."""
-    ELIM_SIGN_EXT = 48
+    ELIM_SIGN_EXT = 47
     """
     Create nary applications for and, or, +, *, 
     bvadd, bvmul, bvand, bvor, bvxor."""
-    FLAT = 49
+    FLAT = 48
     """
     Use the 'hardware interpretation' for division 
     by zero (for bit-vector terms)."""
-    HI_DIV0 = 50
+    HI_DIV0 = 49
     """
     Ignores patterns on quantifiers that don't mention 
     their bound variables."""
-    IGNORE_PATTERNS_ON_GROUND_QBODY = 51
+    IGNORE_PATTERNS_ON_GROUND_QBODY = 50
     """
     Distribute to_real over * and +."""
-    PUSH_TO_REAL = 52
+    PUSH_TO_REAL = 51
 
 
 class Mutation(object):
@@ -552,13 +545,11 @@ class Mutation(object):
         kind = info_kinds[self.kind_ind]
 
         if not self.trans_num:
-            ind = np.where(info.expr_num[self.kind_ind] != 0)[0]
+            ind = np.where(info.is_expr_in_clause[self.kind_ind])[0]
             i = int(random.choice(ind))
             clause = chc_system[i]
-            info.expr_num[self.kind_ind][i] = \
-                count_expr(clause, [kind], vars_lim=2)[0]
-            num = info.expr_num[self.kind_ind][i]
-            self.trans_num = random.randint(0, num - 1)
+            expr_num = count_expr(clause, [kind])[0]
+            self.trans_num = random.randint(0, expr_num - 1)
         else:
             i = self.path[0]
             clause = chc_system[i]

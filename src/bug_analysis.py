@@ -59,7 +59,8 @@ def reduce_instance(instance: Instance, mutation: Mutation,
         print('Reduced:',
               old_len, '->', new_len,
               '(number of clauses)')
-        new_instance.set_chc(reduce_instance(new_instance, mutation, message))
+        reduced_instance = reduce_instance(new_instance, mutation, message)
+        new_instance.set_chc(reduced_instance.chc)
     return new_instance
 
 
