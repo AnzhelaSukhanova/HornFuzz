@@ -164,7 +164,7 @@ class Instance(object):
             self.mutation = Mutation(prev_instance.mutation)
             self.info = deepcopy(prev_instance.info)
 
-    def set_chc(self, chc: AstVector):
+    def set_chc(self, chc):
         """Set the chc-system of the instance."""
         assert chc is not None, 'CHC-system wasn\'t given'
         self.chc = chc
@@ -252,6 +252,8 @@ class Instance(object):
         length = len(group.instances)
         for i in range(length - 1, start_ind - 1, -1):
             group[i].set_chc([])
+        if self.chc:
+            self.set_chc([])
 
 
 class MutType(int, Enum):

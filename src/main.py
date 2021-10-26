@@ -170,16 +170,14 @@ def analyze_check_exception(instance: Instance, err: AssertionError,
                          repr(err),
                          instance,
                          mut_instance)
-            group.roll_back()
-            queue.append(group[0])
         else:
             counter['unknown'] += 1
             log_run_info('mutant_unknown',
                          repr(err),
                          instance,
                          mut_instance)
-            group.roll_back()
-            queue.append(group[0])
+        group.roll_back()
+        queue.append(group[0])
 
 
 def run_seeds(files: set, counter: defaultdict):
@@ -205,6 +203,7 @@ def run_seeds(files: set, counter: defaultdict):
             log_run_info('seed',
                          instance=instance)
             print_general_info(counter)
+            del instance.chc, instance, group
             continue
 
         queue.append(instance)
@@ -269,6 +268,8 @@ def fuzz(files: set):
                                       repr(err),
                                       mut_instance.id)
                     i = max(i + 1, mut_limit - MUT_AFTER_PROBLEM)
+                    instance = group[0]
+                    start_mut_ind = 0
                     print_general_info(counter, mut_time)
                     continue
 
