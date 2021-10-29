@@ -17,7 +17,7 @@ RUN git clone https://github.com/Z3Prover/z3.git \
  && sed -i -e 's, -D_MP_INTERNAL, -D_TRACE -D_MP_INTERNAL,g' build/config.mk \ 
  && sed -i -e 's,<< "-* \[" << TAG << "\] ",,g' src/util/trace.h \
  && sed -i -e 's, -*\\n,\\n,g' src/util/trace.h \
- && sed -i -e 's,--*\\n,,g' src/util/trace.h \
+ && sed -i -e 's,CODE; TRACEEND; ,,g' src/util/trace.h \
  && sed -i -e ':a;N;$!ba;s,#ifdef _*EMSCRIPTEN_*\n#define NO\_Z3\_DEBUGGER\n#endif,#define NO\_Z3\_DEBUGGER,g' src/util/debug.h \
  && sed -i -e 's, exit(ERR_UNREACHABLE);,,g' src/util/debug.h
  
@@ -42,3 +42,4 @@ ADD exclude_seed.json .
 # run fuzzing
 RUN sed -i -e 's|to_symbol(logic|to_symbol(logic, ctx=ctx|g' usr/lib/python3.9/site-packages/z3/z3.py
 CMD ["python", "src/main.py", "all"]
+

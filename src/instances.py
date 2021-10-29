@@ -37,7 +37,7 @@ class InstanceGroup(object):
         length = len(self.instances)
         self.instances[length] = instance
         if length == 0:
-            self.get_pred_info()
+            self.find_pred_info()
             instance.get_system_info()
 
             filename = 'output/ctx/' + self.filename
@@ -59,7 +59,7 @@ class InstanceGroup(object):
         if not seed.chc:
             seed.restore(is_seed=True)
         self.same_stats_limit = 5 * len(seed.chc)
-        self.get_pred_info()
+        self.find_pred_info()
 
     def check_stats(self, stats_limit: int) -> int:
         """
@@ -84,9 +84,9 @@ class InstanceGroup(object):
                 return 0
         return stats_limit
 
-    def get_pred_info(self):
+    def find_pred_info(self):
         """
-        Get whether the chc-system is linear, the number of
+        Find whether the chc-system is linear, the number of
         uninterpreted predicates and their set.
         """
         assert len(self.instances) > 0, "Instance group is empty"
@@ -472,8 +472,16 @@ class Mutation(object):
         Return the next mutation based on the instance,
         type of the previous mutation etc.
         """
-        # mut_weights = {2: 0.3256, 3: 0.4086, 4: 0.3443, 5: 0.501,
-        #                8: 0.5061, 9: 0.5847}
+        mut_weights = {21: 0.0308, 49: 0.0354, 15: 0.036, 8: 0.0361,
+                       40: 0.0379, 30: 0.0379, 16: 0.0383, 44: 0.0391,
+                       27: 0.0393, 50: 0.0397, 38: 0.0407, 47: 0.041,
+                       19: 0.041, 5: 0.0424, 41: 0.0425, 36: 0.0425,
+                       18: 0.043, 35: 0.0434, 4: 0.0437, 45: 0.044,
+                       33: 0.0445, 24: 0.045, 20: 0.045, 9: 0.0459,
+                       37: 0.0461, 12: 0.0466, 31: 0.0468, 32: 0.0468,
+                       39: 0.0469, 11: 0.0469, 51: 0.0478, 26: 0.0487,
+                       42: 0.0494, 48: 0.0496, 29: 0.0502, 28: 0.0504,
+                       25: 0.0506, 2: 0.0507, 14: 0.0509, 17: 0.051}
         type_kind_corr = {2: 0, 3: 0, 4: 0, 5: 1, 8: 2, 9: []}
 
         mut_types = set(range(11, len(MutType) + 1))
@@ -491,11 +499,11 @@ class Mutation(object):
                     if not type_kind_corr[9]:
                         mut_types.update({9, 10})
                     type_kind_corr[9].append(i)
-        # weights = []
-        # for i in mut_types:
-        #     weights.append(mut_weights[i])
-        #
-        # mut_id = random.choices(mut_types, weights)[0]
+        weights = []
+        for i in mut_types:
+            if i in mut_weights:
+                weights.append(mut_weights[i])
+
         mut_types = list(mut_types.difference(exceptions)) if exceptions \
             else list(mut_types)
         try:
