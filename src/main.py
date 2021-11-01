@@ -41,7 +41,7 @@ def calc_sort_key(heuristic: str, stats, weights=None) -> int:
     return sort_key
 
 
-def check_satis(instance: Instance, is_seed=False, get_stats=True) -> bool:
+def check_satis(instance: Instance, is_seed: bool = False, get_stats: bool = True) -> bool:
     """
     Return True if the test suites have the same satisfiability and
     False otherwise.
@@ -93,7 +93,7 @@ def sort_queue():
             queue += chunk
 
 
-def print_general_info(counter: defaultdict, mut_time=None):
+def print_general_info(counter: defaultdict, mut_time: time = None):
     """Print and log information about runs."""
 
     traces_num = len(unique_traces)
@@ -115,8 +115,8 @@ def print_general_info(counter: defaultdict, mut_time=None):
     logging.info(json.dumps({'general_info': log}))
 
 
-def log_run_info(status: str, message=None,
-                 instance=None, mut_instance=None):
+def log_run_info(status: str, message: str = None,
+                 instance: Instance = None, mut_instance: Instance = None):
     """Create a log entry with information about the run."""
 
     log = {'status': status}
@@ -146,12 +146,14 @@ def log_run_info(status: str, message=None,
     logging.info(json.dumps({'run_info': log}))
 
 
-def analyze_check_exception(instance: Instance, err: AssertionError,
-                            counter: defaultdict,
-                            mut_instance=None, is_seed=False):
+def analyze_check_exception(instance: Instance, err: Exception,
+                            counter: defaultdict, message: str = None,
+                            mut_instance: Instance = None, is_seed: bool = False):
     """Log information about exceptions that occur during the check."""
     global queue
     group = instance.get_group()
+    if not message:
+        message = repr(err)
 
     if is_seed:
         if str(err) == 'timeout':
@@ -161,23 +163,35 @@ def analyze_check_exception(instance: Instance, err: AssertionError,
             counter['unknown'] += 1
             status = 'seed_unknown'
         log_run_info(status,
-                     repr(err),
+                     message,
                      instance)
     else:
         if str(err) == 'timeout':
             counter['timeout'] += 1
-            log_run_info('mutant_timeout',
-                         repr(err),
+            status = 'mutant_timeout' if mut_instance \
+                else 'timeout_before_check'
+            log_run_info(status,
+                         message,
                          instance,
                          mut_instance)
         else:
-            counter['unknown'] += 1
-            log_run_info('mutant_unknown',
-                         repr(err),
+            if mut_instance:
+                counter['unknown'] += 1
+                status = 'mutant_unknown'
+            else:
+                counter['error'] += 1
+                status = 'error'
+            log_run_info(status,
+                         message,
                          instance,
                          mut_instance)
-        group.roll_back()
-        queue.append(group[0])
+        if status == 'error':
+            for inst in group.instances.values():
+                del inst.chc, inst
+            del group
+        else:
+            group.roll_back()
+            queue.append(group[0])
 
 
 def run_seeds(files: set, counter: defaultdict):
@@ -199,7 +213,10 @@ def run_seeds(files: set, counter: defaultdict):
         try:
             check_satis(instance, is_seed=True)
         except AssertionError as err:
-            analyze_check_exception(instance, err, counter, is_seed=True)
+            analyze_check_exception(instance,
+                                    err,
+                                    counter,
+                                    is_seed=True)
             log_run_info('seed',
                          instance=instance)
             print_general_info(counter)
@@ -228,8 +245,8 @@ def fuzz(files: set):
     while queue:
         instance = queue.pop(0)
         counter['runs'] += 1
+        group = instance.get_group()
         try:
-            group = instance.get_group()
             if counter['runs'] > init_runs_number:
                 if len(gc.get_referrers(current_ctx)) > 1:
                     objgraph.show_backrefs([current_ctx],
@@ -260,8 +277,10 @@ def fuzz(files: set):
                 try:
                     res = check_satis(mut_instance)
                 except AssertionError as err:
-                    analyze_check_exception(instance, err,
-                                            counter, mut_instance)
+                    analyze_check_exception(instance,
+                                            err,
+                                            counter,
+                                            mut_instance=mut_instance)
                     mut_instance.dump('output/problems',
                                       group.filename,
                                       len(group.instances),
@@ -312,16 +331,11 @@ def fuzz(files: set):
                 stats_limit = random.randint(queue_len // 5, queue_len)
 
         except Exception as err:
-            if type(err).__name__ == 'TimeoutError':
-                counter['timeout'] += 1
-                status = 'timeout_before_check'
-            else:
-                counter['error'] += 1
-                status = 'error'
             message = traceback.format_exc()
-            log_run_info(status,
-                         message,
-                         instance)
+            analyze_check_exception(instance,
+                                    err,
+                                    counter,
+                                    message=message)
             print(message)
             print_general_info(counter)
 

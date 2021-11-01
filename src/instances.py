@@ -144,7 +144,7 @@ class InstanceGroup(object):
 
 class Instance(object):
 
-    def __init__(self, group_id, chc=None):
+    def __init__(self, group_id: int, chc: AstVector = None):
         global INSTANCE_ID
         self.id = INSTANCE_ID
         INSTANCE_ID += 1
@@ -173,7 +173,7 @@ class Instance(object):
             chc_len = len(self.chc)
             self.info = ClauseInfo(chc_len)
 
-    def check(self, solver: Solver, is_seed=False, get_stats=True):
+    def check(self, solver: Solver, is_seed: bool = False, get_stats: bool = True):
         """Check the satisfiability of the instance."""
         solver.reset()
         if is_seed:
@@ -192,7 +192,7 @@ class Instance(object):
         """Return the group of the instance."""
         return instance_groups[self.group_id]
 
-    def get_log(self, is_mutant=True) -> dict:
+    def get_log(self, is_mutant: bool = True) -> dict:
         """Create a log entry with information about the instance."""
         group = self.get_group()
         log = {'filename': group.filename, 'id': self.id}
@@ -219,7 +219,7 @@ class Instance(object):
             for j in range(len(info_kinds)):
                 info.is_expr_in_clause[j, i] = is_there_expr[j]
 
-    def restore(self, is_seed=False):
+    def restore(self, is_seed: bool = False):
         """Restore the instance from output/last_mutants/."""
         group = self.get_group()
         filename = group.filename if is_seed else \
@@ -230,7 +230,7 @@ class Instance(object):
         self.get_system_info()
 
     def dump(self, dir: str, filename: str,
-             start_ind=0, message=None, to_name=None):
+             start_ind=0, message: str = None, to_name=None):
         """Dump the instance to the specified directory."""
         ctx_path = 'output/ctx/' + filename
         with open(ctx_path, 'r') as ctx_file:
@@ -440,7 +440,7 @@ class Mutation(object):
         self.prev_mutation = None
 
     def apply(self, instance: Instance, new_instance: Instance,
-              exceptions=None):
+              exceptions: set = None):
         """Mutate instances."""
         if self.type == MutType.ID:
             self.next_mutation(instance, exceptions)

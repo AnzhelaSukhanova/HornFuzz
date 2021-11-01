@@ -190,7 +190,7 @@ def get_bound_vars(expr) -> list:
     return vars
 
 
-def update_expr(expr, children, vars=None):
+def update_expr(expr, children, vars: list = None):
     """Return the expression with new children."""
 
     upd_expr = expr
