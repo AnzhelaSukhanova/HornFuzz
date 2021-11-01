@@ -166,7 +166,7 @@ def analyze_check_exception(instance: Instance, err: Exception,
                      message,
                      instance)
     else:
-        if str(err) == 'timeout':
+        if str(err) == 'timeout' or isinstance(err, TimeoutError):
             counter['timeout'] += 1
             status = 'mutant_timeout' if mut_instance \
                 else 'timeout_before_check'
@@ -191,6 +191,8 @@ def analyze_check_exception(instance: Instance, err: Exception,
             del group
         else:
             group.roll_back()
+            if status == 'timeout_before_check':
+                group[0].dump('output/last_mutants', group.filename)
             queue.append(group[0])
 
 
