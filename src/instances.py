@@ -671,7 +671,7 @@ class Mutation(object):
             mut_info = findall(r"[\w]+|[0-9]+", mut_entry)
             self.type = mut_info[0]
 
-            if self.type.value < 10:
+            if self.type in type_kind_corr:
                 self.path = [int(mut_info[1])]
                 self.trans_num = int(mut_info[2])
         else:
