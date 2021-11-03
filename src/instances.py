@@ -246,7 +246,7 @@ class Instance(object):
             file.write(ctx)
             for clause in self.chc:
                 file.write('(assert ' + clause.sexpr() + ')\n')
-            file.write('(check-sat)\n(exit)\n\n')
+            file.write('(exit)\n\n')
 
         group = self.get_group()
         length = len(group.instances)
@@ -256,174 +256,176 @@ class Instance(object):
             self.set_chc([])
 
 
-class MutType(int, Enum):
-    ID = 1
+mut_types = {'ID': 0.0}
 
+
+def init_mut_types():
+    global mut_types
     """
     And(a, b) -> And(b, a)"""
-    SWAP_AND = 2
+    mut_types['SWAP_AND'] = 0.0417
     """
     And(a, b) -> And(a, b, a)"""
-    DUP_AND = 3
+    mut_types['DUP_AND'] = 0.0384
     """
     And(a, b, c) -> And(a, And(b, c))
     And(a, b) -> And(a, And(a, b))"""
-    BREAK_AND = 4
-    SWAP_OR = 5
+    mut_types['BREAK_AND'] = 0.0428
 
-    # Cause "formula is not in Horn fragment"
-    DUP_OR = 6
-    BREAK_OR = 7
-    # _______________________________________
-
-    MIX_BOUND_VARS = 8
-    ADD_INEQ = 9
+    mut_types['SWAP_OR'] = 0.031
+    mut_types['MIX_BOUND_VARS'] = 0.0311
+    mut_types['ADD_INEQ'] = 0.0458
 
     """
     Rewrite inequalities so that right-hand-side is a constant."""
-    ARITH_INEQ_LHS = 10
+    mut_types['ARITH_INEQ_LHS'] = 0.0344
     """
     All monomials are moved to the left-hand-side, 
     and the right-hand-side is just a constant."""
-    ARITH_LHS = 11
+    mut_types['ARITH_LHS'] = 0.0353
     """
     Expand a distinct predicate into a quadratic number of disequalities."""
-    BLAST_DISTINCT = 12
+    mut_types['BLAST_DISTINCT'] = 0.0316
     """
     Blast (some) Bit-vector equalities into bits."""
-    BLAST_EQ_VALUE = 13
+    mut_types['BLAST_EQ_VALUE'] = 0.027
     """
     Eagerly replace all (select (store ..) ..) term 
     by an if-then-else term."""
-    BLAST_SELECT_STORE = 14
+    mut_types['BLAST_SELECT_STORE'] = 0.0377
     """
     Attempt to partially propagate extraction inwards."""
-    BV_EXTRACT_PROP = 15
+    mut_types['BV_EXTRACT_PROP'] = 0.0348
     """
     Rewrite ite that can be simplified to identity."""
-    BV_ITE2ID = 16
+    mut_types['BV_ITE2ID'] = 0.0306
     """
     Additional bu_(u/s)le simplifications."""
-    BV_LE_EXTRA = 17
+    mut_types['BV_LE_EXTRA'] = 0.0374
     """
     Apply simplifications for bvnot."""
-    BV_NOT_SIMPL = 18
+    mut_types['BV_NOT_SIMPL'] = 0.0335
     """
     Sort the arguments of all AC operators."""
-    BV_SORT_AC = 19
+    mut_types['BV_SORT_AC'] = 0.0375
     """
     Conjunctions are rewritten using negation and disjunctions."""
-    ELIM_AND = 20
+    mut_types['ELIM_AND'] = 0.0356
     """
     Replace (rem x y) with (ite (>= y 0) (mod x y) (- (mod x y)))."""
-    ELIM_REM = 21
+    mut_types['ELIM_REM'] = 0.0336
     """
     Eliminate to_real from arithmetic predicates 
     that contain only integers."""
-    ELIM_TO_REAL = 22
+    mut_types['ELIM_TO_REAL'] = 0.0305
     """
     Expand equalities into two inequalities."""
-    EQ2INEQ = 23
+    mut_types['EQ2INEQ'] = 0.0436
     """
     Expand (^ t k) into (* t ... t) if  1 < k <= max_degree."""
-    EXPAND_POWER = 24
+    mut_types['EXPAND_POWER'] = 0.0304
     """
     Expand select over ite expressions."""
-    EXPAND_SELECT_ITE = 25
+    mut_types['EXPAND_SELECT_ITE'] = 0.0258
     """
     Conservatively replace a (select (store ...) ...) term 
     by an if-then-else term."""
-    EXPAND_SELECT_STORE = 26
+    mut_types['EXPAND_SELECT_STORE'] = 0.0324
     """
     Reduce (store ...) = (store ...) with a common base into selects."""
-    EXPAND_STORE_EQ = 27
+    mut_types['EXPAND_STORE_EQ'] = 0.0345
     """
     Replace (tan x) with (/ (sin x) (cos x))."""
-    EXPAND_TAN = 28
+    mut_types['EXPAND_TAN'] = 0.0323
     """
     Use gcd rounding on integer arithmetic atoms."""
-    GCD_ROUNDING = 29
+    mut_types['GCD_ROUNDING'] = 0.0344
     """
     Hoist shared summands under ite expressions."""
-    HOIST_ITE = 30
+    mut_types['HOIST_ITE'] = 0.0291
     """
     Hoist multiplication over summation 
     to minimize number of multiplications."""
-    HOIST_MUL = 31
+    mut_types['HOIST_MUL'] = 0.0356
     """
     Extra ite simplifications, these additional simplifications 
     may reduce size locally but increase globally."""
-    ITE_EXTRA_RULES = 32
+    mut_types['ITE_EXTRA_RULES'] = 0.0347
     """
-    Perform local (i.e., cheap) context simplifications."""
-    LOCAL_CTX = 33
+    Perform local (i.e. cheap) context simplifications."""
+    mut_types['LOCAL_CTX'] = 0.0349
     """
     Replace multiplication by a power of two into a concatenation."""
-    MUL2CONCAT = 34
+    mut_types['MUL2CONCAT'] = 0.0345
     """
     Collpase (* t ... t) into (^ t k), 
     it is ignored if expand_power is true."""
-    MUL_TO_POWER = 35
+    mut_types['MUL_TO_POWER'] = 0.0331
     """
     Pull if-then-else terms when cheap."""
-    PULL_CHEAP_ITE = 36
+    mut_types['PULL_CHEAP_ITE'] = 0.0339
     """
     Push if-then-else over arithmetic terms."""
-    PUSH_ITE_ARITH = 37
+    mut_types['PUSH_ITE_ARITH'] = 0.0307
     """
     Push if-then-else over bit-vector terms."""
-    PUSH_ITE_BV = 38
+    mut_types['PUSH_ITE_BV'] = 0.0322
     """
     Rewrite patterns."""
-    REWRITE_PATTERNS = 39
+    mut_types['REWRITE_PATTERNS'] = 0.0296
     """
     Put polynomials in sum-of-monomials form."""
-    SOM = 40
+    mut_types['SOM'] = 0.034
     """
     Sort nested stores when the indices are known to be different."""
-    SORT_STORE = 41
+    mut_types['SORT_STORE'] = 0.0303
     """
     Sort the arguments of + application."""
-    SORT_SUMS = 42
+    mut_types['SORT_SUMS'] = 0.0338
     """
     Split equalities of the form (= (concat t1 t2) t3)."""
-    SPLIT_CONCAT_EQ = 43
+    mut_types['SPLIT_CONCAT_EQ'] = 0.0379
 
     """
     Simplify/evaluate expressions containing 
     (algebraic) irrational numbers."""
-    ALGEBRAIC_NUMBER_EVALUATOR = 44
+    mut_types['ALGEBRAIC_NUMBER_EVALUATOR'] = 0.0279
     """
     Try to convert bit-vector terms of size 1 
     into Boolean terms."""
-    BIT2BOOL = 45
+    mut_types['BIT2BOOL'] = 0.0374
     """
     Eliminate ite in favor of and/or."""
-    ELIM_ITE = 46
+    mut_types['ELIM_ITE'] = 0.032
     """
     Expand sign-ext operator using concat and extract."""
-    ELIM_SIGN_EXT = 47
+    mut_types['ELIM_SIGN_EXT'] = 0.0328
     """
     Create nary applications for and, or, +, *, 
     bvadd, bvmul, bvand, bvor, bvxor."""
-    FLAT = 48
+    mut_types['FLAT'] = 0.0324
     """
     Use the 'hardware interpretation' for division 
     by zero (for bit-vector terms)."""
-    HI_DIV0 = 49
+    mut_types['HI_DIV0'] = 0.0322
     """
     Ignores patterns on quantifiers that don't mention 
     their bound variables."""
-    IGNORE_PATTERNS_ON_GROUND_QBODY = 50
+    mut_types['IGNORE_PATTERNS_ON_GROUND_QBODY'] = 0.0296
     """
     Distribute to_real over * and +."""
-    PUSH_TO_REAL = 51
+    mut_types['PUSH_TO_REAL'] = 0.0331
+
+
+type_kind_corr = {'SWAP_AND': 0, 'DUP_AND': 0, 'BREAK_AND': 0,
+                      'SWAP_OR': 1, 'MIX_BOUND_VARS': 2,
+                      'ADD_INEQ': [3, 4, 5, 6]}
 
 
 class Mutation(object):
 
     def __init__(self, prev_mutation=None):
-        self.type = MutType.ID
+        self.type = 'ID'
         self.number = prev_mutation.number + 1 if prev_mutation else 0
         self.path = [None]
         self.kind_ind = 0
@@ -434,7 +436,7 @@ class Mutation(object):
         self.simp_flags = {0: True, 1: True, 2: True}
 
     def clear(self):
-        self.type = MutType.ID
+        self.type = 'ID'
         self.path.clear()
         self.number = 0
         self.prev_mutation = None
@@ -442,29 +444,26 @@ class Mutation(object):
     def apply(self, instance: Instance, new_instance: Instance,
               exceptions: set = None):
         """Mutate instances."""
-        if self.type == MutType.ID:
+        if self.type == 'ID':
             self.next_mutation(instance, exceptions)
 
-        if self.type == MutType.ID:
+        if self.type == 'ID':
             assert False, 'No mutation can be applied'
 
-        if self.type.value in range(2, 10):
+        if self.type in type_kind_corr:
             new_instance.set_chc(self.transform(instance))
 
-        elif self.type.value > 9:
+        else:
             new_instance.set_chc(self.simplify_by_one(instance.chc))
             new_instance.get_system_info()
 
-        else:
-            assert False
-
         if bool(instance.chc == new_instance.chc):
-            exc_type = self.type.value
+            exc_type = self.type
             if not exceptions:
                 exceptions = {exc_type}
             else:
                 exceptions.add(exc_type)
-            self.type = MutType.ID
+            self.type = 'ID'
             self.apply(instance, new_instance, exceptions)
 
     def next_mutation(self, instance: Instance, exceptions: set):
@@ -472,49 +471,48 @@ class Mutation(object):
         Return the next mutation based on the instance,
         type of the previous mutation etc.
         """
-        mut_weights = {21: 0.0308, 49: 0.0354, 15: 0.036, 8: 0.0361,
-                       40: 0.0379, 30: 0.0379, 16: 0.0383, 44: 0.0391,
-                       27: 0.0393, 50: 0.0397, 38: 0.0407, 47: 0.041,
-                       19: 0.041, 5: 0.0424, 41: 0.0425, 36: 0.0425,
-                       18: 0.043, 35: 0.0434, 4: 0.0437, 45: 0.044,
-                       33: 0.0445, 24: 0.045, 20: 0.045, 9: 0.0459,
-                       37: 0.0461, 12: 0.0466, 31: 0.0468, 32: 0.0468,
-                       39: 0.0469, 11: 0.0469, 51: 0.0478, 26: 0.0487,
-                       42: 0.0494, 48: 0.0496, 29: 0.0502, 28: 0.0504,
-                       25: 0.0506, 2: 0.0507, 14: 0.0509, 17: 0.051}
-        type_kind_corr = {2: 0, 3: 0, 4: 0, 5: 1, 8: 2, 9: []}
+        ineq_kinds = []
 
-        mut_types = set(range(11, len(MutType) + 1))
+        types_to_choose = set()
         info = instance.info
 
         for i in range(len(info_kinds)):
             if info.expr_exists[i]:
                 if i == 0:
-                    mut_types.update({2, 3, 4})
+                    types_to_choose.update({'SWAP_AND',
+                                            'DUP_AND',
+                                            'BREAK_AND'})
                 elif i == 1:
-                    mut_types.add(5)
+                    types_to_choose.add('SWAP_OR')
                 elif i == 2:
-                    mut_types.add(8)
+                    types_to_choose.add('MIX_BOUND_VARS')
                 else:
-                    if not type_kind_corr[9]:
-                        mut_types.update({9, 10})
-                    type_kind_corr[9].append(i)
-        weights = []
-        for i in mut_types:
-            if i in mut_weights:
-                weights.append(mut_weights[i])
+                    if not ineq_kinds:
+                        types_to_choose.add('ADD_INEQ')
+                    ineq_kinds.append(i)
+        for mut in mut_types:
+            if mut not in type_kind_corr:
+                types_to_choose.add(mut)
 
-        mut_types = list(mut_types.difference(exceptions)) if exceptions \
-            else list(mut_types)
+        weights = []
+        for name in types_to_choose:
+            weight = mut_types[name]
+            weights.append(weight)
+
+        types_to_choose = list(types_to_choose.difference(exceptions)) \
+            if exceptions else list(types_to_choose)
         try:
-            mut_id = random.choice(mut_types)
+            mut_type = random.choices(types_to_choose, weights)[0]
         except IndexError:
-            mut_id = 1
-        self.type = MutType(mut_id)
-        if mut_id == 9:
-            self.kind_ind = random.choices(type_kind_corr[mut_id])[0]
-        elif 1 < mut_id < 9:
-            self.kind_ind = type_kind_corr[mut_id]
+            mut_type = 'ID'
+        self.type = mut_type
+
+        if mut_type == 'ADD_INEQ':
+            self.kind_ind = random.choices(ineq_kinds)[0]
+        elif mut_type in type_kind_corr:
+            self.kind_ind = type_kind_corr[mut_type]
+        else:
+            pass
 
     def simplify_by_one(self, chc_system: AstVector) -> AstVector:
         """Simplify instance with arith_ineq_lhs, arith_lhs and eq2ineq."""
@@ -524,7 +522,7 @@ class Mutation(object):
                     'elim_ite', 'elim_sign_ext', 'flat', 'hi_div0',
                     'ignore_patterns_on_ground_qbody', 'push_to_real'}:
             params[key] = False
-        mut_type = self.type.name.lower()
+        mut_type = self.type.lower()
         params[mut_type] = True
 
         ind = range(0, len(chc_system)) if not self.path[0] else {self.path[0]}
@@ -568,7 +566,7 @@ class Mutation(object):
 
         mut_clause = self.transform_nth(clause, kind,
                                         [i], time.perf_counter())
-        assert self.applied, 'Mutation ' + self.type.name + ' wasn\'t applied'
+        assert self.applied, 'Mutation ' + self.type + ' wasn\'t applied'
         for j, clause in enumerate(chc_system):
             if j == i:
                 mut_system.push(mut_clause)
@@ -588,14 +586,14 @@ class Mutation(object):
         if is_app_of(expr, expr_kind) or check_ast_kind(expr, expr_kind):
             if trans_n == 0:
                 children = expr.children()
-                if self.type in {MutType.SWAP_AND, MutType.SWAP_OR}:
+                if self.type in {'SWAP_AND', 'SWAP_OR'}:
                     children = children[1:] + children[:1]
-                elif self.type in {MutType.DUP_AND, MutType.DUP_OR}:
+                elif self.type == 'DUP_AND':
                     child = children[0]
                     children.append(child)
-                elif self.type in {MutType.BREAK_AND, MutType.BREAK_OR}:
-                    children = mut_break(children, expr_kind)
-                elif self.type == MutType.ADD_INEQ:
+                elif self.type == 'BREAK_AND':
+                    children = mut_break(children)
+                elif self.type == 'ADD_INEQ':
                     new_ineq = create_add_ineq(children, expr_kind)
                 else:
                     pass
@@ -644,12 +642,12 @@ class Mutation(object):
 
     def get_name(self):
         """Get mutation name with some information about it."""
-        if self.type.value < 10:
-            return self.type.name + '(' + \
+        if self.type in type_kind_corr:
+            return self.type + '(' + \
                    str(self.path[0]) + ', ' + \
                    str(self.trans_num) + ')'
         else:
-            return self.type.name
+            return self.type
 
     def debug_print(self, chc_system: AstVector, mut_system: AstVector):
         print(chc_system[self.path[0]], '\n->\n', mut_system[self.path[0]])
@@ -671,7 +669,7 @@ class Mutation(object):
 
         elif type(mut_entry) == str:
             mut_info = findall(r"[\w]+|[0-9]+", mut_entry)
-            self.type = MutType[mut_info[0]]
+            self.type = mut_info[0]
 
             if self.type.value < 10:
                 self.path = [int(mut_info[1])]
@@ -680,10 +678,10 @@ class Mutation(object):
             assert False, 'Incorrect mutation entry'
 
 
-def mut_break(children, expr_kind: int):
+def mut_break(children):
     """
     Return the children of the expression
-    after applying the mutation BREAK_AND/BREAK_OR
+    after applying the mutation BREAK_AND
     """
 
     children_part = children[-2:]
@@ -691,10 +689,7 @@ def mut_break(children, expr_kind: int):
         mut_children = children[:-1]
     else:
         mut_children = children[:-2]
-    if expr_kind == Z3_OP_AND:
-        mut_children.append(And(children_part))
-    else:
-        mut_children.append(Or(children_part))
+    mut_children.append(And(children_part))
     return mut_children
 
 

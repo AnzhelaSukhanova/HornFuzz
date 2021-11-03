@@ -85,7 +85,7 @@ def reduce_mut_chain(instance: Instance, message: str = None) -> Instance:
                 group = new_group
 
             if chunk_size == 1:
-                if group[ind_chunk[0]].mutation.type == MutType.SIMPLIFY:
+                if group[ind_chunk[0]].mutation.type == 'SIMPLIFY':
                     group[ind_chunk[0]] = reduce_simplify(group[ind_chunk[0] - 1], message)
         chunk_size //= 2
 
@@ -126,7 +126,7 @@ def reduce_simplify(instance: Instance, message: str = None) -> Instance:
 
     mut_instance = Instance(instance.group_id)
     mut = mut_instance.mutation
-    mut.type = MutType.SIMPLIFY
+    mut.type = 'SIMPLIFY'
     flags_num = len(mut.simp_flags)
 
     for i in range(flags_num):

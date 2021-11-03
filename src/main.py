@@ -382,6 +382,7 @@ def main():
         directory += '/'
     files = get_seeds(argv.seeds, directory)
     create_output_dirs()
+    init_mut_types()
 
     seed_number = len(files)
     assert seed_number > 0, 'Seeds not found'
