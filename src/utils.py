@@ -12,7 +12,8 @@ TRACE_FILE = '.z3-trace'
 trace_states = defaultdict(int)
 trans_offset = 0
 info_kinds = [Z3_OP_AND, Z3_OP_OR, Z3_QUANTIFIER_AST,
-              Z3_OP_LE, Z3_OP_GE, Z3_OP_LT, Z3_OP_GT]
+              Z3_OP_LE, Z3_OP_GE, Z3_OP_LT, Z3_OP_GT,
+              Z3_OP_UNINTERPRETED]
 
 
 def global_ctx_access_exception():
@@ -43,7 +44,7 @@ class ClauseInfo(object):
     def __init__(self, number: int):
         self.expr_exists = defaultdict(bool)
         self.is_expr_in_clause = np.zeros((len(info_kinds), number),
-                                              dtype=bool)
+                                          dtype=bool)
 
 
 class StatsType(Enum):

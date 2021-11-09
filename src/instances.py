@@ -1,6 +1,6 @@
 import time
 import json
-from re import findall
+import re
 from utils import *
 
 MUT_APPLY_TIME_LIMIT = 10
@@ -23,6 +23,7 @@ class InstanceGroup(object):
         self.same_stats_limit = 0
         self.is_linear = True
         self.upred_num = 0
+        self.has_array = defaultdict(bool)
 
     def __getitem__(self, index: int):
         index = index % len(self.instances)
@@ -42,7 +43,9 @@ class InstanceGroup(object):
 
             filename = 'output/ctx/' + self.filename
             with open(self.filename, 'r') as seed_file:
-                formula = seed_file.read()
+                file = seed_file.read()
+                formula = re.sub(r"\(set-info.*\"\)", "",
+                                 file, flags=re.DOTALL)
                 ctx = formula.split('(assert')[0]
                 with open(filename, 'w') as ctx_file:
                     ctx_file.write(ctx)
@@ -60,6 +63,7 @@ class InstanceGroup(object):
             seed.restore(is_seed=True)
         self.same_stats_limit = 5 * len(seed.chc)
         self.find_pred_info()
+        self.analyze_vars()
 
     def check_stats(self, stats_limit: int) -> int:
         """
@@ -128,6 +132,13 @@ class InstanceGroup(object):
                 if upred_num[0] > 1:
                     self.is_linear = False
         self.upred_num = len(all_uninter_pred)
+
+    def analyze_vars(self):
+        instance = self[-1]
+        for i, clause in enumerate(instance.chc):
+            for var in get_bound_vars(clause):
+                if is_array(var):
+                    self.has_array[i] = True
 
     def restore(self, id: int, mutations):
         seed = parse_smt2_file(self.filename)
@@ -416,10 +427,13 @@ def init_mut_types():
     Distribute to_real over * and +."""
     mut_types['PUSH_TO_REAL'] = 0.0331
 
+    mut_types['ADD_LIN_RULE'] = 1
 
+
+# The values are the indices of the info_kinds elements
 type_kind_corr = {'SWAP_AND': 0, 'DUP_AND': 0, 'BREAK_AND': 0,
-                      'SWAP_OR': 1, 'MIX_BOUND_VARS': 2,
-                      'ADD_INEQ': [3, 4, 5, 6]}
+                  'SWAP_OR': 1, 'MIX_BOUND_VARS': 2,
+                  'ADD_INEQ': {3, 4, 5, 6}, 'ADD_LIN_RULE': 7}
 
 
 class Mutation(object):
@@ -450,7 +464,10 @@ class Mutation(object):
         if self.type == 'ID':
             assert False, 'No mutation can be applied'
 
-        if self.type in type_kind_corr:
+        if self.type == 'ADD_LIN_RULE':
+            new_instance.set_chc(self.add_lin_rule(instance))
+
+        elif self.type in type_kind_corr:
             new_instance.set_chc(self.transform(instance))
 
         else:
@@ -471,44 +488,48 @@ class Mutation(object):
         Return the next mutation based on the instance,
         type of the previous mutation etc.
         """
-        ineq_kinds = []
+        mult_kinds = defaultdict(list)
 
         types_to_choose = set()
         info = instance.info
 
         for i in range(len(info_kinds)):
             if info.expr_exists[i]:
-                if i == 0:
+                if i == type_kind_corr['SWAP_AND']:
                     types_to_choose.update({'SWAP_AND',
                                             'DUP_AND',
                                             'BREAK_AND'})
-                elif i == 1:
+                elif i == type_kind_corr['SWAP_OR']:
                     types_to_choose.add('SWAP_OR')
-                elif i == 2:
+                elif i == type_kind_corr['MIX_BOUND_VARS']:
                     types_to_choose.add('MIX_BOUND_VARS')
-                else:
-                    if not ineq_kinds:
+                elif i in type_kind_corr['ADD_INEQ']:
+                    if not mult_kinds['ADD_INEQ']:
                         types_to_choose.add('ADD_INEQ')
-                    ineq_kinds.append(i)
+                    mult_kinds['ADD_INEQ'].append(i)
+                else:
+                    pass
+
         for mut in mut_types:
             if mut not in type_kind_corr:
                 types_to_choose.add(mut)
 
-        weights = []
-        for name in types_to_choose:
-            weight = mut_types[name]
-            weights.append(weight)
+        # weights = []
+        # for name in types_to_choose:
+        #     weight = mut_types[name]
+        #     weights.append(weight)
 
         types_to_choose = list(types_to_choose.difference(exceptions)) \
             if exceptions else list(types_to_choose)
         try:
-            mut_type = random.choices(types_to_choose, weights)[0]
+            mut_type = random.choice(types_to_choose)
+            # mut_type = random.choices(types_to_choose, weights)[0]
         except IndexError:
             mut_type = 'ID'
         self.type = mut_type
 
         if mut_type == 'ADD_INEQ':
-            self.kind_ind = random.choices(ineq_kinds)[0]
+            self.kind_ind = random.choices(mult_kinds[mut_type])[0]
         elif mut_type in type_kind_corr:
             self.kind_ind = type_kind_corr[mut_type]
         else:
@@ -544,12 +565,28 @@ class Mutation(object):
             mut_system.push(clause)
         return mut_system
 
-    def transform(self, instance: Instance) -> AstVector:
-        """Transform an expression of the specific kind."""
-        global trans_n
+    def add_lin_rule(self, instance: Instance) -> AstVector:
+        mut_system = deepcopy(instance.chc)
+        kind = info_kinds[self.kind_ind]
+
+        clause_ind, clause = self.get_clause_info(instance)
+        _, uninter_pred = count_expr(clause, [kind], is_unique=True)
+        upred = random.sample(uninter_pred[0], 1)[0]
+        vars = []
+        for i in range(upred.arity()):
+            sort = upred.domain(i)
+            vars.append(Const('x' + str(i), sort))
+        head = upred.__call__(vars)
+
+        body = BoolVal(False, ctx=instance.chc.ctx)
+        implication = Implies(body, head, ctx=instance.chc.ctx)
+        rule = ForAll(vars, implication)
+        mut_system.push(rule)
+        return mut_system
+
+    def get_clause_info(self, instance: Instance) -> (int, AstVector):
         info = instance.info
         chc_system = instance.chc
-        mut_system = AstVector(ctx=chc_system.ctx)
         kind = info_kinds[self.kind_ind]
 
         if not self.trans_num:
@@ -561,14 +598,26 @@ class Mutation(object):
         else:
             i = self.path[0]
             clause = chc_system[i]
-        trans_n = deepcopy(self.trans_num)
         self.path = [i]
+        return i, clause
 
-        mut_clause = self.transform_nth(clause, kind,
-                                        [i], time.perf_counter())
+    def transform(self, instance: Instance) -> AstVector:
+        """Transform an expression of the specific kind."""
+        global trans_n
+        chc_system = instance.chc
+        mut_system = AstVector(ctx=chc_system.ctx)
+
+        clause_ind, clause = self.get_clause_info(instance)
+        trans_n = deepcopy(self.trans_num)
+
+        kind = info_kinds[self.kind_ind]
+        mut_clause = self.transform_nth(clause,
+                                        kind,
+                                        [clause_ind],
+                                        time.perf_counter())
         assert self.applied, 'Mutation ' + self.type + ' wasn\'t applied'
         for j, clause in enumerate(chc_system):
-            if j == i:
+            if j == clause_ind:
                 mut_system.push(mut_clause)
             else:
                 mut_system.push(chc_system[j])
@@ -668,7 +717,7 @@ class Mutation(object):
                 setattr(self, field, mut_entry[field])
 
         elif type(mut_entry) == str:
-            mut_info = findall(r"[\w]+|[0-9]+", mut_entry)
+            mut_info = re.findall(r"[\w]+|[0-9]+", mut_entry)
             self.type = mut_info[0]
 
             if self.type in type_kind_corr:
