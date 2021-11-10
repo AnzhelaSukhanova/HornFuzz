@@ -507,6 +507,8 @@ class Mutation(object):
                     if not mult_kinds['ADD_INEQ']:
                         types_to_choose.add('ADD_INEQ')
                     mult_kinds['ADD_INEQ'].append(i)
+                elif i in type_kind_corr['ADD_LIN_RULE']:
+                    mult_kinds['ADD_LIN_RULE'].append(i)
                 else:
                     pass
 
