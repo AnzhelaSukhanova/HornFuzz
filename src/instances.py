@@ -132,6 +132,7 @@ class InstanceGroup(object):
                 if upred_num[0] > 1:
                     self.is_linear = False
         self.upred_num = len(all_uninter_pred)
+        assert self.upred_num > 0, 'The input is not the CHC-system'
 
     def analyze_vars(self):
         instance = self[-1]
@@ -507,8 +508,9 @@ class Mutation(object):
                     if not mult_kinds['ADD_INEQ']:
                         types_to_choose.add('ADD_INEQ')
                     mult_kinds['ADD_INEQ'].append(i)
-                elif i in type_kind_corr['ADD_LIN_RULE']:
-                    mult_kinds['ADD_LIN_RULE'].append(i)
+                elif i == type_kind_corr['ADD_LIN_RULE']:
+                    # mult_kinds['ADD_LIN_RULE'].append(i)
+                    pass
                 else:
                     pass
 
@@ -516,16 +518,15 @@ class Mutation(object):
             if mut not in type_kind_corr:
                 types_to_choose.add(mut)
 
-        # weights = []
-        # for name in types_to_choose:
-        #     weight = mut_types[name]
-        #     weights.append(weight)
+        weights = []
+        for name in types_to_choose:
+            weight = mut_types[name]
+            weights.append(weight)
 
         types_to_choose = list(types_to_choose.difference(exceptions)) \
             if exceptions else list(types_to_choose)
         try:
-            mut_type = random.choice(types_to_choose)
-            # mut_type = random.choices(types_to_choose, weights)[0]
+            mut_type = random.choices(types_to_choose, weights)[0]
         except IndexError:
             mut_type = 'ID'
         self.type = mut_type

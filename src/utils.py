@@ -230,8 +230,7 @@ def expr_exists(instance, kinds: list) -> defaultdict:
                     break
             if ind:
                 for child in cur_expr.children():
-                    if not is_var(child) and not is_const(child):
-                        expr_set.add(child)
+                    expr_set.add(child)
     return expr_ex
 
 
@@ -256,8 +255,7 @@ def count_expr(instance, kinds: list, is_unique=False):
                         expr_num[j] += 1
                     break
             for child in cur_expr.children():
-                if not is_var(child) and not is_const(child):
-                    expr_set.add(child)
+                expr_set.add(child)
     if is_unique:
         return expr_num, unique_expr
     else:
