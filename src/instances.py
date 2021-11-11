@@ -195,10 +195,10 @@ class Instance(object):
 
         solver.add(self.chc)
         self.satis = solver.check()
-        assert self.satis != unknown, solver.reason_unknown()
         if get_stats:
             self.trace_stats.read_from_trace()
             unique_traces.add(self.trace_stats.hash)
+        assert self.satis != unknown, solver.reason_unknown()
 
     def get_group(self):
         """Return the group of the instance."""
