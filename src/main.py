@@ -5,6 +5,7 @@ import objgraph
 import traceback
 from os.path import dirname
 
+import instances
 from instances import *
 from seeds import *
 
@@ -17,6 +18,7 @@ current_ctx = None
 
 ONE_INST_MUT_LIMIT = 1000
 MUT_AFTER_PROBLEM = 10
+MUT_WEIGHT_UPDATE_RUNS = 10000
 
 
 def calc_sort_key(heuristic: str, stats, weights=None) -> int:
@@ -91,6 +93,11 @@ def sort_queue():
                                                        group.upred_num))
             chunk.sort(key=lambda item: item.sort_key, reverse=True)
             queue += chunk
+
+
+def update_mutation_weights():
+    instances.update_mutation_weights()
+    logging.info(json.dumps({'update_mutation_weights': instances.mut_types}))
 
 
 def print_general_info(counter: defaultdict, mut_time: time = None):
@@ -243,6 +250,7 @@ def fuzz(files: set):
     logging.info(json.dumps({'seed_number': seed_number,
                              'heuristics': heuristics}))
     stats_limit = seed_number
+    runs_before_weight_update = MUT_WEIGHT_UPDATE_RUNS
 
     while queue:
         instance = queue.pop(0)
@@ -263,12 +271,18 @@ def fuzz(files: set):
             else:
                 start_mut_ind = 0
                 mut_limit = 1
+
+            if runs_before_weight_update <= 0:
+                update_mutation_weights()
+                runs_before_weight_update = MUT_WEIGHT_UPDATE_RUNS
+
             stats_limit -= 1
 
             i = 0
             while i < mut_limit:
                 if i > 0:
                     counter['runs'] += 1
+                runs_before_weight_update -= 1
 
                 mut_instance = Instance(instance.group_id)
                 mut = mut_instance.mutation
