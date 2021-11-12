@@ -132,7 +132,6 @@ class InstanceGroup(object):
                 if upred_num[0] > 1:
                     self.is_linear = False
         self.upred_num = len(all_uninter_pred)
-        assert self.upred_num > 0, 'The input is not the CHC-system'
 
     def analyze_vars(self):
         instance = self[-1]
