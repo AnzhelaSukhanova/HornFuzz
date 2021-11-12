@@ -195,10 +195,12 @@ class Instance(object):
 
         solver.add(self.chc)
         self.satis = solver.check()
-        assert self.satis != unknown, solver.reason_unknown()
         if get_stats:
             self.trace_stats.read_from_trace()
+            new_trace_found = self.trace_stats.hash not in unique_traces
             unique_traces.add(self.trace_stats.hash)
+            self.update_mutation_stats(new_trace_found)
+        assert self.satis != unknown, solver.reason_unknown()
 
     def get_group(self):
         """Return the group of the instance."""
@@ -267,8 +269,18 @@ class Instance(object):
         if self.chc:
             self.set_chc([])
 
+    def update_mutation_stats(self, new_trace_found: bool):
+        global mut_stats
+        mutation_type = self.mutation and self.mutation.type
+        if mutation_type is None:
+            return
+        current_mutation_stats = mut_stats.setdefault(mutation_type, {'applications': 0.0, 'new_traces': 0.0})
+        current_mutation_stats['applications'] += 1
+        current_mutation_stats['new_traces'] += int(new_trace_found)
+
 
 mut_types = {'ID': 0.0}
+mut_stats = {}
 
 
 def init_mut_types():
@@ -435,6 +447,16 @@ def init_mut_types():
 type_kind_corr = {'SWAP_AND': 0, 'DUP_AND': 0, 'BREAK_AND': 0,
                   'SWAP_OR': 1, 'MIX_BOUND_VARS': 2,
                   'ADD_INEQ': {3, 4, 5, 6}, 'ADD_LIN_RULE': 7}
+
+
+def update_mutation_weights():
+    global mut_types, mut_stats
+    for mut_type in mut_types:
+        current_mut_stats = mut_stats.get(mut_type)
+        if current_mut_stats is None or mut_type == 'ID':
+            continue
+        trace_discover_probability = current_mut_stats['new_traces'] / current_mut_stats['applications']
+        mut_types[mut_type] = 0.62 * mut_types[mut_type] + 0.38 * trace_discover_probability
 
 
 class Mutation(object):
