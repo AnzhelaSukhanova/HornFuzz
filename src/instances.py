@@ -99,33 +99,44 @@ class InstanceGroup(object):
         all_uninter_pred = set()
 
         for i, clause in enumerate(chc_system):
-            child = clause.children()[0]
-            if is_quantifier(clause):
-                body = clause.body()
-            elif is_not(clause) and child.is_exists():
-                body = child.body()
-            else:
-                body = clause
+            expr = clause
+            child = clause.children()[0] if clause.children() else None
+            while is_quantifier(expr) or is_quantifier(child):
+                if is_quantifier(clause):
+                    expr = expr.body()
+                elif is_not(expr) and child.is_exists():
+                    expr = Not(child.body())
+                else:
+                    pass
+                child = expr.children()[0] if expr.children() else None
 
-            if is_implies(body):
-                expr = body.children()[0]
-            elif is_and(body):
-                expr = body
-            elif is_not(body):
-                expr = body.children()[0]
-            elif is_or(body):
-                for child in body.children():
+            while is_not(expr) and is_not(child):
+                expr = child.children()[0]
+                child = expr.children()[0] if expr.children() else None
+
+            if is_implies(expr):
+                body = expr.children()[0]
+            elif is_or(expr) or (is_not(expr) and is_and(child)):
+                body_expr = []
+                expr = child if is_not(clause) else clause
+                for subexpr in expr.children():
                     if not is_not(child):
-                        expr = child
-                        break
-            elif body.decl().kind() == Z3_OP_UNINTERPRETED:
-                expr = None
+                        # it is not necessary to take the negation of
+                        # and-subexpressions, since we are counting the
+                        # number of predicates
+                        body_expr.append(subexpr)
+                body = Or(body_expr)
+            elif is_not(expr) and is_or(child):
+                pass
+            elif (is_not(expr) and child.decl().kind() == Z3_OP_UNINTERPRETED) or \
+                    expr.decl().kind() == Z3_OP_UNINTERPRETED:
+                body = None
             else:
                 assert False, self.filename + \
                               ' -- clause-kind: ' + \
-                              str(body.decl())
-            if expr is not None:
-                upred_num, uninter_pred = count_expr(expr,
+                              str(expr)
+            if body is not None:
+                upred_num, uninter_pred = count_expr(body,
                                                      [Z3_OP_UNINTERPRETED],
                                                      is_unique=True)
                 all_uninter_pred.update(uninter_pred[0])
@@ -286,158 +297,158 @@ def init_mut_types():
     global mut_types
     """
     And(a, b) -> And(b, a)"""
-    mut_types['SWAP_AND'] = 0.0417
+    mut_types['SWAP_AND'] = 0.0512
     """
     And(a, b) -> And(a, b, a)"""
-    mut_types['DUP_AND'] = 0.0384
+    mut_types['DUP_AND'] = 0.0636
     """
     And(a, b, c) -> And(a, And(b, c))
     And(a, b) -> And(a, And(a, b))"""
-    mut_types['BREAK_AND'] = 0.0428
+    mut_types['BREAK_AND'] = 0.0612
 
-    mut_types['SWAP_OR'] = 0.031
-    mut_types['MIX_BOUND_VARS'] = 0.0311
-    mut_types['ADD_INEQ'] = 0.0458
+    mut_types['SWAP_OR'] = 0.0536
+    mut_types['MIX_BOUND_VARS'] = 0.059
+    mut_types['ADD_INEQ'] = 0.0602
 
     """
     Rewrite inequalities so that right-hand-side is a constant."""
-    mut_types['ARITH_INEQ_LHS'] = 0.0344
+    mut_types['ARITH_INEQ_LHS'] = 0.0599
     """
     All monomials are moved to the left-hand-side, 
     and the right-hand-side is just a constant."""
-    mut_types['ARITH_LHS'] = 0.0353
+    mut_types['ARITH_LHS'] = 0.0537
     """
     Expand a distinct predicate into a quadratic number of disequalities."""
-    mut_types['BLAST_DISTINCT'] = 0.0316
+    mut_types['BLAST_DISTINCT'] = 0.057
     """
     Blast (some) Bit-vector equalities into bits."""
-    mut_types['BLAST_EQ_VALUE'] = 0.027
+    mut_types['BLAST_EQ_VALUE'] = 0.0554
     """
     Eagerly replace all (select (store ..) ..) term 
     by an if-then-else term."""
-    mut_types['BLAST_SELECT_STORE'] = 0.0377
+    mut_types['BLAST_SELECT_STORE'] = 0.0556
     """
     Attempt to partially propagate extraction inwards."""
-    mut_types['BV_EXTRACT_PROP'] = 0.0348
+    mut_types['BV_EXTRACT_PROP'] = 0.0526
     """
     Rewrite ite that can be simplified to identity."""
-    mut_types['BV_ITE2ID'] = 0.0306
+    mut_types['BV_ITE2ID'] = 0.0517
     """
     Additional bu_(u/s)le simplifications."""
-    mut_types['BV_LE_EXTRA'] = 0.0374
+    mut_types['BV_LE_EXTRA'] = 0.0523
     """
     Apply simplifications for bvnot."""
-    mut_types['BV_NOT_SIMPL'] = 0.0335
+    mut_types['BV_NOT_SIMPL'] = 0.0579
     """
     Sort the arguments of all AC operators."""
-    mut_types['BV_SORT_AC'] = 0.0375
+    mut_types['BV_SORT_AC'] = 0.0541
     """
     Conjunctions are rewritten using negation and disjunctions."""
-    mut_types['ELIM_AND'] = 0.0356
+    mut_types['ELIM_AND'] = 0.0557
     """
     Replace (rem x y) with (ite (>= y 0) (mod x y) (- (mod x y)))."""
-    mut_types['ELIM_REM'] = 0.0336
+    mut_types['ELIM_REM'] = 0.0611
     """
     Eliminate to_real from arithmetic predicates 
     that contain only integers."""
-    mut_types['ELIM_TO_REAL'] = 0.0305
+    mut_types['ELIM_TO_REAL'] = 0.0542
     """
     Expand equalities into two inequalities."""
-    mut_types['EQ2INEQ'] = 0.0436
+    mut_types['EQ2INEQ'] = 0.0624
     """
     Expand (^ t k) into (* t ... t) if  1 < k <= max_degree."""
-    mut_types['EXPAND_POWER'] = 0.0304
+    mut_types['EXPAND_POWER'] = 0.0535
     """
     Expand select over ite expressions."""
-    mut_types['EXPAND_SELECT_ITE'] = 0.0258
+    mut_types['EXPAND_SELECT_ITE'] = 0.0535
     """
     Conservatively replace a (select (store ...) ...) term 
     by an if-then-else term."""
-    mut_types['EXPAND_SELECT_STORE'] = 0.0324
+    mut_types['EXPAND_SELECT_STORE'] = 0.0522
     """
     Reduce (store ...) = (store ...) with a common base into selects."""
-    mut_types['EXPAND_STORE_EQ'] = 0.0345
+    mut_types['EXPAND_STORE_EQ'] = 0.0521
     """
     Replace (tan x) with (/ (sin x) (cos x))."""
-    mut_types['EXPAND_TAN'] = 0.0323
+    mut_types['EXPAND_TAN'] = 0.058
     """
     Use gcd rounding on integer arithmetic atoms."""
-    mut_types['GCD_ROUNDING'] = 0.0344
+    mut_types['GCD_ROUNDING'] = 0.0577
     """
     Hoist shared summands under ite expressions."""
-    mut_types['HOIST_ITE'] = 0.0291
+    mut_types['HOIST_ITE'] = 0.0523
     """
     Hoist multiplication over summation 
     to minimize number of multiplications."""
-    mut_types['HOIST_MUL'] = 0.0356
+    mut_types['HOIST_MUL'] = 0.0573
     """
     Extra ite simplifications, these additional simplifications 
     may reduce size locally but increase globally."""
-    mut_types['ITE_EXTRA_RULES'] = 0.0347
+    mut_types['ITE_EXTRA_RULES'] = 0.0507
     """
     Perform local (i.e. cheap) context simplifications."""
-    mut_types['LOCAL_CTX'] = 0.0349
+    mut_types['LOCAL_CTX'] = 0.0539
     """
     Replace multiplication by a power of two into a concatenation."""
-    mut_types['MUL2CONCAT'] = 0.0345
+    mut_types['MUL2CONCAT'] = 0.0539
     """
     Collpase (* t ... t) into (^ t k), 
     it is ignored if expand_power is true."""
-    mut_types['MUL_TO_POWER'] = 0.0331
+    mut_types['MUL_TO_POWER'] = 0.0588
     """
     Pull if-then-else terms when cheap."""
-    mut_types['PULL_CHEAP_ITE'] = 0.0339
+    mut_types['PULL_CHEAP_ITE'] = 0.058
     """
     Push if-then-else over arithmetic terms."""
-    mut_types['PUSH_ITE_ARITH'] = 0.0307
+    mut_types['PUSH_ITE_ARITH'] = 0.0609
     """
     Push if-then-else over bit-vector terms."""
-    mut_types['PUSH_ITE_BV'] = 0.0322
+    mut_types['PUSH_ITE_BV'] = 0.0582
     """
     Rewrite patterns."""
-    mut_types['REWRITE_PATTERNS'] = 0.0296
+    mut_types['REWRITE_PATTERNS'] = 0.0578
     """
     Put polynomials in sum-of-monomials form."""
-    mut_types['SOM'] = 0.034
+    mut_types['SOM'] = 0.0575
     """
     Sort nested stores when the indices are known to be different."""
-    mut_types['SORT_STORE'] = 0.0303
+    mut_types['SORT_STORE'] = 0.0549
     """
     Sort the arguments of + application."""
-    mut_types['SORT_SUMS'] = 0.0338
+    mut_types['SORT_SUMS'] = 0.0604
     """
     Split equalities of the form (= (concat t1 t2) t3)."""
-    mut_types['SPLIT_CONCAT_EQ'] = 0.0379
+    mut_types['SPLIT_CONCAT_EQ'] = 0.0556
 
     """
     Simplify/evaluate expressions containing 
     (algebraic) irrational numbers."""
-    mut_types['ALGEBRAIC_NUMBER_EVALUATOR'] = 0.0279
+    mut_types['ALGEBRAIC_NUMBER_EVALUATOR'] = 0.0541
     """
     Try to convert bit-vector terms of size 1 
     into Boolean terms."""
-    mut_types['BIT2BOOL'] = 0.0374
+    mut_types['BIT2BOOL'] = 0.0521
     """
     Eliminate ite in favor of and/or."""
-    mut_types['ELIM_ITE'] = 0.032
+    mut_types['ELIM_ITE'] = 0.0529
     """
     Expand sign-ext operator using concat and extract."""
-    mut_types['ELIM_SIGN_EXT'] = 0.0328
+    mut_types['ELIM_SIGN_EXT'] = 0.0565
     """
     Create nary applications for and, or, +, *, 
     bvadd, bvmul, bvand, bvor, bvxor."""
-    mut_types['FLAT'] = 0.0324
+    mut_types['FLAT'] = 0.0579
     """
     Use the 'hardware interpretation' for division 
     by zero (for bit-vector terms)."""
-    mut_types['HI_DIV0'] = 0.0322
+    mut_types['HI_DIV0'] = 0.0498
     """
     Ignores patterns on quantifiers that don't mention 
     their bound variables."""
-    mut_types['IGNORE_PATTERNS_ON_GROUND_QBODY'] = 0.0296
+    mut_types['IGNORE_PATTERNS_ON_GROUND_QBODY'] = 0.0542
     """
     Distribute to_real over * and +."""
-    mut_types['PUSH_TO_REAL'] = 0.0331
+    mut_types['PUSH_TO_REAL'] = 0.0554
 
     mut_types['ADD_LIN_RULE'] = 1
 
@@ -602,8 +613,11 @@ class Mutation(object):
             vars.append(Const('x' + str(i), sort))
         head = upred.__call__(vars)
 
-        body = BoolVal(False, ctx=instance.chc.ctx)
-        implication = Implies(body, head, ctx=instance.chc.ctx)
+        body_files = os.listdir('false_formulas')
+        filename = 'false_formulas/' + random.choice(body_files)
+        ctx = instance.chc.ctx
+        body = parse_smt2_file(filename, ctx=ctx)[0]
+        implication = Implies(body, head, ctx=ctx)
         rule = ForAll(vars, implication)
         mut_system.push(rule)
         return mut_system
