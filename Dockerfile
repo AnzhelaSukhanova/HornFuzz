@@ -11,8 +11,7 @@ RUN pacman -Syy \
                     python-pip \
                     make \
                     gcc \
-                    libffi \
-                    unzip
+                    libffi
                        
 # download and edit Z3-sourses
 RUN git clone https://github.com/Z3Prover/z3.git \
