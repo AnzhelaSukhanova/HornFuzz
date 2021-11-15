@@ -1,11 +1,13 @@
-from z3 import *
-from collections import defaultdict
-from scipy.sparse import dok_matrix
-from copy import deepcopy
-from enum import Enum
-import numpy as np
 import hashlib
 import random
+import traceback
+from collections import defaultdict
+from copy import deepcopy
+from enum import Enum
+
+import numpy as np
+from scipy.sparse import dok_matrix
+from z3 import *
 
 TRACE_FILE = '.z3-trace'
 

@@ -22,7 +22,8 @@ Add `-heuristics <priority1> <priority2> ...` (or `-heur`) to change default ins
 ## Seeds
 Download benchmarks from
 * https://github.com/dvvrd/spacer-benchmarks  
-* https://github.com/chc-comp/chc-comp21-benchmarks (or for another year)  
+* https://github.com/chc-comp/chc-comp21-benchmarks  
+* https://gitlab.com/sosy-lab/benchmarking/sv-benchmarks/-/tree/main/clauses  
 
 and place them in the root directory of this repository.  
 

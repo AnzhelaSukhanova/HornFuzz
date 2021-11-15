@@ -11,7 +11,8 @@ RUN pacman -Syy \
                     python-pip \
                     make \
                     gcc \
-                    libffi
+                    libffi \
+                    unzip
                        
 # download and edit Z3-sourses
 RUN git clone https://github.com/Z3Prover/z3.git \
@@ -27,10 +28,14 @@ RUN git clone https://github.com/Z3Prover/z3.git \
 # install Z3
 RUN cd z3/build && make -j$(nproc) && make install
 
-# download benchmarks
+# download seeds
 RUN git clone https://github.com/dvvrd/spacer-benchmarks.git \
  && git clone https://github.com/chc-comp/chc-comp21-benchmarks.git \
- && rm -rf chc-comp21-benchmarks/LRA-TS && rm -rf chc-comp21-benchmarks/ADT-Nonlin \
+ && git clone https://gitlab.com/sosy-lab/benchmarking/sv-benchmarks.git
+ 
+# prepare seeds
+RUN mv sv-benchmarks/clauses sv-benchmarks-clauses \
+ && rm -rf chc-comp21-benchmarks/LRA-TS, chc-comp21-benchmarks/ADT-Nonlin, sv-benchmarks, sv-benchmarks-clauses/ALIA/liquid-haskell, sv-benchmarks-clauses/QALIA \
  && gzip -d -r chc-comp21-benchmarks
 
 # copy and install requirements

@@ -2,7 +2,6 @@ import argparse
 import logging
 import gc
 import objgraph
-import traceback
 from os.path import dirname
 
 import instances
@@ -159,20 +158,24 @@ def analyze_check_exception(instance: Instance, err: Exception,
     """Log information about exceptions that occur during the check."""
     global queue
     group = instance.get_group()
-    if not message:
-        message = repr(err)
 
     if is_seed:
         if str(err) == 'timeout':
             counter['timeout'] += 1
             status = 'seed_timeout'
+        elif message:
+            counter['error'] += 1
+            status = 'error'
         else:
             counter['unknown'] += 1
             status = 'seed_unknown'
+            message = repr(err)
         log_run_info(status,
                      message,
                      instance)
     else:
+        if not message:
+            message = repr(err)
         if str(err) == 'timeout' or isinstance(err, TimeoutError):
             counter['timeout'] += 1
             status = 'mutant_timeout' if mut_instance \
@@ -192,15 +195,16 @@ def analyze_check_exception(instance: Instance, err: Exception,
                          message,
                          instance,
                          mut_instance)
-        if status == 'error':
-            for inst in group.instances.values():
-                del inst.chc, inst
-            del group
-        else:
+        if status != 'error':
             group.roll_back()
             if status == 'timeout_before_check':
                 group[0].dump('output/last_mutants', group.filename)
             queue.append(group[0])
+
+    if status == 'error':
+        for inst in group.instances.values():
+            del inst.chc, inst
+        del group
 
 
 def run_seeds(files: set, counter: defaultdict):
@@ -209,33 +213,46 @@ def run_seeds(files: set, counter: defaultdict):
 
     current_ctx = Context()
     for i, filename in enumerate(files):
-        seed = z3.parse_smt2_file(filename, ctx=current_ctx)
-        if not seed:
-            seed_number -= 1
-            continue
-        counter['runs'] += 1
         group = InstanceGroup(i, filename)
-        instance = Instance(i, seed)
-        group.same_stats_limit = 5 * len(seed)
-        group.push(instance)
-
+        instance = Instance(i)
         try:
-            check_satis(instance, is_seed=True)
-        except AssertionError as err:
-            analyze_check_exception(instance,
-                                    err,
-                                    counter,
-                                    is_seed=True)
+            seed = parse_smt2_file(filename, ctx=current_ctx)
+            if not seed:
+                seed_number -= 1
+                continue
+            counter['runs'] += 1
+            instance.set_chc(seed)
+            group.same_stats_limit = 5 * len(seed)
+            group.push(instance)
+
+            try:
+                check_satis(instance, is_seed=True)
+            except AssertionError as err:
+                analyze_check_exception(instance,
+                                        err,
+                                        counter,
+                                        is_seed=True)
+                log_run_info('seed',
+                             instance=instance)
+                print_general_info(counter)
+                del instance.chc, instance, group
+                continue
+
+            queue.append(instance)
             log_run_info('seed',
                          instance=instance)
             print_general_info(counter)
-            del instance.chc, instance, group
-            continue
 
-        queue.append(instance)
-        log_run_info('seed',
-                     instance=instance)
-        print_general_info(counter)
+        except Exception as err:
+            message = traceback.format_exc()
+            analyze_check_exception(instance,
+                                    err,
+                                    counter,
+                                    message=message,
+                                    is_seed=True)
+            print(message)
+            print_general_info(counter)
+
     assert seed_number > 0, 'All seeds are unknown or ' \
                             'in the incorrect format'
 
@@ -352,6 +369,7 @@ def fuzz(files: set):
                                     err,
                                     counter,
                                     message=message)
+            print(group.filename)
             print(message)
             print_general_info(counter)
 
@@ -378,7 +396,7 @@ def main():
                         filemode='w',
                         level=logging.INFO)
 
-    z3.z3.main_ctx.__code__ = global_ctx_access_exception.__code__
+    z3.main_ctx.__code__ = global_ctx_access_exception.__code__
     np.set_printoptions(suppress=True)
     set_option(max_args=int(1e6), max_lines=int(1e6),
                max_depth=int(1e6), max_visited=int(1e6))
@@ -420,6 +438,10 @@ def create_output_dirs():
                 if not os.path.exists(dir_path):
                     os.mkdir(dir_path)
             for subdir in os.walk('chc-comp21-benchmarks/'):
+                dir_path = dir + '/' + subdir[0]
+                if not os.path.exists(dir_path):
+                    os.mkdir(dir_path)
+            for subdir in os.walk('sv-benchmarks-clauses/'):
                 dir_path = dir + '/' + subdir[0]
                 if not os.path.exists(dir_path):
                     os.mkdir(dir_path)
