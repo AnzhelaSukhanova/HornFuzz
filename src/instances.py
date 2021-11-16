@@ -102,12 +102,12 @@ class InstanceGroup(object):
             expr = clause
             child = clause.children()[0] if clause.children() else None
             while is_quantifier(expr) or is_quantifier(child):
-                if is_quantifier(clause):
+                if is_quantifier(expr) and expr.is_forall():
                     expr = expr.body()
                 elif is_not(expr) and child.is_exists():
                     expr = Not(child.body())
                 else:
-                    pass
+                    break
                 child = expr.children()[0] if expr.children() else None
 
             while is_not(expr) and is_not(child):
@@ -120,7 +120,7 @@ class InstanceGroup(object):
                 body_expr = []
                 expr = child if is_not(clause) else clause
                 for subexpr in expr.children():
-                    if not is_not(child):
+                    if not is_not(subexpr):
                         # it is not necessary to take the negation of
                         # and-subexpressions, since we are counting the
                         # number of predicates
@@ -450,7 +450,7 @@ def init_mut_types():
     Distribute to_real over * and +."""
     mut_types['PUSH_TO_REAL'] = 0.0554
 
-    mut_types['ADD_LIN_RULE'] = 1
+    mut_types['ADD_LIN_RULE'] = 0.05
 
 
 # The values are the indices of the info_kinds elements
@@ -541,8 +541,7 @@ class Mutation(object):
                         types_to_choose.add('ADD_INEQ')
                     mult_kinds['ADD_INEQ'].append(i)
                 elif i == type_kind_corr['ADD_LIN_RULE']:
-                    # mult_kinds['ADD_LIN_RULE'].append(i)
-                    pass
+                    mult_kinds['ADD_LIN_RULE'].append(i)
                 else:
                     pass
 
@@ -618,7 +617,7 @@ class Mutation(object):
         ctx = instance.chc.ctx
         body = parse_smt2_file(filename, ctx=ctx)[0]
         implication = Implies(body, head, ctx=ctx)
-        rule = ForAll(vars, implication)
+        rule = ForAll(vars, implication) if vars else implication
         mut_system.push(rule)
         return mut_system
 
