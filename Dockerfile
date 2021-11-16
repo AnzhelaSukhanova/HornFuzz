@@ -28,13 +28,14 @@ RUN git clone https://github.com/Z3Prover/z3.git \
 RUN cd z3/build && make -j$(nproc) && make install
 
 # download seeds
-RUN git clone https://github.com/dvvrd/spacer-benchmarks.git \
- && git clone https://github.com/chc-comp/chc-comp21-benchmarks.git \
- && git clone https://gitlab.com/sosy-lab/benchmarking/sv-benchmarks.git
+RUN git clone https://github.com/dvvrd/spacer-benchmarks.git --depth 1 \
+ && git clone https://github.com/chc-comp/chc-comp21-benchmarks.git --depth 1 \
+ && git clone https://gitlab.com/sosy-lab/benchmarking/sv-benchmarks.git --depth 1
  
 # prepare seeds
 RUN mv sv-benchmarks/clauses sv-benchmarks-clauses \
- && rm -rf chc-comp21-benchmarks/LRA-TS, chc-comp21-benchmarks/ADT-Nonlin, sv-benchmarks, sv-benchmarks-clauses/ALIA/liquid-haskell, sv-benchmarks-clauses/QALIA \
+ && rm -rf sv-benchmarks sv-benchmarks-clauses/QALIA \
+ && rm -rf chc-comp21-benchmarks/LRA-TS chc-comp21-benchmarks/ADT-Nonlin \
  && gzip -d -r chc-comp21-benchmarks
 
 # copy and install requirements
