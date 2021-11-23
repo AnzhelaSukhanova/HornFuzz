@@ -5,6 +5,7 @@ import objgraph
 from os.path import dirname
 
 import oracles
+import instances
 from instances import *
 from seeds import *
 
@@ -98,7 +99,7 @@ def sort_queue():
 
 def update_mutation_weights():
     update_mutation_weights()
-    logging.info(json.dumps({'update_mutation_weights': mut_types}))
+    logging.info(json.dumps({'update_mutation_weights': instances.mut_types}))
 
 
 def print_general_info(counter: defaultdict, mut_time: time = None):
