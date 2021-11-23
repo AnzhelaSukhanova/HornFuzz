@@ -254,7 +254,8 @@ class Instance(object):
         self.get_system_info()
 
     def dump(self, dir: str, filename: str,
-             start_ind=0, message: str = None, to_name=None):
+             start_ind=0, message: str = None, to_name=None,
+             clear: bool = True):
         """Dump the instance to the specified directory."""
         ctx_path = 'output/ctx/' + filename
         with open(ctx_path, 'r') as ctx_file:
@@ -270,14 +271,15 @@ class Instance(object):
             file.write(ctx)
             for clause in self.chc:
                 file.write('(assert ' + clause.sexpr() + ')\n')
-            file.write('(exit)\n\n')
+            file.write('(check-sat)\n(exit)\n\n')
 
-        group = self.get_group()
-        length = len(group.instances)
-        for i in range(length - 1, start_ind - 1, -1):
-            group[i].set_chc([])
-        if self.chc:
-            self.set_chc([])
+        if clear:
+            group = self.get_group()
+            length = len(group.instances)
+            for i in range(length - 1, start_ind - 1, -1):
+                group[i].set_chc([])
+            if self.chc:
+                self.set_chc([])
 
     def update_mutation_stats(self, new_trace_found: bool):
         global mut_stats

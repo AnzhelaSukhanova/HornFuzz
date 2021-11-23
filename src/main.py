@@ -4,7 +4,7 @@ import gc
 import objgraph
 from os.path import dirname
 
-import instances
+import oracles
 from instances import *
 from seeds import *
 
@@ -18,6 +18,8 @@ current_ctx = None
 ONE_INST_MUT_LIMIT = 1000
 MUT_AFTER_PROBLEM = 10
 MUT_WEIGHT_UPDATE_RUNS = 10000
+
+oracles_names = {'eldarica'}
 
 
 def calc_sort_key(heuristic: str, stats, weights=None) -> int:
@@ -95,8 +97,8 @@ def sort_queue():
 
 
 def update_mutation_weights():
-    instances.update_mutation_weights()
-    logging.info(json.dumps({'update_mutation_weights': instances.mut_types}))
+    update_mutation_weights()
+    logging.info(json.dumps({'update_mutation_weights': mut_types}))
 
 
 def print_general_info(counter: defaultdict, mut_time: time = None):
@@ -113,6 +115,7 @@ def print_general_info(counter: defaultdict, mut_time: time = None):
               'Timeout:', counter['timeout'],
               'Unknown:', counter['unknown'],
               'Errors:', counter['error'])
+        print('Solver conflicts:', counter['conflict'])
     log['unique_traces'] = traces_num
     if traces_num:
         print('Unique traces:', traces_num, '\n')
@@ -154,7 +157,8 @@ def log_run_info(status: str, message: str = None,
 
 def analyze_check_exception(instance: Instance, err: Exception,
                             counter: defaultdict, message: str = None,
-                            mut_instance: Instance = None, is_seed: bool = False):
+                            mut_instance: Instance = None,
+                            is_seed: bool = False):
     """Log information about exceptions that occur during the check."""
     global queue
     group = instance.get_group()
@@ -232,15 +236,19 @@ def run_seeds(files: set, counter: defaultdict):
                                         err,
                                         counter,
                                         is_seed=True)
-                log_run_info('seed',
-                             instance=instance)
                 print_general_info(counter)
                 del instance.chc, instance, group
                 continue
 
-            queue.append(instance)
-            log_run_info('seed',
-                         instance=instance)
+            found_problem, states = compare_satis(instance, is_seed=True)
+            if found_problem:
+                log_run_info('solver_conflict',
+                             str(states),
+                             instance=instance)
+                counter['conflict'] += 1
+            else:
+                queue.append(instance)
+                log_run_info('seed', instance=instance)
             print_general_info(counter)
 
         except Exception as err:
@@ -257,13 +265,33 @@ def run_seeds(files: set, counter: defaultdict):
                             'in the incorrect format'
 
 
+def compare_satis(instance: Instance, is_seed: bool = False):
+    group = instance.get_group()
+    states = defaultdict()
+    found_problem = False
+
+    if not is_seed:
+        instance.dump('output/last_mutants/',
+                      group.filename,
+                      clear=False)
+        filename = 'output/last_mutants/' + group.filename
+    else:
+        filename = group.filename
+    for name in oracles_names:
+        state = oracles.solve(name, filename)
+        states[name] = state
+        if state != str(instance.satis) and state != 'unknown':
+            found_problem = True
+    return found_problem, states
+
+
 def fuzz(files: set):
     global queue, current_ctx
 
     counter = defaultdict(int)
     run_seeds(files, counter)
     init_runs_number = 2 * seed_number - \
-                      counter['unknown'] - counter['timeout']
+                       counter['unknown'] - counter['timeout']
     logging.info(json.dumps({'seed_number': seed_number,
                              'heuristics': heuristics}))
     stats_limit = seed_number
@@ -341,15 +369,23 @@ def fuzz(files: set):
                     continue
 
                 else:
+                    found_problem, states = compare_satis(mut_instance)
                     if i == mut_limit - 1:
                         queue.append(mut_instance)
                     group.push(mut_instance)
                     if not heuristic_flags['default'] and \
                             len(instance_groups) > 1:
                         stats_limit = group.check_stats(stats_limit)
-                    log_run_info('pass',
-                                 instance=instance,
-                                 mut_instance=mut_instance)
+                    if found_problem:
+                        log_run_info('oracle_bug',
+                                     message=str(states),
+                                     instance=instance,
+                                     mut_instance=mut_instance)
+                        counter['conflict'] += 1
+                    else:
+                        log_run_info('pass',
+                                     instance=instance,
+                                     mut_instance=mut_instance)
                     instance = mut_instance
                     i += 1
                     print_general_info(counter, mut_time)

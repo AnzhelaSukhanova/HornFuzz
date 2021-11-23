@@ -1,4 +1,3 @@
-import traceback
 import argparse
 
 from main import check_satis

@@ -4,14 +4,16 @@ MAINTAINER Anzhela Sukhanova <bidelya@gmail.com>
 
 # preinstall
 RUN pacman -Syy \
- && yes | pacman -Suy \
- && yes | pacman -S wget \
+ && pacman --noconfirm -Suy \
+ && pacman --noconfirm -S wget \
                     git \
                     python \
                     python-pip \
                     make \
                     gcc \
-                    libffi
+                    libffi \
+                    scala \
+ && 1 | pacman --noconfirm -S sbt
                        
 # download and edit Z3-sourses
 RUN git clone https://github.com/Z3Prover/z3.git \
@@ -26,6 +28,9 @@ RUN git clone https://github.com/Z3Prover/z3.git \
  
 # install Z3
 RUN cd z3/build && make -j$(nproc) && make install
+
+# install Eldarica
+RUN git clone https://github.com/uuverifiers/eldarica.git && cd eldarica && sbt assembly
 
 # download seeds
 RUN git clone https://github.com/dvvrd/spacer-benchmarks.git --depth 1 \
@@ -44,6 +49,8 @@ RUN pip install -r requirements.txt
 
 # add project-files
 ADD src src
+ADD false_formulas false_formulas
+ADD eldarica eldarica
 ADD exclude_seed.json .
 
 # run fuzzing
