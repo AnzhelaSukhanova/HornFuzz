@@ -20,7 +20,7 @@ ONE_INST_MUT_LIMIT = 1000
 MUT_AFTER_PROBLEM = 10
 MUT_WEIGHT_UPDATE_RUNS = 10000
 
-oracles_names = {'eldarica'}
+oracles_names = {'Eldarica'}
 
 
 def calc_sort_key(heuristic: str, stats, weights=None) -> int:
