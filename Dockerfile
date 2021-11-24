@@ -50,7 +50,6 @@ RUN pip install -r requirements.txt
 # add project-files
 ADD src src
 ADD false_formulas false_formulas
-ADD eldarica eldarica
 ADD exclude_seed.json .
 
 # run fuzzing

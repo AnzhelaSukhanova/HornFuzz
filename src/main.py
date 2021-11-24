@@ -150,8 +150,9 @@ def log_run_info(status: str, message: str = None,
             if status != 'pass':
                 chain = mut_instance.mutation.get_chain()
                 log['mut_chain'] = chain
-                log['prev_chc'] = instance.chc.sexpr()
-                log['excepted_satis'] = str(instance.satis)
+                if status in {'bug', 'mutant_unknown'}:
+                    log['prev_chc'] = instance.chc.sexpr()
+                    log['excepted_satis'] = str(instance.satis)
 
     logging.info(json.dumps({'run_info': log}))
 
@@ -333,7 +334,7 @@ def fuzz(files: set):
                 mut_instance = Instance(instance.group_id)
                 mut = mut_instance.mutation
                 mut_time = time.perf_counter()
-                mut.apply(instance, mut_instance)
+                timeout = mut.apply(instance, mut_instance)
                 mut_time = time.perf_counter() - mut_time
 
                 try:
@@ -368,6 +369,15 @@ def fuzz(files: set):
                                       to_name=mut_instance.id)
                     print_general_info(counter, mut_time)
                     continue
+
+                elif timeout:
+                    counter['timeout'] += 1
+                    log_run_info('simplify_timeout',
+                                 instance=instance,
+                                 mut_instance=mut_instance)
+                    group.roll_back()
+                    instance = group[0]
+                    queue.append(instance)
 
                 else:
                     found_problem, states = compare_satis(mut_instance)

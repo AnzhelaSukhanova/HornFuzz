@@ -195,7 +195,8 @@ class Instance(object):
             chc_len = len(self.chc)
             self.info = ClauseInfo(chc_len)
 
-    def check(self, solver: Solver, is_seed: bool = False, get_stats: bool = True):
+    def check(self, solver: Solver, is_seed: bool = False,
+              get_stats: bool = True):
         """Check the satisfiability of the instance."""
         solver.reset()
         if is_seed:
@@ -286,7 +287,9 @@ class Instance(object):
         mutation_type = self.mutation and self.mutation.type
         if mutation_type is None:
             return
-        current_mutation_stats = mut_stats.setdefault(mutation_type, {'applications': 0.0, 'new_traces': 0.0})
+        current_mutation_stats = \
+            mut_stats.setdefault(mutation_type,
+                                 {'applications': 0.0, 'new_traces': 0.0})
         current_mutation_stats['applications'] += 1
         current_mutation_stats['new_traces'] += int(new_trace_found)
 
@@ -480,9 +483,7 @@ class Mutation(object):
         self.kind_ind = 0
         self.prev_mutation = prev_mutation
         self.applied = False
-
         self.trans_num = None
-        self.simp_flags = {0: True, 1: True, 2: True}
 
     def clear(self):
         self.type = 'ID'
@@ -493,6 +494,8 @@ class Mutation(object):
     def apply(self, instance: Instance, new_instance: Instance,
               exceptions: set = None):
         """Mutate instances."""
+        timeout = False
+
         if self.type == 'ID':
             self.next_mutation(instance, exceptions)
 
@@ -506,7 +509,10 @@ class Mutation(object):
             new_instance.set_chc(self.transform(instance))
 
         else:
+            st_time = time.perf_counter()
             new_instance.set_chc(self.simplify_by_one(instance.chc))
+            if time.perf_counter() - st_time >= MUT_APPLY_TIME_LIMIT:
+                timeout = True
             new_instance.get_system_info()
 
         if bool(instance.chc == new_instance.chc):
@@ -517,6 +523,8 @@ class Mutation(object):
                 exceptions.add(exc_type)
             self.type = 'ID'
             self.apply(instance, new_instance, exceptions)
+
+        return timeout
 
     def next_mutation(self, instance: Instance, exceptions: set):
         """
