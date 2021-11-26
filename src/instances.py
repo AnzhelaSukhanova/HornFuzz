@@ -187,7 +187,7 @@ class Instance(object):
             self.mutation = Mutation(prev_instance.mutation)
             self.info = deepcopy(prev_instance.info)
 
-    def set_chc(self, chc):
+    def set_chc(self, chc: AstVector):
         """Set the chc-system of the instance."""
         assert chc is not None, 'CHC-system wasn\'t given'
         self.chc = chc
@@ -195,7 +195,10 @@ class Instance(object):
         if not group.instances:
             chc_len = len(self.chc)
             self.info = ClauseInfo(chc_len)
-
+            
+    def reset_chc(self):
+        self.chc = None
+        
     def check(self, solver: Solver, is_seed: bool = False,
               get_stats: bool = True):
         """Check the satisfiability of the instance."""
@@ -279,9 +282,9 @@ class Instance(object):
             group = self.get_group()
             length = len(group.instances)
             for i in range(length - 1, start_ind - 1, -1):
-                group[i].set_chc([])
+                group[i].reset_chc()
             if self.chc:
-                self.set_chc([])
+                self.reset_chc()
 
     def update_mutation_stats(self, new_trace_found: bool):
         global mut_stats
@@ -509,6 +512,8 @@ class Mutation(object):
 
         if self.type == 'ID':
             assert False, 'No mutation can be applied'
+
+        assert instance.chc is not None, 'Instance chc is None'
 
         if self.type == 'ADD_LIN_RULE':
             new_instance.set_chc(self.add_lin_rule(instance))

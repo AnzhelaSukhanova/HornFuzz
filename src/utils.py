@@ -1,6 +1,5 @@
 import hashlib
 import random
-import traceback
 from collections import defaultdict
 from copy import deepcopy
 from enum import Enum
@@ -16,10 +15,6 @@ trans_offset = 0
 info_kinds = [Z3_OP_AND, Z3_OP_OR, Z3_QUANTIFIER_AST,
               Z3_OP_LE, Z3_OP_GE, Z3_OP_LT, Z3_OP_GT,
               Z3_OP_UNINTERPRETED]
-
-
-def global_ctx_access_exception():
-    raise Exception('Global z3 context access')
 
 
 class State(object):
@@ -100,7 +95,7 @@ class TraceStats(object):
                 sum.states_num[state] += other.states_num[state]
         return sum
 
-    def add_trans(self, i: int, j: int):
+    def add_trans(self, i: State, j: State):
         """Add transition to matrix."""
         global trace_states
         i_ind = trace_states[i]
