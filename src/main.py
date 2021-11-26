@@ -1,13 +1,20 @@
 import argparse
-import logging
+import faulthandler
 import gc
+import logging
+import traceback
 import objgraph
-from os.path import dirname
+import os.path
 
-import oracles
 import instances
+import oracles
 from instances import *
 from seeds import *
+
+# noinspection PyUnresolvedReferences
+import z3_api_mods
+
+faulthandler.enable()
 
 general_stats = None
 seed_number = 0
@@ -219,10 +226,13 @@ def run_seeds(files: set, counter: defaultdict):
 
     current_ctx = Context()
     for i, filename in enumerate(files):
+        print(i, filename)
         group = InstanceGroup(i, filename)
         instance = Instance(i)
         try:
-            seed = parse_smt2_file(filename, ctx=current_ctx)
+            parse_ctx = Context()
+            seed = parse_smt2_file(filename, ctx=parse_ctx)
+            seed = seed.translate(current_ctx)
             if not seed:
                 seed_number -= 1
                 continue
@@ -287,6 +297,22 @@ def compare_satis(instance: Instance, is_seed: bool = False):
     return found_problem, states
 
 
+def ensure_current_context_is_deletable():
+    global current_ctx
+    refs = gc.get_referrers(current_ctx)
+    if len(refs) > 1:
+        dot_file = io.StringIO()
+        objgraph.show_backrefs([current_ctx],
+                               max_depth=7,
+                               output=dot_file)
+        dot_file.seek(0)
+        logging.error(json.dumps({'context_deletion_error': {
+            'refs': str(refs),
+            'grapf': dot_file.read()
+        }}))
+        current_ctx.__del__()
+
+
 def fuzz(files: set):
     global queue, current_ctx
 
@@ -305,12 +331,7 @@ def fuzz(files: set):
         group = instance.get_group()
         try:
             if counter['runs'] > init_runs_number:
-                if len(gc.get_referrers(current_ctx)) > 1:
-                    objgraph.show_backrefs([current_ctx],
-                                           max_depth=7,
-                                           filename='problem_ctx.png')
-                    assert False, 'The context cannot be deleted'
-                del current_ctx
+                ensure_current_context_is_deletable()
                 start_mut_ind = len(group.instances) - 1
                 instance.restore()
                 current_ctx = instance.chc.ctx
@@ -443,7 +464,6 @@ def main():
                         filemode='w',
                         level=logging.INFO)
 
-    z3.main_ctx.__code__ = global_ctx_access_exception.__code__
     np.set_printoptions(suppress=True)
     set_option(max_args=int(1e6), max_lines=int(1e6),
                max_depth=int(1e6), max_visited=int(1e6))
@@ -456,7 +476,7 @@ def main():
     if heuristic_flags['transitions'] or heuristic_flags['states']:
         general_stats = TraceStats()
 
-    directory = dirname(dirname(parser.prog))
+    directory = os.path.dirname(os.path.dirname(parser.prog))
     if directory:
         directory += '/'
     files = get_seeds(argv.seeds, directory)

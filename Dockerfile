@@ -30,7 +30,7 @@ RUN git clone https://github.com/Z3Prover/z3.git \
 RUN cd z3/build && make -j$(nproc) && make install
 
 # install Eldarica
-RUN git clone https://github.com/uuverifiers/eldarica.git && cd eldarica && sbt assembly
+RUN git clone https://github.com/uuverifiers/eldarica.git --depth 1 && cd eldarica && sbt assembly
 
 # download seeds
 RUN git clone https://github.com/dvvrd/spacer-benchmarks.git --depth 1 \
@@ -53,5 +53,4 @@ ADD false_formulas false_formulas
 ADD exclude_seed.json .
 
 # run fuzzing
-RUN sed -i -e 's|to_symbol(logic|to_symbol(logic, ctx=ctx|g' usr/lib/python3.9/site-packages/z3/z3.py
 CMD ["python", "src/main.py", "all", "-heuristics", "transitions"]
