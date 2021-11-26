@@ -26,19 +26,19 @@ class State(object):
 
     def __init__(self, line: str):
         parts = line.rstrip().split('/')
-        self.state = parts[0].split('..')[0]  # function
-        self.state += parts[-1]  # file:line
+        self.name = parts[0].split('..')[0]  # function
+        self.name += parts[-1]  # file:line
 
     def __eq__(self, other):
-        if self.state != other.state:
+        if self.name != other.name:
             return False
         return True
 
     def __hash__(self):
-        return hash(self.state)
+        return hash(self.name)
 
     def encode(self, standart: str):
-        return self.state.encode(standart)
+        return self.name.encode(standart)
 
 
 class ClauseInfo(object):
@@ -296,3 +296,19 @@ def remove_clauses(chc_system: AstVector, ind) -> AstVector:
         if i not in ind:
             new_system.push(clause)
     return new_system
+
+
+def take_pred_from_clause(clause: AstVector, with_term=False):
+    _, uninter_pred = count_expr(clause,
+                                 [Z3_OP_UNINTERPRETED],
+                                 is_unique=True)
+    upred = random.sample(uninter_pred[0], 1)[0]
+    vars = []
+    for i in range(upred.arity()):
+        sort = upred.domain(i)
+        vars.append(FreshConst(sort, prefix='x'))
+    upred_value = upred.__call__(vars)
+    if with_term:
+        return upred_value, vars, upred
+    else:
+        return upred_value , vars

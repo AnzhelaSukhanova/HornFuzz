@@ -2676,4 +2676,4 @@
 "sv-benchmarks-clauses/LRA/tacas2012/toy.cil.c.ufo.co.smt2",
 "sv-benchmarks-clauses/LRA/tacas2012/toy1_BUG.cil.c.ufo.co.smt2",
 "sv-benchmarks-clauses/LRA/tacas2012/transmitter.12.BUG.cil.c.ufo.co.smt2"
-]
+, "sv-benchmarks-clauses/LIRA/SLAyerCF/chaining/set_local_properties_plist_entry_unsafe.c.smt2", "sv-benchmarks-clauses/LIRA/SLAyerCF/fanning/filter_fs_unsafe.c.smt2", "sv-benchmarks-clauses/LIRA/SLAyerCF/chaining/quick_sort_unsafe.c.smt2", "sv-benchmarks-clauses/LIRA/SLAyerCF/chaining/attach_buffer_insert_head_list_unsafe.c.smt2", "sv-benchmarks-clauses/LIRA/SLAyerCF/fanning/create_kernel_unsafe.c.smt2", "sv-benchmarks-clauses/LIRA/SLAyerCF/chaining/free_resources_remove_entry_list_unsafe.c.smt2", "sv-benchmarks-clauses/LIRA/SLAyerCF/chaining/cyclic_list_unsafe.c.smt2"]

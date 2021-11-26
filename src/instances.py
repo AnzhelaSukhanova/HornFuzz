@@ -1,11 +1,12 @@
+import math
 import time
 import json
 import re
 from utils import *
 
 MUT_APPLY_TIME_LIMIT = 10
-SEED_CHECK_TIME_LIMIT = int(2 * 1e3)
-MUT_CHECK_TIME_LIMIT = int(1e5)
+SEED_SOLVE_TIME_LIMIT_MS = int(2 * 1e3)
+MUT_SOLVE_TIME_LIMIT_MS = int(1e5)
 INSTANCE_ID = 0
 
 trans_n = 0
@@ -200,9 +201,9 @@ class Instance(object):
         """Check the satisfiability of the instance."""
         solver.reset()
         if is_seed:
-            solver.set('timeout', SEED_CHECK_TIME_LIMIT)
+            solver.set('timeout', SEED_SOLVE_TIME_LIMIT_MS)
         else:
-            solver.set('timeout', MUT_CHECK_TIME_LIMIT)
+            solver.set('timeout', MUT_SOLVE_TIME_LIMIT_MS)
 
         solver.add(self.chc)
         self.satis = solver.check()
@@ -457,11 +458,16 @@ def init_mut_types():
 
     mut_types['ADD_LIN_RULE'] = 0.05
 
+    mut_types['ADD_OR_RULE'] = 0.05
+
+    mut_types['ADD_NONLIN_RULE'] = 0.05
+
 
 # The values are the indices of the info_kinds elements
 type_kind_corr = {'SWAP_AND': 0, 'DUP_AND': 0, 'BREAK_AND': 0,
                   'SWAP_OR': 1, 'MIX_BOUND_VARS': 2,
-                  'ADD_INEQ': {3, 4, 5, 6}, 'ADD_LIN_RULE': 7}
+                  'ADD_INEQ': {3, 4, 5, 6}, 'ADD_LIN_RULE': 7,
+                  'ADD_OR_RULE': 7, 'ADD_NONLIN_RULE': 7}
 
 
 def update_mutation_weights():
@@ -470,8 +476,10 @@ def update_mutation_weights():
         current_mut_stats = mut_stats.get(mut_type)
         if current_mut_stats is None or mut_type == 'ID':
             continue
-        trace_discover_probability = current_mut_stats['new_traces'] / current_mut_stats['applications']
-        mut_types[mut_type] = 0.62 * mut_types[mut_type] + 0.38 * trace_discover_probability
+        trace_discover_probability = current_mut_stats['new_traces'] / \
+                                     current_mut_stats['applications']
+        mut_types[mut_type] = 0.62 * mut_types[mut_type] + \
+                              0.38 * trace_discover_probability
 
 
 class Mutation(object):
@@ -504,6 +512,12 @@ class Mutation(object):
 
         if self.type == 'ADD_LIN_RULE':
             new_instance.set_chc(self.add_lin_rule(instance))
+
+        elif self.type == 'ADD_OR_RULE':
+            new_instance.set_chc(self.add_or_rule(instance))
+
+        elif self.type == 'ADD_NONLIN_RULE':
+            new_instance.set_chc(self.add_nonlin_rule(instance))
 
         elif self.type in type_kind_corr:
             new_instance.set_chc(self.transform(instance))
@@ -552,6 +566,8 @@ class Mutation(object):
                     mult_kinds['ADD_INEQ'].append(i)
                 elif i == type_kind_corr['ADD_LIN_RULE']:
                     mult_kinds['ADD_LIN_RULE'].append(i)
+                    mult_kinds['ADD_OR_RULE'].append(i)
+                    mult_kinds['ADD_NONLIN_RULE'].append(i)
                 else:
                     pass
 
@@ -611,16 +627,8 @@ class Mutation(object):
 
     def add_lin_rule(self, instance: Instance) -> AstVector:
         mut_system = deepcopy(instance.chc)
-        kind = info_kinds[self.kind_ind]
-
-        clause_ind, clause = self.get_clause_info(instance)
-        _, uninter_pred = count_expr(clause, [kind], is_unique=True)
-        upred = random.sample(uninter_pred[0], 1)[0]
-        vars = []
-        for i in range(upred.arity()):
-            sort = upred.domain(i)
-            vars.append(Const('x' + str(i), sort))
-        head = upred.__call__(vars)
+        _, clause = self.get_clause_info(instance)
+        head, vars = take_pred_from_clause(clause)
 
         body_files = os.listdir('false_formulas')
         filename = 'false_formulas/' + random.choice(body_files)
@@ -628,6 +636,63 @@ class Mutation(object):
         body = parse_smt2_file(filename, ctx=ctx)[0]
         implication = Implies(body, head, ctx=ctx)
         rule = ForAll(vars, implication) if vars else implication
+        mut_system.push(rule)
+        return mut_system
+
+    def add_or_rule(self, instance: Instance) -> AstVector:
+        mut_system = deepcopy(instance.chc)
+        _, clause = self.get_clause_info(instance)
+        head, head_vars = take_pred_from_clause(clause)
+        body_upred, body_vars = take_pred_from_clause(clause)
+        ctx = instance.chc.ctx
+
+        bv_size = math.floor(math.log2(len(body_vars) + 1))
+        bv = FreshConst(BitVecSort(bv_size, ctx=ctx), prefix='bv')
+        body_vars.append(bv)
+        body = body_upred
+        for i, var in enumerate(body_vars):
+            expr = Not(bv + i >= 0, ctx=ctx)
+            body = Not(body, ctx=ctx)
+            body = Not(Or(body, expr), ctx=ctx)
+            body = Not(ForAll([var], Not(body, ctx=ctx)), ctx=ctx)
+
+        implication = Implies(body, head, ctx=ctx)
+        rule = ForAll(head_vars, implication) if head_vars else implication
+        mut_system.push(rule)
+        return mut_system
+
+    def add_nonlin_rule(self, instance: Instance) -> AstVector:
+        mut_system = deepcopy(instance.chc)
+        _, clause = self.get_clause_info(instance)
+        head_upred, head_vars, upred = take_pred_from_clause(clause, with_term=True)
+        ctx = instance.chc.ctx
+
+        body_vars = head_vars
+        pred_vars_num = len(body_vars)
+        num = random.randint(1, 10)
+        var = Int('v' + str(0), ctx=ctx)
+        body_vars.append(var)
+        vars = [var]
+        and_exprs = []
+        for i in range(1, num + 1):
+            var = FreshConst(IntSort(ctx=ctx), prefix='v')
+            vars.append(var)
+            body_vars.append(var)
+            shuffle_vars(body_vars)
+            upred_vars = body_vars[:pred_vars_num] \
+                if pred_vars_num else []
+            new_upred = upred.__call__(upred_vars)
+
+            expr = var < vars[i - 1]
+            and_exprs.append(And(new_upred, expr))
+
+        expr = vars[0] < vars[num]
+        and_exprs.append(And(head_upred, expr))
+        body = And(and_exprs)
+        body = Exists(vars, body)
+        implication = Implies(body, head_upred, ctx=ctx)
+        rule = ForAll(head_vars, implication) if head_vars else implication
+
         mut_system.push(rule)
         return mut_system
 

@@ -282,7 +282,7 @@ def compare_satis(instance: Instance, is_seed: bool = False):
     for name in oracles_names:
         state = oracles.solve(name, filename)
         states[name] = state
-        if state != str(instance.satis) and state != 'unknown':
+        if state != str(instance.satis) and state in {'sat', 'unsat'}:
             found_problem = True
     return found_problem, states
 

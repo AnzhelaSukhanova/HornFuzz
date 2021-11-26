@@ -39,7 +39,7 @@ RUN git clone https://github.com/dvvrd/spacer-benchmarks.git --depth 1 \
  
 # prepare seeds
 RUN mv sv-benchmarks/clauses sv-benchmarks-clauses \
- && rm -rf sv-benchmarks sv-benchmarks-clauses/QALIA \
+ && rm -rf sv-benchmarks sv-benchmarks-clauses/QALIA sv-benchmarks-clauses/BOOL\
  && rm -rf chc-comp21-benchmarks/LRA-TS chc-comp21-benchmarks/ADT-Nonlin \
  && gzip -d -r chc-comp21-benchmarks
 
