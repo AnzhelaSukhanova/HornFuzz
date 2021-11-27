@@ -195,6 +195,11 @@ class Instance(object):
         if not group.instances:
             chc_len = len(self.chc)
             self.info = ClauseInfo(chc_len)
+
+    def process_seed_info(self, info: dict):
+        self.satis = CheckSatResult(info['satis'])
+        self.trace_stats.hash = info['trace_hash']
+        return info['time']
             
     def reset_chc(self):
         self.chc = None
@@ -212,10 +217,13 @@ class Instance(object):
         self.satis = solver.check()
         if get_stats:
             self.trace_stats.read_from_trace()
-            new_trace_found = self.trace_stats.hash not in unique_traces
-            unique_traces.add(self.trace_stats.hash)
-            self.update_mutation_stats(new_trace_found)
+            self.update_traces_info()
         assert self.satis != unknown, solver.reason_unknown()
+
+    def update_traces_info(self):
+        new_trace_found = self.trace_stats.hash not in unique_traces
+        unique_traces.add(self.trace_stats.hash)
+        self.update_mutation_stats(new_trace_found)
 
     def get_group(self):
         """Return the group of the instance."""

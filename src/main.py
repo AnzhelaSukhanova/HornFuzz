@@ -22,11 +22,12 @@ heuristics = ''
 heuristic_flags = defaultdict(bool)
 queue = []
 current_ctx = None
+seed_info = {}
 
 ONE_INST_MUT_LIMIT = 1000
 MUT_AFTER_PROBLEM = 10
 MUT_WEIGHT_UPDATE_RUNS = 10000
-
+seed_info_file = 'seed_info.json'
 oracles_names = {'Eldarica'}
 
 
@@ -109,14 +110,15 @@ def update_mutation_weights():
     logging.info(json.dumps({'update_mutation_weights': instances.mut_types}))
 
 
-def print_general_info(counter: defaultdict, mut_time: time = None):
+def print_general_info(counter: defaultdict, mut_time: time = None,
+                       is_seed=False):
     """Print and log information about runs."""
 
     traces_num = len(unique_traces)
     log = {'runs': counter['runs'],
            'time': time.perf_counter()}
     if mut_time:
-           log['mut_time'] = mut_time
+        log['mut_time'] = mut_time
     if counter['runs']:
         print('Total:', counter['runs'],
               'Bugs:', counter['bug'],
@@ -133,12 +135,15 @@ def print_general_info(counter: defaultdict, mut_time: time = None):
 
 
 def log_run_info(status: str, message: str = None,
-                 instance: Instance = None, mut_instance: Instance = None):
+                 instance: Instance = None, mut_instance: Instance = None,
+                 seed_time: time = None):
     """Create a log entry with information about the run."""
 
     log = {'status': status}
     if message:
         log['message'] = message
+    if time:
+        log['time'] = seed_time
     if instance:
         if not mut_instance:
             instance_info = instance.get_log(is_mutant=False)
@@ -222,11 +227,10 @@ def analyze_check_exception(instance: Instance, err: Exception,
 
 def run_seeds(files: set, counter: defaultdict):
     """Read and solve the seeds."""
-    global queue, seed_number, current_ctx
+    global queue, seed_number, current_ctx, seed_info
 
     current_ctx = Context()
     for i, filename in enumerate(files):
-        print(i, filename)
         group = InstanceGroup(i, filename)
         instance = Instance(i)
         try:
@@ -241,26 +245,36 @@ def run_seeds(files: set, counter: defaultdict):
             group.same_stats_limit = 5 * len(seed)
             group.push(instance)
 
-            try:
-                check_satis(instance, is_seed=True)
-            except AssertionError as err:
-                analyze_check_exception(instance,
-                                        err,
-                                        counter,
-                                        is_seed=True)
-                print_general_info(counter)
-                del instance.chc, instance, group
-                continue
-
-            found_problem, states = compare_satis(instance, is_seed=True)
-            if found_problem:
-                log_run_info('solver_conflict',
-                             str(states),
-                             instance=instance)
-                counter['conflict'] += 1
+            if filename in seed_info:
+                seed_time = instance.process_seed_info(seed_info[filename])
+                instance.update_traces_info()
             else:
-                queue.append(instance)
-                log_run_info('seed', instance=instance)
+                st_time = time.perf_counter()
+                try:
+                    check_satis(instance, is_seed=True)
+                except AssertionError as err:
+                    analyze_check_exception(instance,
+                                            err,
+                                            counter,
+                                            is_seed=True)
+                    print_general_info(counter)
+                    del instance.chc, instance, group
+                    continue
+                seed_time = time.perf_counter() - st_time
+                seed_info[filename] = {'satis': instance.satis.r,
+                                       'time': seed_time,
+                                       'trace_hash': str(instance.trace_stats.hash)}
+
+            # found_problem, states = compare_satis(instance, is_seed=True)
+            # if found_problem:
+            #     log_run_info('solver_conflict',
+            #                  str(states),
+            #                  instance=instance)
+            #     counter['conflict'] += 1
+            #     continue
+
+            queue.append(instance)
+            log_run_info('seed', instance=instance, seed_time=seed_time)
             print_general_info(counter)
 
         except Exception as err:
@@ -272,6 +286,9 @@ def run_seeds(files: set, counter: defaultdict):
                                     is_seed=True)
             print(message)
             print_general_info(counter)
+
+    with open(seed_info_file, 'w+') as file:
+        json.dump(seed_info, file, indent=2)
 
     assert seed_number > 0, 'All seeds are unknown or ' \
                             'in the incorrect format'
@@ -443,7 +460,8 @@ def fuzz(files: set):
 
 
 def main():
-    global general_stats, heuristics, heuristic_flags, seed_number
+    global general_stats, heuristics, heuristic_flags, \
+        seed_number, seed_info
 
     parser = argparse.ArgumentParser()
     parser.add_argument('seeds',
@@ -485,6 +503,11 @@ def main():
 
     seed_number = len(files)
     assert seed_number > 0, 'Seeds not found'
+
+    if os.path.isfile(seed_info_file) and \
+            os.stat(seed_info_file).st_size > 0:
+        with open(seed_info_file, 'r') as file:
+            seed_info = json.load(file)
 
     fuzz(files)
 
