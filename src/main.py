@@ -110,13 +110,15 @@ def update_mutation_weights():
     logging.info(json.dumps({'update_mutation_weights': instances.mut_types}))
 
 
-def print_general_info(counter: defaultdict, mut_time: time = None,
-                       is_seed=False):
+def print_general_info(counter: defaultdict, solve_time: time = None,
+                       mut_time: time = None):
     """Print and log information about runs."""
 
     traces_num = len(unique_traces)
     log = {'runs': counter['runs'],
-           'time': time.perf_counter()}
+           'current_time': time.perf_counter()}
+    if solve_time:
+        log['solve_time'] = solve_time
     if mut_time:
         log['mut_time'] = mut_time
     if counter['runs']:
@@ -135,15 +137,12 @@ def print_general_info(counter: defaultdict, mut_time: time = None,
 
 
 def log_run_info(status: str, message: str = None,
-                 instance: Instance = None, mut_instance: Instance = None,
-                 seed_time: time = None):
+                 instance: Instance = None, mut_instance: Instance = None):
     """Create a log entry with information about the run."""
 
     log = {'status': status}
     if message:
         log['message'] = message
-    if time:
-        log['time'] = seed_time
     if instance:
         if not mut_instance:
             instance_info = instance.get_log(is_mutant=False)
@@ -246,12 +245,13 @@ def run_seeds(files: set, counter: defaultdict):
             group.push(instance)
 
             if filename in seed_info:
-                seed_time = instance.process_seed_info(seed_info[filename])
+                solve_time = instance.process_seed_info(seed_info[filename])
                 instance.update_traces_info()
             else:
-                st_time = time.perf_counter()
                 try:
+                    st_time = time.perf_counter()
                     check_satis(instance, is_seed=True)
+                    solve_time = time.perf_counter() - st_time
                 except AssertionError as err:
                     analyze_check_exception(instance,
                                             err,
@@ -260,9 +260,8 @@ def run_seeds(files: set, counter: defaultdict):
                     print_general_info(counter)
                     del instance.chc, instance, group
                     continue
-                seed_time = time.perf_counter() - st_time
                 seed_info[filename] = {'satis': instance.satis.r,
-                                       'time': seed_time,
+                                       'time': solve_time,
                                        'trace_hash': str(instance.trace_stats.hash)}
 
             # found_problem, states = compare_satis(instance, is_seed=True)
@@ -274,8 +273,8 @@ def run_seeds(files: set, counter: defaultdict):
             #     continue
 
             queue.append(instance)
-            log_run_info('seed', instance=instance, seed_time=seed_time)
-            print_general_info(counter)
+            log_run_info('seed', instance=instance)
+            print_general_info(counter, solve_time=solve_time)
 
         except Exception as err:
             message = traceback.format_exc()
@@ -376,7 +375,9 @@ def fuzz(files: set):
                 mut_time = time.perf_counter() - mut_time
 
                 try:
+                    st_time = time.perf_counter()
                     res = check_satis(mut_instance)
+                    solve_time = time.perf_counter() - st_time
                 except AssertionError as err:
                     analyze_check_exception(instance,
                                             err,
@@ -405,8 +406,6 @@ def fuzz(files: set):
                                       group.filename,
                                       len(group.instances),
                                       to_name=mut_instance.id)
-                    print_general_info(counter, mut_time)
-                    continue
 
                 elif timeout:
                     counter['timeout'] += 1
@@ -437,7 +436,8 @@ def fuzz(files: set):
                                      mut_instance=mut_instance)
                     instance = mut_instance
                     i += 1
-                    print_general_info(counter, mut_time)
+
+                print_general_info(counter, solve_time, mut_time)
 
             instance.dump('output/last_mutants',
                           group.filename,
