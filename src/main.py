@@ -426,7 +426,7 @@ def fuzz(files: set):
                     group.push(mut_instance)
                     if not heuristic_flags['default'] and \
                             len(instance_groups) > 1:
-                        stats_limit, trace_has_changed = group.check_stats(stats_limit)
+                        stats_limit = group.check_stats(stats_limit)
                     if found_problem:
                         log_run_info('oracle_bug',
                                      message=str(states),
