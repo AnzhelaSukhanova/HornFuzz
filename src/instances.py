@@ -76,7 +76,7 @@ class InstanceGroup(object):
         i = len(self.instances) - 1
         instance = self.instances[i]
         prev_instance = self.instances[i - 1]
-        if instance.trace_stats == prev_instance.trace_stats:
+        if instance.trace_stats.hash == prev_instance.trace_stats.hash:
             self.same_stats += 1
         else:
             self.same_stats = 0
@@ -266,9 +266,8 @@ class Instance(object):
         assert len(self.chc) > 0, "Empty chc-system"
         self.get_system_info()
 
-    def dump(self, dir: str, filename: str,
-             start_ind=0, message: str = None, to_name=None,
-             clear: bool = True):
+    def dump(self, dir: str, filename: str, start_ind=0,
+             message: str = None, to_name=None, clear: bool = True):
         """Dump the instance to the specified directory."""
         ctx_path = 'output/ctx/' + filename
         with open(ctx_path, 'r') as ctx_file:
@@ -296,6 +295,7 @@ class Instance(object):
 
     def update_mutation_stats(self, new_trace_found: bool):
         global mut_stats
+
         mutation_type = self.mutation and self.mutation.type
         if mutation_type is None:
             return

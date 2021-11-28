@@ -396,7 +396,8 @@ def fuzz(files: set):
                     print_general_info(counter, mut_time)
                     continue
 
-                trace_has_changed = (instance.trace_stats == mut_instance.trace_stats)
+                trace_has_changed = (instance.trace_stats.hash !=
+                                     mut_instance.trace_stats.hash)
                 if not res:
                     counter['bug'] += 1
                     log_run_info('bug',
