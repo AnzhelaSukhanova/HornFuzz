@@ -111,7 +111,7 @@ def update_mutation_weights():
 
 
 def print_general_info(counter: defaultdict, solve_time: time = None,
-                       mut_time: time = None):
+                       mut_time: time = None, trace_has_changed: bool = None):
     """Print and log information about runs."""
 
     traces_num = len(unique_traces)
@@ -121,6 +121,8 @@ def print_general_info(counter: defaultdict, solve_time: time = None,
         log['solve_time'] = solve_time
     if mut_time:
         log['mut_time'] = mut_time
+    if trace_has_changed is not None:
+        log['trace_has_changed'] = trace_has_changed
     if counter['runs']:
         print('Total:', counter['runs'],
               'Bugs:', counter['bug'],
@@ -394,6 +396,7 @@ def fuzz(files: set):
                     print_general_info(counter, mut_time)
                     continue
 
+                trace_has_changed = (instance.trace_stats == mut_instance.trace_stats)
                 if not res:
                     counter['bug'] += 1
                     log_run_info('bug',
@@ -423,7 +426,7 @@ def fuzz(files: set):
                     group.push(mut_instance)
                     if not heuristic_flags['default'] and \
                             len(instance_groups) > 1:
-                        stats_limit = group.check_stats(stats_limit)
+                        stats_limit, trace_has_changed = group.check_stats(stats_limit)
                     if found_problem:
                         log_run_info('oracle_bug',
                                      message=str(states),
@@ -437,7 +440,10 @@ def fuzz(files: set):
                     instance = mut_instance
                     i += 1
 
-                print_general_info(counter, solve_time, mut_time)
+                print_general_info(counter,
+                                   solve_time,
+                                   mut_time,
+                                   trace_has_changed)
 
             instance.dump('output/last_mutants',
                           group.filename,
