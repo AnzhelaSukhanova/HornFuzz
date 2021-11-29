@@ -375,6 +375,7 @@ def fuzz(files: set):
                 mut_time = time.perf_counter()
                 timeout = mut.apply(instance, mut_instance)
                 mut_time = time.perf_counter() - mut_time
+                mut_instance.update_mutation_stats(new_application=True)
 
                 try:
                     st_time = time.perf_counter()
@@ -398,6 +399,8 @@ def fuzz(files: set):
 
                 trace_has_changed = (instance.trace_stats.hash !=
                                      mut_instance.trace_stats.hash)
+                mut_instance.update_mutation_stats(new_trace_found=trace_has_changed)
+
                 if not res:
                     counter['bug'] += 1
                     log_run_info('bug',
