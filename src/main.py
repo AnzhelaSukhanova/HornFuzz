@@ -13,6 +13,7 @@ import instances
 import oracles
 from instances import *
 from seeds import *
+from seed_info_utils import *
 
 # noinspection PyUnresolvedReferences
 import z3_api_mods
@@ -29,7 +30,6 @@ current_ctx = None
 ONE_INST_MUT_LIMIT = 1000
 MUT_AFTER_PROBLEM = 10
 MUT_WEIGHT_UPDATE_RUNS = 10000
-seed_info_file = 'seed_info.json'
 oracles_names = {'Eldarica'}
 
 
@@ -228,22 +228,6 @@ def analyze_check_exception(instance: Instance, err: Exception,
         del group
 
 
-def load_seed_info():
-    if os.path.isfile(seed_info_file) and \
-            os.stat(seed_info_file).st_size > 0:
-        with open(seed_info_file, 'r') as file:
-            return json.load(file)
-    return {}
-
-
-def dump_seed_info(seed_info):
-    current_seed_info = load_seed_info()
-    for seed, data in seed_info.items():
-        current_seed_info[seed] = data
-    with open(seed_info_file, 'w+') as file:
-        json.dump(current_seed_info, file, indent=2)
-
-
 def mk_seed_instance(ctx: Context, idx: int, seed_file_name: str, counter) -> Optional[Instance]:
     group = InstanceGroup(idx, seed_file_name)
     instance = Instance(idx)
@@ -265,59 +249,58 @@ def mk_seed_instance(ctx: Context, idx: int, seed_file_name: str, counter) -> Op
         return None
 
 
-def mk_known_seeds_processor(ctx: Context, files: set, counter):
-    seed_info = load_seed_info()
-    known_seeds = files & set(seed_info.keys())
-    other_seeds = files - known_seeds
+def known_seeds_processor(ctx: Context, files: set, base_idx: int, seed_info_index, counter):
+    def process_seed(i, seed, seed_info):
+        if 'error' in seed_info:
+            return None
+        instance = mk_seed_instance(ctx, i, seed, counter)
+        if instance is None:
+            return None
+        counter['runs'] += 1
+        solve_time = instance.process_seed_info(seed_info)
+        instance.update_traces_info()
+        return instance, solve_time
 
-    def seed_processor():
-        for i, seed in enumerate(known_seeds):
-            info = seed_info[seed]
-            if 'error' in info:
-                continue
-            instance = mk_seed_instance(ctx, i, seed, counter)
-            if instance is None:
-                continue
-            counter['runs'] += 1
-            solve_time = instance.process_seed_info(info)
-            instance.update_traces_info()
+    apply_data = {
+        seed: {
+            'i': i,
+            'seed': seed
+        }
+        for i, seed in enumerate(files, start=base_idx)
+    }
+    processed_seeds = map_seeds_ordered(apply_data, seed_info_index, process_seed)
+    return (it for it in processed_seeds if it is not None)
+
+
+def new_seeds_processor(ctx: Context, files: set, base_idx: int, seed_info_index, counter):
+    seed_info = {}
+    for i, seed in enumerate(files, start=base_idx):
+        instance = mk_seed_instance(ctx, i, seed, counter)
+        if instance is None:
+            seed_info[seed] = {'error': 'error at instance creation'}
+            continue
+        counter['runs'] += 1
+        try:
+            st_time = time.perf_counter()
+            check_satis(instance, is_seed=True)
+            solve_time = time.perf_counter() - st_time
+            seed_info[seed] = {
+                'satis': instance.satis.r,
+                'time': solve_time,
+                'trace_states': [state.save() for state in getattr(instance.trace_stats, 'states', [])]
+            }
             yield instance, solve_time
-
-    return other_seeds, len(known_seeds), seed_processor
-
-
-def mk_new_seeds_processor(ctx: Context, files: set, base_idx: int, counter):
-    def seed_processor():
-        seed_info = {}
-        for i, seed in enumerate(files, start=base_idx):
-            instance = mk_seed_instance(ctx, i, seed, counter)
-            if instance is None:
-                seed_info[seed] = {'error': 'error at instance creation'}
-                continue
-            counter['runs'] += 1
-            try:
-                st_time = time.perf_counter()
-                check_satis(instance, is_seed=True)
-                solve_time = time.perf_counter() - st_time
-                seed_info[seed] = {
-                    'satis': instance.satis.r,
-                    'time': solve_time,
-                    'trace_states': [state.save() for state in getattr(instance.trace_stats, 'states', [])]
-                }
-                yield instance, solve_time
-            except Exception as err:
-                analyze_check_exception(instance,
-                                        err,
-                                        counter,
-                                        is_seed=True)
-                print_general_info(counter)
-                seed_info[seed] = {'error': 'error at seed check'}
-            if (i + 1) % 300 == 0:
-                dump_seed_info(seed_info)
-        if seed_info:
-            dump_seed_info(seed_info)
-
-    return seed_processor
+        except Exception as err:
+            analyze_check_exception(instance,
+                                    err,
+                                    counter,
+                                    is_seed=True)
+            print_general_info(counter)
+            seed_info[seed] = {'error': 'error at seed check'}
+        if (i + 1) % 300 == 0:
+            store_seed_info(seed_info, seed_info_index)
+    if seed_info:
+        store_seed_info(seed_info, seed_info_index)
 
 
 def run_seeds(files: set, counter: defaultdict):
@@ -325,10 +308,13 @@ def run_seeds(files: set, counter: defaultdict):
     global queue, seed_number, current_ctx
 
     current_ctx = Context()
-    new_seeds, new_seeds_instance_base_idx, known_seeds_processor = mk_known_seeds_processor(current_ctx, files, counter)
-    new_seeds_processor = mk_new_seeds_processor(current_ctx, new_seeds, new_seeds_instance_base_idx, counter)
+    seed_info_index = build_seed_info_index()
+    known_seed_files = files & set(seed_info_index.keys())
+    other_seed_files = files - known_seed_files
+    known_seeds = known_seeds_processor(current_ctx, known_seed_files, 0, seed_info_index, counter)
+    other_seeds = new_seeds_processor(current_ctx, other_seed_files, len(known_seed_files), seed_info_index, counter)
 
-    for i, (instance, solve_time) in enumerate(itertools.chain(known_seeds_processor(), new_seeds_processor())):
+    for i, (instance, solve_time) in enumerate(itertools.chain(known_seeds, other_seeds)):
         queue.append(instance)
         log_run_info('seed', instance=instance)
         print_general_info(counter, solve_time=solve_time)
@@ -513,8 +499,7 @@ def fuzz(files: set):
 
 
 def main():
-    global general_stats, heuristics, heuristic_flags, \
-        seed_number, seed_info
+    global general_stats, heuristics, heuristic_flags, seed_number
 
     parser = argparse.ArgumentParser()
     parser.add_argument('seeds',
