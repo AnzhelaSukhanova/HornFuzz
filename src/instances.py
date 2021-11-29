@@ -198,7 +198,8 @@ class Instance(object):
 
     def process_seed_info(self, info: dict):
         self.satis = CheckSatResult(info['satis'])
-        self.trace_stats.hash = info['trace_hash']
+        _trace_states = [State.load(state_date) for state_date in info['trace_states']]
+        self.trace_stats.load_states(_trace_states)
         return info['time']
             
     def reset_chc(self):
@@ -208,6 +209,7 @@ class Instance(object):
               get_stats: bool = True):
         """Check the satisfiability of the instance."""
         solver.reset()
+        self.trace_stats.reset_trace_offset()
         if is_seed:
             solver.set('timeout', SEED_SOLVE_TIME_LIMIT_MS)
         else:
@@ -216,7 +218,7 @@ class Instance(object):
         solver.add(self.chc)
         self.satis = solver.check()
         if get_stats:
-            self.trace_stats.read_from_trace()
+            self.trace_stats.read_from_trace(is_seed)
             self.update_traces_info()
         assert self.satis != unknown, solver.reason_unknown()
 

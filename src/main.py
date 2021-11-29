@@ -3,6 +3,9 @@ import faulthandler
 import gc
 import logging
 import traceback
+import itertools
+from typing import Optional
+
 import objgraph
 import os.path
 
@@ -22,7 +25,6 @@ heuristics = ''
 heuristic_flags = defaultdict(bool)
 queue = []
 current_ctx = None
-seed_info = {}
 
 ONE_INST_MUT_LIMIT = 1000
 MUT_AFTER_PROBLEM = 10
@@ -226,70 +228,111 @@ def analyze_check_exception(instance: Instance, err: Exception,
         del group
 
 
-def run_seeds(files: set, counter: defaultdict):
-    """Read and solve the seeds."""
-    global queue, seed_number, current_ctx, seed_info
+def load_seed_info():
+    if os.path.isfile(seed_info_file) and \
+            os.stat(seed_info_file).st_size > 0:
+        with open(seed_info_file, 'r') as file:
+            return json.load(file)
+    return {}
 
-    current_ctx = Context()
-    for i, filename in enumerate(files):
-        group = InstanceGroup(i, filename)
-        instance = Instance(i)
-        try:
-            parse_ctx = Context()
-            seed = parse_smt2_file(filename, ctx=parse_ctx)
-            seed = seed.translate(current_ctx)
-            if not seed:
-                seed_number -= 1
+
+def dump_seed_info(seed_info):
+    current_seed_info = load_seed_info()
+    for seed, data in seed_info.items():
+        current_seed_info[seed] = data
+    with open(seed_info_file, 'w+') as file:
+        json.dump(current_seed_info, file, indent=2)
+
+
+def mk_seed_instance(ctx: Context, idx: int, seed_file_name: str, counter) -> Optional[Instance]:
+    group = InstanceGroup(idx, seed_file_name)
+    instance = Instance(idx)
+    try:
+        parse_ctx = Context()
+        seed = parse_smt2_file(seed_file_name, ctx=parse_ctx)
+        seed = seed.translate(ctx)
+        if not seed:
+            return None
+        instance.set_chc(seed)
+        group.same_stats_limit = 5 * len(seed)
+        group.push(instance)
+        return instance
+    except Exception as err:
+        message = traceback.format_exc()
+        analyze_check_exception(instance, err, counter, message=message, is_seed=True)
+        print(message)
+        print_general_info(counter)
+        return None
+
+
+def mk_known_seeds_processor(ctx: Context, files: set, counter):
+    seed_info = load_seed_info()
+    known_seeds = files & set(seed_info.keys())
+    other_seeds = files - known_seeds
+
+    def seed_processor():
+        for i, seed in enumerate(known_seeds):
+            info = seed_info[seed]
+            if 'error' in info:
+                continue
+            instance = mk_seed_instance(ctx, i, seed, counter)
+            if instance is None:
                 continue
             counter['runs'] += 1
-            instance.set_chc(seed)
-            group.same_stats_limit = 5 * len(seed)
-            group.push(instance)
+            solve_time = instance.process_seed_info(info)
+            instance.update_traces_info()
+            yield instance, solve_time
 
-            if filename in seed_info:
-                solve_time = instance.process_seed_info(seed_info[filename])
-                instance.update_traces_info()
-            else:
-                try:
-                    st_time = time.perf_counter()
-                    check_satis(instance, is_seed=True)
-                    solve_time = time.perf_counter() - st_time
-                except AssertionError as err:
-                    analyze_check_exception(instance,
-                                            err,
-                                            counter,
-                                            is_seed=True)
-                    print_general_info(counter)
-                    del instance.chc, instance, group
-                    continue
-                seed_info[filename] = {'satis': instance.satis.r,
-                                       'time': solve_time,
-                                       'trace_hash': str(instance.trace_stats.hash)}
+    return other_seeds, len(known_seeds), seed_processor
 
-            # found_problem, states = compare_satis(instance, is_seed=True)
-            # if found_problem:
-            #     log_run_info('solver_conflict',
-            #                  str(states),
-            #                  instance=instance)
-            #     counter['conflict'] += 1
-            #     continue
 
-            queue.append(instance)
-            log_run_info('seed', instance=instance)
-            print_general_info(counter, solve_time=solve_time)
+def mk_new_seeds_processor(ctx: Context, files: set, base_idx: int, counter):
+    def seed_processor():
+        seed_info = {}
+        for i, seed in enumerate(files, start=base_idx):
+            instance = mk_seed_instance(ctx, i, seed, counter)
+            if instance is None:
+                seed_info[seed] = {'error': 'error at instance creation'}
+                continue
+            counter['runs'] += 1
+            try:
+                st_time = time.perf_counter()
+                check_satis(instance, is_seed=True)
+                solve_time = time.perf_counter() - st_time
+                seed_info[seed] = {
+                    'satis': instance.satis.r,
+                    'time': solve_time,
+                    'trace_states': [state.save() for state in getattr(instance.trace_stats, 'states', [])]
+                }
+                yield instance, solve_time
+            except Exception as err:
+                analyze_check_exception(instance,
+                                        err,
+                                        counter,
+                                        is_seed=True)
+                print_general_info(counter)
+                seed_info[seed] = {'error': 'error at seed check'}
+            if (i + 1) % 300 == 0:
+                dump_seed_info(seed_info)
+        if seed_info:
+            dump_seed_info(seed_info)
 
-        except Exception as err:
-            message = traceback.format_exc()
-            analyze_check_exception(instance,
-                                    err,
-                                    counter,
-                                    message=message,
-                                    is_seed=True)
-            print(message)
-            print_general_info(counter)
+    return seed_processor
 
-    with open(seed_info_file, 'w+') as file:
-        json.dump(seed_info, file, indent=2)
+
+def run_seeds(files: set, counter: defaultdict):
+    """Read and solve the seeds."""
+    global queue, seed_number, current_ctx
+
+    current_ctx = Context()
+    new_seeds, new_seeds_instance_base_idx, known_seeds_processor = mk_known_seeds_processor(current_ctx, files, counter)
+    new_seeds_processor = mk_new_seeds_processor(current_ctx, new_seeds, new_seeds_instance_base_idx, counter)
+
+    for i, (instance, solve_time) in enumerate(itertools.chain(known_seeds_processor(), new_seeds_processor())):
+        queue.append(instance)
+        log_run_info('seed', instance=instance)
+        print_general_info(counter, solve_time=solve_time)
+    seed_number = len(queue)
 
     assert seed_number > 0, 'All seeds are unknown or ' \
                             'in the incorrect format'
@@ -513,11 +556,6 @@ def main():
 
     seed_number = len(files)
     assert seed_number > 0, 'Seeds not found'
-
-    if os.path.isfile(seed_info_file) and \
-            os.stat(seed_info_file).st_size > 0:
-        with open(seed_info_file, 'r') as file:
-            seed_info = json.load(file)
 
     fuzz(files)
 

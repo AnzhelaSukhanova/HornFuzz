@@ -3,6 +3,7 @@ import random
 from collections import defaultdict
 from copy import deepcopy
 from enum import Enum
+from typing import List
 
 import numpy as np
 from scipy.sparse import dok_matrix
@@ -34,6 +35,15 @@ class State(object):
 
     def encode(self, standart: str):
         return self.name.encode(standart)
+
+    def save(self):
+        return self.name
+
+    @staticmethod
+    def load(data) -> 'State':
+        state = State('')
+        state.name = data
+        return state
 
 
 class ClauseInfo(object):
@@ -102,17 +112,27 @@ class TraceStats(object):
         j_ind = trace_states[j]
         self.matrix[i_ind, j_ind] += 1
 
-    def read_from_trace(self):
+    def read_from_trace(self, is_seed: bool = False):
         """Read z3-trace from last read line."""
         global trans_offset
-        trace = open(TRACE_FILE, 'r')
-        trace.seek(trans_offset)
-        lines = trace.readlines()
+        with open(TRACE_FILE, 'r') as trace:
+            trace.seek(trans_offset)
+            lines = trace.readlines()
+            trans_offset = trace.tell()
+        states = [State(line) for line in lines]
+        self.load_states(states)
+        if is_seed:
+            self.states = states
+
+    def reset_trace_offset(self):
+        global trans_offset
+        with open(TRACE_FILE, 'r') as trace:
+            trans_offset = trace.tell()
+
+    def load_states(self, states: List[State]):
         hash_builder = hashlib.sha512()
         prev_state = None
-
-        for line in lines:
-            state = State(line)
+        for state in states:
             hash_builder.update(state.encode('utf-8'))
             if stats_type.value > 0:
                 if state not in trace_states:
@@ -129,9 +149,6 @@ class TraceStats(object):
                 prev_state = state
 
         self.hash = hash_builder.digest()
-
-        trans_offset = trace.tell()
-        trace.close()
 
     def get_probability(self, type: StatsType):
         """
