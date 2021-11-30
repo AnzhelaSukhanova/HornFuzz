@@ -3,7 +3,7 @@ JetBrains Research intership project.
 
 ## Install
 Install Z3 with Python API according to the instructions given here: https://github.com/Z3Prover/z3.  
-Or you can use the Dockerfile (`docker build -t spacer/fuzz .`).
+Or you can use the Dockerfile (`docker build -t spacer-fuzzing .`).
 
 ## Use
 * `python src/main.py <seed-file1> [<seed-file2> ...]`  
@@ -12,7 +12,7 @@ Or you can use the Dockerfile (`docker build -t spacer/fuzz .`).
 * `python src/main.py chc-comp<year>-benchmarks[/<subdir>]` — to check all benchmarks from _/chc-comp\<year\>-benchmarks_ or _/chc-comp\<year\>-benchmarks/\<subdirectory\>_.  
 * `python src/main.py all` — to check all benchmarks.  
 
-`docker run spacer/fuzz` if you are using docker.  
+`docker run spacer-fuzzing` if you are using docker.  
 
 Add `-heuristics <priority1> <priority2> ...` (or `-heur`) to change default instance selection to the selection based on:  
 * the probability of transitions (`transitions`);  
@@ -22,7 +22,8 @@ Add `-heuristics <priority1> <priority2> ...` (or `-heur`) to change default ins
 ## Seeds
 Download benchmarks from
 * https://github.com/dvvrd/spacer-benchmarks  
-* https://github.com/chc-comp/chc-comp21-benchmarks (or for another year)  
+* https://github.com/chc-comp/chc-comp21-benchmarks  
+* https://gitlab.com/sosy-lab/benchmarking/sv-benchmarks/-/tree/main/clauses  
 
 and place them in the root directory of this repository.  
 

@@ -1,41 +1,49 @@
-from z3 import *
-from collections import defaultdict
-from scipy.sparse import dok_matrix
-from copy import deepcopy
-from enum import Enum
-import numpy as np
 import hashlib
 import random
+from collections import defaultdict
+from copy import deepcopy
+from enum import Enum
+from typing import List
+
+import numpy as np
+from scipy.sparse import dok_matrix
+from z3 import *
 
 TRACE_FILE = '.z3-trace'
 
 trace_states = defaultdict(int)
 trans_offset = 0
 info_kinds = [Z3_OP_AND, Z3_OP_OR, Z3_QUANTIFIER_AST,
-              Z3_OP_LE, Z3_OP_GE, Z3_OP_LT, Z3_OP_GT]
-
-
-def global_ctx_access_exception():
-    raise Exception('Global z3 context access')
+              Z3_OP_LE, Z3_OP_GE, Z3_OP_LT, Z3_OP_GT,
+              Z3_OP_UNINTERPRETED]
 
 
 class State(object):
 
     def __init__(self, line: str):
         parts = line.rstrip().split('/')
-        self.state = parts[0].split('..')[0]  # function
-        self.state += parts[-1]  # file:line
+        self.name = parts[0].split('..')[0]  # function
+        self.name += parts[-1]  # file:line
 
     def __eq__(self, other):
-        if self.state != other.state:
+        if self.name != other.name:
             return False
         return True
 
     def __hash__(self):
-        return hash(self.state)
+        return hash(self.name)
 
     def encode(self, standart: str):
-        return self.state.encode(standart)
+        return self.name.encode(standart)
+
+    def save(self):
+        return self.name
+
+    @staticmethod
+    def load(data) -> 'State':
+        state = State('')
+        state.name = data
+        return state
 
 
 class ClauseInfo(object):
@@ -43,7 +51,7 @@ class ClauseInfo(object):
     def __init__(self, number: int):
         self.expr_exists = defaultdict(bool)
         self.is_expr_in_clause = np.zeros((len(info_kinds), number),
-                                              dtype=bool)
+                                          dtype=bool)
 
 
 class StatsType(Enum):
@@ -97,24 +105,34 @@ class TraceStats(object):
                 sum.states_num[state] += other.states_num[state]
         return sum
 
-    def add_trans(self, i: int, j: int):
+    def add_trans(self, i: State, j: State):
         """Add transition to matrix."""
         global trace_states
         i_ind = trace_states[i]
         j_ind = trace_states[j]
         self.matrix[i_ind, j_ind] += 1
 
-    def read_from_trace(self):
+    def read_from_trace(self, is_seed: bool = False):
         """Read z3-trace from last read line."""
         global trans_offset
-        trace = open(TRACE_FILE, 'r')
-        trace.seek(trans_offset)
-        lines = trace.readlines()
+        with open(TRACE_FILE, 'r') as trace:
+            trace.seek(trans_offset)
+            lines = trace.readlines()
+            trans_offset = trace.tell()
+        states = [State(line) for line in lines]
+        self.load_states(states)
+        if is_seed:
+            self.states = states
+
+    def reset_trace_offset(self):
+        global trans_offset
+        with open(TRACE_FILE, 'r') as trace:
+            trans_offset = trace.tell()
+
+    def load_states(self, states: List[State]):
         hash_builder = hashlib.sha512()
         prev_state = None
-
-        for line in lines:
-            state = State(line)
+        for state in states:
             hash_builder.update(state.encode('utf-8'))
             if stats_type.value > 0:
                 if state not in trace_states:
@@ -131,9 +149,6 @@ class TraceStats(object):
                 prev_state = state
 
         self.hash = hash_builder.digest()
-
-        trans_offset = trace.tell()
-        trace.close()
 
     def get_probability(self, type: StatsType):
         """
@@ -190,7 +205,7 @@ def get_bound_vars(expr) -> list:
     return vars
 
 
-def update_expr(expr, children, vars=None):
+def update_expr(expr, children, vars: list = None):
     """Return the expression with new children."""
 
     upd_expr = expr
@@ -229,8 +244,7 @@ def expr_exists(instance, kinds: list) -> defaultdict:
                     break
             if ind:
                 for child in cur_expr.children():
-                    if not is_var(child) and not is_const(child):
-                        expr_set.add(child)
+                    expr_set.add(child)
     return expr_ex
 
 
@@ -255,8 +269,7 @@ def count_expr(instance, kinds: list, is_unique=False):
                         expr_num[j] += 1
                     break
             for child in cur_expr.children():
-                if not is_var(child) and not is_const(child):
-                    expr_set.add(child)
+                expr_set.add(child)
     if is_unique:
         return expr_num, unique_expr
     else:
@@ -295,3 +308,19 @@ def remove_clauses(chc_system: AstVector, ind) -> AstVector:
         if i not in ind:
             new_system.push(clause)
     return new_system
+
+
+def take_pred_from_clause(clause: AstVector, with_term=False):
+    _, uninter_pred = count_expr(clause,
+                                 [Z3_OP_UNINTERPRETED],
+                                 is_unique=True)
+    upred = random.sample(uninter_pred[0], 1)[0]
+    vars = []
+    for i in range(upred.arity()):
+        sort = upred.domain(i)
+        vars.append(FreshConst(sort, prefix='x'))
+    upred_value = upred.__call__(vars)
+    if with_term:
+        return upred_value, vars, upred
+    else:
+        return upred_value , vars

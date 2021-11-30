@@ -1,4 +1,3 @@
-import traceback
 import argparse
 
 from main import check_satis
@@ -6,7 +5,7 @@ from instances import *
 from seeds import get_filenames
 
 
-def is_same_res(instance: Instance, result=False, message=None) -> bool:
+def is_same_res(instance: Instance, result: bool = False, message: str = None) -> bool:
     """
     Return True if solving an instance returns
     the expected result and False otherwise.
@@ -22,7 +21,7 @@ def is_same_res(instance: Instance, result=False, message=None) -> bool:
 
 
 def reduce_instance(instance: Instance, mutation: Mutation,
-                    message=None) -> Instance:
+                    message: str = None) -> Instance:
     """Reduce the chc-system causing the problem."""
 
     group = instance.get_group()
@@ -64,7 +63,7 @@ def reduce_instance(instance: Instance, mutation: Mutation,
     return new_instance
 
 
-def reduce_mut_chain(instance: Instance, message=None) -> Instance:
+def reduce_mut_chain(instance: Instance, message: str = None) -> Instance:
     """
     Search for a reduced version of mutation chain that is
     the minimal set of bug-triggering transformations.
@@ -85,7 +84,7 @@ def reduce_mut_chain(instance: Instance, message=None) -> Instance:
                 group = new_group
 
             if chunk_size == 1:
-                if group[ind_chunk[0]].mutation.type == MutType.SIMPLIFY:
+                if group[ind_chunk[0]].mutation.type == 'SIMPLIFY':
                     group[ind_chunk[0]] = reduce_simplify(group[ind_chunk[0] - 1], message)
         chunk_size //= 2
 
@@ -121,12 +120,12 @@ def undo_mutations(instance: Instance, ind: range) -> InstanceGroup:
     return new_group
 
 
-def reduce_simplify(instance: Instance, message=None) -> Instance:
+def reduce_simplify(instance: Instance, message: str = None) -> Instance:
     """Reduce the applying of SIMPLIFY"""
 
     mut_instance = Instance(instance.group_id)
     mut = mut_instance.mutation
-    mut.type = MutType.SIMPLIFY
+    mut.type = 'SIMPLIFY'
     flags_num = len(mut.simp_flags)
 
     for i in range(flags_num):

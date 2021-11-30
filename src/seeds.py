@@ -76,6 +76,8 @@ def get_seeds(argv, directory: str) -> set:
         seeds = get_filenames(dir_path)
         dir_path = directory + 'chc-comp21-benchmarks/'
         seeds.update(get_filenames(dir_path))
+        dir_path = directory + 'sv-benchmarks-clauses/'
+        seeds.update(get_filenames(dir_path))
         seeds = exclude_unknown_seed(seeds)
     else:
         if argv[0].endswith('.smt2'):
