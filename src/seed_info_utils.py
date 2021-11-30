@@ -20,6 +20,8 @@ def _write_seed_info(data, descriptor):
 
 
 def build_seed_info_index():
+    if not os.path.exists(seed_info_path):
+        os.mkdir(seed_info_path)
     all_files = [os.path.join(seed_info_path, it) for it in os.listdir(seed_info_path)]
     seed_info_files = [it for it in all_files if os.path.isfile(it) and re.fullmatch('.*/\\d+\\.json', it)]
     index = {}
