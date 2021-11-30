@@ -3,6 +3,9 @@ import faulthandler
 import gc
 import logging
 import traceback
+import itertools
+from typing import Optional
+
 import objgraph
 import os.path
 
@@ -10,6 +13,7 @@ import instances
 import oracles
 from instances import *
 from seeds import *
+from seed_info_utils import *
 
 # noinspection PyUnresolvedReferences
 import z3_api_mods
@@ -22,12 +26,10 @@ heuristics = ''
 heuristic_flags = defaultdict(bool)
 queue = []
 current_ctx = None
-seed_info = {}
 
 ONE_INST_MUT_LIMIT = 1000
 MUT_AFTER_PROBLEM = 10
 MUT_WEIGHT_UPDATE_RUNS = 10000
-seed_info_file = 'seed_info.json'
 oracles_names = {'Eldarica'}
 
 
@@ -226,70 +228,97 @@ def analyze_check_exception(instance: Instance, err: Exception,
         del group
 
 
-def run_seeds(files: set, counter: defaultdict):
-    """Read and solve the seeds."""
-    global queue, seed_number, current_ctx, seed_info
+def mk_seed_instance(ctx: Context, idx: int, seed_file_name: str, counter) -> Optional[Instance]:
+    group = InstanceGroup(idx, seed_file_name)
+    instance = Instance(idx)
+    try:
+        parse_ctx = Context()
+        seed = parse_smt2_file(seed_file_name, ctx=parse_ctx)
+        seed = seed.translate(ctx)
+        if not seed:
+            return None
+        instance.set_chc(seed)
+        group.same_stats_limit = 5 * len(seed)
+        group.push(instance)
+        return instance
+    except Exception as err:
+        message = traceback.format_exc()
+        analyze_check_exception(instance, err, counter, message=message, is_seed=True)
+        print(message)
+        print_general_info(counter)
+        return None
 
-    current_ctx = Context()
-    for i, filename in enumerate(files):
-        group = InstanceGroup(i, filename)
-        instance = Instance(i)
+
+def known_seeds_processor(ctx: Context, files: set, base_idx: int, seed_info_index, counter):
+    def process_seed(i, seed, seed_info):
+        if 'error' in seed_info:
+            return None
+        instance = mk_seed_instance(ctx, i, seed, counter)
+        if instance is None:
+            return None
+        counter['runs'] += 1
+        solve_time = instance.process_seed_info(seed_info)
+        instance.update_traces_info()
+        return instance, solve_time
+
+    apply_data = {
+        seed: {
+            'i': i,
+            'seed': seed
+        }
+        for i, seed in enumerate(files, start=base_idx)
+    }
+    processed_seeds = map_seeds_ordered(apply_data, seed_info_index, process_seed)
+    return (it for it in processed_seeds if it is not None)
+
+
+def new_seeds_processor(ctx: Context, files: set, base_idx: int, seed_info_index, counter):
+    seed_info = {}
+    for i, seed in enumerate(files, start=base_idx):
+        instance = mk_seed_instance(ctx, i, seed, counter)
+        if instance is None:
+            seed_info[seed] = {'error': 'error at instance creation'}
+            continue
+        counter['runs'] += 1
         try:
-            parse_ctx = Context()
-            seed = parse_smt2_file(filename, ctx=parse_ctx)
-            seed = seed.translate(current_ctx)
-            if not seed:
-                seed_number -= 1
-                continue
-            counter['runs'] += 1
-            instance.set_chc(seed)
-            group.same_stats_limit = 5 * len(seed)
-            group.push(instance)
-
-            if filename in seed_info:
-                solve_time = instance.process_seed_info(seed_info[filename])
-                instance.update_traces_info()
-            else:
-                try:
-                    st_time = time.perf_counter()
-                    check_satis(instance, is_seed=True)
-                    solve_time = time.perf_counter() - st_time
-                except AssertionError as err:
-                    analyze_check_exception(instance,
-                                            err,
-                                            counter,
-                                            is_seed=True)
-                    print_general_info(counter)
-                    del instance.chc, instance, group
-                    continue
-                seed_info[filename] = {'satis': instance.satis.r,
-                                       'time': solve_time,
-                                       'trace_hash': str(instance.trace_stats.hash)}
-
-            # found_problem, states = compare_satis(instance, is_seed=True)
-            # if found_problem:
-            #     log_run_info('solver_conflict',
-            #                  str(states),
-            #                  instance=instance)
-            #     counter['conflict'] += 1
-            #     continue
-
-            queue.append(instance)
-            log_run_info('seed', instance=instance)
-            print_general_info(counter, solve_time=solve_time)
-
+            st_time = time.perf_counter()
+            check_satis(instance, is_seed=True)
+            solve_time = time.perf_counter() - st_time
+            seed_info[seed] = {
+                'satis': instance.satis.r,
+                'time': solve_time,
+                'trace_states': [state.save() for state in getattr(instance.trace_stats, 'states', [])]
+            }
+            yield instance, solve_time
         except Exception as err:
-            message = traceback.format_exc()
             analyze_check_exception(instance,
                                     err,
                                     counter,
-                                    message=message,
                                     is_seed=True)
-            print(message)
             print_general_info(counter)
+            seed_info[seed] = {'error': 'error at seed check'}
+        if (i + 1) % 300 == 0:
+            store_seed_info(seed_info, seed_info_index)
+    if seed_info:
+        store_seed_info(seed_info, seed_info_index)
 
-    with open(seed_info_file, 'w+') as file:
-        json.dump(seed_info, file, indent=2)
+
+def run_seeds(files: set, counter: defaultdict):
+    """Read and solve the seeds."""
+    global queue, seed_number, current_ctx
+
+    current_ctx = Context()
+    seed_info_index = build_seed_info_index()
+    known_seed_files = files & set(seed_info_index.keys())
+    other_seed_files = files - known_seed_files
+    known_seeds = known_seeds_processor(current_ctx, known_seed_files, 0, seed_info_index, counter)
+    other_seeds = new_seeds_processor(current_ctx, other_seed_files, len(known_seed_files), seed_info_index, counter)
+
+    for i, (instance, solve_time) in enumerate(itertools.chain(known_seeds, other_seeds)):
+        queue.append(instance)
+        log_run_info('seed', instance=instance)
+        print_general_info(counter, solve_time=solve_time)
+    seed_number = len(queue)
 
     assert seed_number > 0, 'All seeds are unknown or ' \
                             'in the incorrect format'
@@ -375,6 +404,7 @@ def fuzz(files: set):
                 mut_time = time.perf_counter()
                 timeout = mut.apply(instance, mut_instance)
                 mut_time = time.perf_counter() - mut_time
+                mut_instance.update_mutation_stats(new_application=True)
 
                 try:
                     st_time = time.perf_counter()
@@ -398,6 +428,8 @@ def fuzz(files: set):
 
                 trace_has_changed = (instance.trace_stats.hash !=
                                      mut_instance.trace_stats.hash)
+                mut_instance.update_mutation_stats(new_trace_found=trace_has_changed)
+
                 if not res:
                     counter['bug'] += 1
                     log_run_info('bug',
@@ -467,8 +499,7 @@ def fuzz(files: set):
 
 
 def main():
-    global general_stats, heuristics, heuristic_flags, \
-        seed_number, seed_info
+    global general_stats, heuristics, heuristic_flags, seed_number
 
     parser = argparse.ArgumentParser()
     parser.add_argument('seeds',
@@ -510,11 +541,6 @@ def main():
 
     seed_number = len(files)
     assert seed_number > 0, 'Seeds not found'
-
-    if os.path.isfile(seed_info_file) and \
-            os.stat(seed_info_file).st_size > 0:
-        with open(seed_info_file, 'r') as file:
-            seed_info = json.load(file)
 
     fuzz(files)
 

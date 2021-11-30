@@ -198,7 +198,8 @@ class Instance(object):
 
     def process_seed_info(self, info: dict):
         self.satis = CheckSatResult(info['satis'])
-        self.trace_stats.hash = info['trace_hash']
+        _trace_states = [State.load(state_date) for state_date in info['trace_states']]
+        self.trace_stats.load_states(_trace_states)
         return info['time']
             
     def reset_chc(self):
@@ -208,6 +209,7 @@ class Instance(object):
               get_stats: bool = True):
         """Check the satisfiability of the instance."""
         solver.reset()
+        self.trace_stats.reset_trace_offset()
         if is_seed:
             solver.set('timeout', SEED_SOLVE_TIME_LIMIT_MS)
         else:
@@ -216,14 +218,12 @@ class Instance(object):
         solver.add(self.chc)
         self.satis = solver.check()
         if get_stats:
-            self.trace_stats.read_from_trace()
+            self.trace_stats.read_from_trace(is_seed)
             self.update_traces_info()
         assert self.satis != unknown, solver.reason_unknown()
 
     def update_traces_info(self):
-        new_trace_found = self.trace_stats.hash not in unique_traces
         unique_traces.add(self.trace_stats.hash)
-        self.update_mutation_stats(new_trace_found)
 
     def get_group(self):
         """Return the group of the instance."""
@@ -293,7 +293,7 @@ class Instance(object):
             if self.chc:
                 self.reset_chc()
 
-    def update_mutation_stats(self, new_trace_found: bool):
+    def update_mutation_stats(self, new_application: bool = False, new_trace_found: bool = False):
         global mut_stats
 
         mutation_type = self.mutation and self.mutation.type
@@ -302,7 +302,7 @@ class Instance(object):
         current_mutation_stats = \
             mut_stats.setdefault(mutation_type,
                                  {'applications': 0.0, 'new_traces': 0.0})
-        current_mutation_stats['applications'] += 1
+        current_mutation_stats['applications'] += int(new_application)
         current_mutation_stats['new_traces'] += int(new_trace_found)
 
 
