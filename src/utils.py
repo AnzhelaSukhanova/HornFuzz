@@ -114,11 +114,9 @@ class TraceStats(object):
 
     def read_from_trace(self, is_seed: bool = False):
         """Read z3-trace from last read line."""
-        global trans_offset
         with open(TRACE_FILE, 'r') as trace:
             trace.seek(trans_offset)
             lines = trace.readlines()
-            trans_offset = trace.tell()
         states = [State(line) for line in lines]
         self.load_states(states)
         if is_seed:
@@ -127,7 +125,7 @@ class TraceStats(object):
     def reset_trace_offset(self):
         global trans_offset
         with open(TRACE_FILE, 'r') as trace:
-            trans_offset = trace.tell()
+            trans_offset = trace.seek(0, io.SEEK_END)
 
     def load_states(self, states: List[State]):
         hash_builder = hashlib.sha512()
