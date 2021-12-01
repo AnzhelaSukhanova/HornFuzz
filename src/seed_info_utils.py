@@ -16,7 +16,7 @@ def _load_seed_info(descriptor):
 
 def _write_seed_info(data, descriptor):
     with open(descriptor['path'], 'w') as f:
-        json.dump(data, f)
+        json.dump(data, f, indent=2)
 
 
 def build_seed_info_index():
@@ -58,7 +58,7 @@ def store_seed_info(seed_info, index):
         return
     last_descriptor = {'id': 0, 'path': os.path.join(seed_info_path, '0.json')}
     for descriptor in index.values():
-        if last_descriptor is None or descriptor['id'] > last_descriptor['id']:
+        if descriptor['id'] > last_descriptor['id']:
             last_descriptor = descriptor
     last_descriptor_data = _load_seed_info(last_descriptor)
     new_seed_info_lst = list(new_seed_info.items())
@@ -77,4 +77,7 @@ def store_seed_info(seed_info, index):
         descriptors.append({'id': did, 'path': path})
     assert len(descriptors) == len(chunks)
     for data, descriptor in zip(chunks, descriptors):
-        _write_seed_info(dict(data), descriptor)
+        dict_data = dict(data)
+        _write_seed_info(dict_data, descriptor)
+        for seed in dict_data.keys():
+            index[seed] = descriptor

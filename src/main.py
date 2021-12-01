@@ -297,8 +297,10 @@ def new_seeds_processor(ctx: Context, files: set, base_idx: int, seed_info_index
                                     is_seed=True)
             print_general_info(counter)
             seed_info[seed] = {'error': 'error at seed check'}
-        if (i + 1) % 300 == 0:
-            store_seed_info(seed_info, seed_info_index)
+        finally:
+            if len(seed_info) > 300:
+                store_seed_info(seed_info, seed_info_index)
+                seed_info = {}
     if seed_info:
         store_seed_info(seed_info, seed_info_index)
 
