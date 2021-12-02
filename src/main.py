@@ -228,17 +228,21 @@ def analyze_check_exception(instance: Instance, err: Exception,
         del group
 
 
-def mk_seed_instance(ctx: Context, idx: int, seed_file_name: str, counter) -> Optional[Instance]:
+def mk_seed_instance(ctx: Context, idx: int, seed_file_name: str,
+                     counter, parse: bool = False) -> Optional[Instance]:
     group = InstanceGroup(idx, seed_file_name)
     instance = Instance(idx)
     try:
-        parse_ctx = Context()
-        seed = parse_smt2_file(seed_file_name, ctx=parse_ctx)
-        seed = seed.translate(ctx)
-        if not seed:
-            return None
-        instance.set_chc(seed)
-        group.same_stats_limit = 5 * len(seed)
+        if parse:
+            parse_ctx = Context()
+            seed = parse_smt2_file(seed_file_name, ctx=parse_ctx)
+            seed = seed.translate(ctx)
+            if not seed:
+                return None
+            instance.set_chc(seed)
+        else:
+            instance.reset_chc()
+
         group.push(instance)
         return instance
     except Exception as err:
@@ -251,6 +255,8 @@ def mk_seed_instance(ctx: Context, idx: int, seed_file_name: str, counter) -> Op
 
 def known_seeds_processor(ctx: Context, files: set, base_idx: int, seed_info_index, counter):
     def process_seed(i, seed, seed_info):
+        global general_stats
+
         if 'error' in seed_info:
             return None
         instance = mk_seed_instance(ctx, i, seed, counter)
@@ -259,6 +265,8 @@ def known_seeds_processor(ctx: Context, files: set, base_idx: int, seed_info_ind
         counter['runs'] += 1
         solve_time = instance.process_seed_info(seed_info)
         instance.update_traces_info()
+        if heuristic_flags['transitions'] or heuristic_flags['states']:
+            general_stats += instance.trace_stats
         return instance, solve_time
 
     apply_data = {
@@ -275,7 +283,7 @@ def known_seeds_processor(ctx: Context, files: set, base_idx: int, seed_info_ind
 def new_seeds_processor(ctx: Context, files: set, base_idx: int, seed_info_index, counter):
     seed_info = {}
     for i, seed in enumerate(files, start=base_idx):
-        instance = mk_seed_instance(ctx, i, seed, counter)
+        instance = mk_seed_instance(ctx, i, seed, counter, parse=True)
         if instance is None:
             seed_info[seed] = {'error': 'error at instance creation'}
             continue
@@ -366,28 +374,28 @@ def fuzz(files: set):
     global queue, current_ctx
 
     counter = defaultdict(int)
+
     run_seeds(files, counter)
-    init_runs_number = 2 * seed_number - \
-                       counter['unknown'] - counter['timeout']
     logging.info(json.dumps({'seed_number': seed_number,
                              'heuristics': heuristics}))
-    stats_limit = seed_number
+    stats_limit = 0
     runs_before_weight_update = MUT_WEIGHT_UPDATE_RUNS
 
     while queue:
+        if not heuristic_flags['default'] and not stats_limit:
+            sort_queue()
+            queue_len = len(queue)
+            stats_limit = random.randint(queue_len // 5, queue_len)
+
         instance = queue.pop(0)
         counter['runs'] += 1
         group = instance.get_group()
         try:
-            if counter['runs'] > init_runs_number:
-                ensure_current_context_is_deletable()
-                start_mut_ind = len(group.instances) - 1
-                instance.restore()
-                current_ctx = instance.chc.ctx
-                mut_limit = ONE_INST_MUT_LIMIT
-            else:
-                start_mut_ind = 0
-                mut_limit = 1
+            ensure_current_context_is_deletable()
+            start_mut_ind = len(group.instances) - 1
+            instance.restore(is_seed=(start_mut_ind == 0))
+            current_ctx = instance.chc.ctx
+            mut_limit = ONE_INST_MUT_LIMIT
 
             if runs_before_weight_update <= 0:
                 update_mutation_weights()
@@ -483,11 +491,6 @@ def fuzz(files: set):
             instance.dump('output/last_mutants',
                           group.filename,
                           start_mut_ind)
-
-            if not heuristic_flags['default'] and not stats_limit:
-                sort_queue()
-                queue_len = len(queue)
-                stats_limit = random.randint(queue_len // 5, queue_len)
 
         except Exception as err:
             message = traceback.format_exc()

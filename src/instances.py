@@ -41,15 +41,17 @@ class InstanceGroup(object):
         if length == 0:
             self.find_pred_info()
             instance.get_system_info()
+            self.dump_ctx()
 
-            filename = 'output/ctx/' + self.filename
-            with open(self.filename, 'r') as seed_file:
-                file = seed_file.read()
-                formula = re.sub(r"\(set-info.*\"\)", "",
-                                 file, flags=re.DOTALL)
-                ctx = formula.split('(assert')[0]
-                with open(filename, 'w') as ctx_file:
-                    ctx_file.write(ctx)
+    def dump_ctx(self):
+        filename = 'output/ctx/' + self.filename
+        with open(self.filename, 'r') as seed_file:
+            file = seed_file.read()
+            formula = re.sub(r"\(set-info.*\"\)", "",
+                             file, flags=re.DOTALL)
+            ctx = formula.split('(assert')[0]
+            with open(filename, 'w') as ctx_file:
+                ctx_file.write(ctx)
 
     def pop(self):
         """Take an instance from the group."""
@@ -97,6 +99,8 @@ class InstanceGroup(object):
         assert len(self.instances) > 0, "Instance group is empty"
         instance = self[-1]
         chc_system = instance.chc
+        if chc_system is None:
+            return
         all_uninter_pred = set()
 
         for i, clause in enumerate(chc_system):
@@ -178,6 +182,7 @@ class Instance(object):
         self.satis = unknown
         self.trace_stats = TraceStats()
         self.sort_key = 0
+        self.info = ClauseInfo(0)
 
         group = self.get_group()
         if not group.instances:
@@ -243,6 +248,11 @@ class Instance(object):
         Get information about the existence of subexpressions of kind
         from info_kinds and about their .
         """
+        if self.chc is None:
+            return
+
+        group = self.get_group()
+        group.same_stats_limit = 5 * len(self.chc)
         info = self.info
         info.expr_exists = expr_exists(self.chc, info_kinds)
 
