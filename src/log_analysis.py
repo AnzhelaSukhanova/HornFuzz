@@ -208,7 +208,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('logfile',
                         nargs='*',
-                        default='logfile')
+                        default=['logfile'])
     parser.add_argument('-stats',
                         nargs='*',
                         choices=['time', 'traces', 'mutations'],
@@ -223,7 +223,7 @@ def main():
                         help='what kind of log entries do you want to see')
     argv = parser.parse_args()
 
-    analyze([argv.logfile], argv.stats, argv.select)
+    analyze(argv.logfile, argv.stats, argv.select)
 
 
 if __name__ == '__main__':
