@@ -1,8 +1,11 @@
 import argparse
+import traceback
 
 from main import check_satis
 from instances import *
 from seeds import get_filenames
+
+current_ctx = Context()
 
 
 def is_same_res(instance: Instance, result: bool = False, message: str = None) -> bool:
@@ -161,7 +164,7 @@ def reduce():
         filename = '/'.join(filename.split('/')[2:])
         seed_name = '_'.join(filename.split('_')[:-1]) + '.smt2'
         group = InstanceGroup(i, seed_name)
-        group.restore(i, mutations)
+        group.restore(i, mutations, ctx=current_ctx)
         instance = group[-2]
         mut_instance = group[-1]
         assert is_same_res(mut_instance, message=message), \
@@ -184,7 +187,7 @@ def redo_mutations(filename: str, mutations):
 
     id = 0
     group = InstanceGroup(id, filename)
-    group.restore(id, mutations)
+    group.restore(id, mutations, ctx=current_ctx)
     instance = group[-1]
     res = check_satis(instance)
     if not res:
@@ -202,7 +205,7 @@ def main():
                         nargs='?',
                         default=None,
                         help='file to reproduce the bug')
-    parser.add_argument('-mut_chain',
+    parser.add_argument('mut_chain',
                         nargs='?',
                         default='',
                         help='chain of mutations to be applied '

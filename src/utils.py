@@ -12,7 +12,7 @@ from z3 import *
 TRACE_FILE = '.z3-trace'
 
 trace_states = defaultdict(int)
-trans_offset = 0
+trace_offset = 0
 info_kinds = [Z3_OP_AND, Z3_OP_OR, Z3_QUANTIFIER_AST,
               Z3_OP_LE, Z3_OP_GE, Z3_OP_LT, Z3_OP_GT,
               Z3_OP_UNINTERPRETED]
@@ -115,7 +115,7 @@ class TraceStats(object):
     def read_from_trace(self, is_seed: bool = False):
         """Read z3-trace from last read line."""
         with open(TRACE_FILE, 'r') as trace:
-            trace.seek(trans_offset)
+            trace.seek(trace_offset)
             lines = trace.readlines()
         states = [State(line) for line in lines]
         self.load_states(states)
@@ -123,9 +123,9 @@ class TraceStats(object):
             self.states = states
 
     def reset_trace_offset(self):
-        global trans_offset
+        global trace_offset
         with open(TRACE_FILE, 'r') as trace:
-            trans_offset = trace.seek(0, io.SEEK_END)
+            trace_offset = trace.seek(0, io.SEEK_END)
 
     def load_states(self, states: List[State]):
         hash_builder = hashlib.sha512()

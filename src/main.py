@@ -30,7 +30,7 @@ current_ctx = None
 ONE_INST_MUT_LIMIT = 1000
 MUT_AFTER_PROBLEM = 10
 MUT_WEIGHT_UPDATE_RUNS = 10000
-oracles_names = {'Eldarica'}
+oracles_names = {}
 
 
 def calc_sort_key(heuristic: str, stats, weights=None) -> int:
@@ -56,10 +56,6 @@ def calc_sort_key(heuristic: str, stats, weights=None) -> int:
 
 
 def check_satis(instance: Instance, is_seed: bool = False, get_stats: bool = True) -> bool:
-    """
-    Return True if the test suites have the same satisfiability and
-    False otherwise.
-    """
 
     global general_stats
     ctx = instance.chc.ctx
@@ -165,9 +161,9 @@ def log_run_info(status: str, message: str = None,
             if status != 'pass':
                 chain = mut_instance.mutation.get_chain()
                 log['mut_chain'] = chain
-                if status in {'bug', 'mutant_unknown'}:
+                if status in {'bug', 'mutant_unknown', 'error'}:
                     log['prev_chc'] = instance.chc.sexpr()
-                    log['excepted_satis'] = str(instance.satis)
+                    log['expected_satis'] = str(instance.satis)
 
     logging.info(json.dumps({'run_info': log}))
 
@@ -393,7 +389,7 @@ def fuzz(files: set):
         try:
             ensure_current_context_is_deletable()
             start_mut_ind = len(group.instances) - 1
-            instance.restore(is_seed=(start_mut_ind == 0))
+            instance.restore(ctx=current_ctx, is_seed=(start_mut_ind == 0))
             current_ctx = instance.chc.ctx
             mut_limit = ONE_INST_MUT_LIMIT
 
@@ -403,8 +399,10 @@ def fuzz(files: set):
 
             stats_limit -= 1
 
-            i = 0
+            i = -1
+            problems_num = 0
             while i < mut_limit:
+                i += 1
                 if i > 0:
                     counter['runs'] += 1
                 runs_before_weight_update -= 1
@@ -430,7 +428,9 @@ def fuzz(files: set):
                                       len(group.instances),
                                       repr(err),
                                       mut_instance.id)
-                    i = max(i + 1, mut_limit - MUT_AFTER_PROBLEM)
+
+                    i = max(i + 1, mut_limit - MUT_AFTER_PROBLEM - problems_num)
+                    problems_num += 1
                     instance = group[0]
                     start_mut_ind = 0
                     print_general_info(counter, mut_time)
@@ -445,7 +445,8 @@ def fuzz(files: set):
                     log_run_info('bug',
                                  instance=instance,
                                  mut_instance=mut_instance)
-                    i = max(i + 1, mut_limit - MUT_AFTER_PROBLEM)
+                    i = max(i + 1, mut_limit - MUT_AFTER_PROBLEM - problems_num)
+                    problems_num += 1
                     if i == mut_limit - 1:
                         queue.append(instance)
                     mut_instance.dump('output/bugs',
@@ -481,7 +482,6 @@ def fuzz(files: set):
                                      instance=instance,
                                      mut_instance=mut_instance)
                     instance = mut_instance
-                    i += 1
 
                 print_general_info(counter,
                                    solve_time,
