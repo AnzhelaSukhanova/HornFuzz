@@ -458,8 +458,6 @@ def fuzz(files: set):
                                      instance=instance,
                                      mut_instance=mut_instance)
                         problems_num += 1
-                        if problems_num == PROBLEMS_LIMIT:
-                            i = v
                         mut_instance.dump('output/bugs',
                                           group.filename,
                                           len(group.instances),
@@ -506,6 +504,8 @@ def fuzz(files: set):
                                  mut_instance=mut_instance)
                     print_general_info(counter)
 
+                if problems_num == PROBLEMS_LIMIT:
+                    i = ONE_INST_MUT_LIMIT
                 if i >= ONE_INST_MUT_LIMIT:
                     queue.append(instance)
 
@@ -542,7 +542,7 @@ def main():
     parser.add_argument('-options', '-opt',
                         nargs='*',
                         choices=['only_simplify', 'without_mutation_weights'],
-                        default=[],)
+                        default=[])
     argv = parser.parse_args()
 
     # help_simplify()
