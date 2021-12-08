@@ -631,7 +631,7 @@ class Mutation(object):
 
             else:
                 try:
-                    mut_type = random.choice(types_to_choose)[0]
+                    mut_type = random.choice(types_to_choose)
                 except IndexError:
                     mut_type = 'ID'
 
