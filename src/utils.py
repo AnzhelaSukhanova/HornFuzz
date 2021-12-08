@@ -62,11 +62,12 @@ class StatsType(Enum):
 
 
 stats_type = StatsType.DEFAULT
+with_difficulty_heur = False
 
 
 def set_stats_type(heuristics: defaultdict):
     """Set the type of statistics based on heuristics."""
-    global stats_type
+    global stats_type, with_difficulty_heur
 
     if heuristics['transitions'] and heuristics['states']:
         stats_type = StatsType.ALL
@@ -74,6 +75,9 @@ def set_stats_type(heuristics: defaultdict):
         stats_type = StatsType.TRANSITIONS
     elif heuristics['states']:
         stats_type = StatsType.STATES
+
+    if heuristics['difficulty']:
+        with_difficulty_heur = True
 
 
 class TraceStats(object):

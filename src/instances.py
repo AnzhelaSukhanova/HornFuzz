@@ -64,7 +64,6 @@ class InstanceGroup(object):
         self.instances = {0: seed}
         if not seed.chc:
             seed.restore(is_seed=True)
-        self.same_stats_limit = 5 * len(seed.chc)
         self.find_pred_info()
         self.analyze_vars()
 
@@ -96,6 +95,9 @@ class InstanceGroup(object):
         Find whether the chc-system is linear, the number of
         uninterpreted predicates and their set.
         """
+        if not only_simplify and not with_difficulty_heur:
+            return
+
         assert len(self.instances) > 0, "Instance group is empty"
         instance = self[-1]
         chc_system = instance.chc
@@ -195,8 +197,11 @@ class Instance(object):
     def set_chc(self, chc: AstVector):
         """Set the chc-system of the instance."""
         assert chc is not None, 'CHC-system wasn\'t given'
+
         self.chc = chc
         group = self.get_group()
+        group.same_stats_limit = 5 * len(self.chc)
+
         if not group.instances:
             chc_len = len(self.chc)
             self.info = ClauseInfo(chc_len)
@@ -249,11 +254,9 @@ class Instance(object):
         Get information about the existence of subexpressions of kind
         from info_kinds and about their .
         """
-        if self.chc is None:
+        if self.chc is None or only_simplify:
             return
 
-        group = self.get_group()
-        group.same_stats_limit = 5 * len(self.chc)
         info = self.info
         info.expr_exists = expr_exists(self.chc, info_kinds)
 
