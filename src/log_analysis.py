@@ -3,21 +3,14 @@ import argparse
 import math
 import os
 from collections import defaultdict
-from prettytable import PrettyTable
-from statistics import mean
 
 import pandas as pd
 import matplotlib.pyplot as plt
 
-INPUTS_GROUP_NUM = 500
+INPUTS_GROUP_NUM = 1
 MUT_TABLE_COLUMN_NUMBER = 8
 
 unique_traces = 0
-mutations = set()
-mut_traces_axis = defaultdict(list)
-mut_num_axis = defaultdict(list)
-mut_traces = defaultdict(int)
-mut_num = defaultdict(int)
 
 
 class Stats:
@@ -69,73 +62,22 @@ class Stats:
         ax.set_xlabel('Inputs solved')
         ax.plot(num_axis, unique_traces_axis)
 
-    def get_mutation_stats(self):
-        global unique_traces
-        ind = self.df['mut_type'].notnull()
-
-        for i, entry in self.df[ind].iterrows():
-            if not unique_traces:
-                unique_traces = self.df.loc[i - 1]['unique_traces']
-            mut = entry['mut_type'].split('(')[0]
-            mutations.add(mut)
-            new_unique_traces = self.df.loc[i + 1]['unique_traces']
-            mut_traces[mut] += new_unique_traces - unique_traces
-            mut_traces_axis[mut].append(mut_traces[mut])
-            mut_num[mut] += 1
-            mut_num_axis[mut].append(mut_num[mut])
-            unique_traces = new_unique_traces
-
-        self.create_mutation_table()
-
-    def create_mutation_table(self):
-        groups_num = []
-        for mut in mutations:
-            groups_num.append(mut_num[mut] // INPUTS_GROUP_NUM)
-        groups_lim = round(mean(groups_num))
-        rows = [INPUTS_GROUP_NUM * i for i in range(1, groups_lim + 1)] + \
-               ['——', 'Average']
-        columns = defaultdict(list)
-
-        for mut in mutations:
-            mut_num_axis[mut].insert(0, 0)
-            mut_traces_axis[mut].insert(0, 0)
-
-            avg = 0
-            for i in range(len(rows[:-2])):
-                num = rows[i]
-                if mut_num_axis[mut][-1] >= num:
-                    columns[mut].append(
-                        round(mut_traces_axis[mut][num] / num, 4))
-                else:
-                    if not avg:
-                        avg = mean(columns[mut])
-                    columns[mut].append('')
-            if not avg:
-                avg = mean(columns[mut])
-            columns[mut] += ['——', (round(avg, 4))]
-            print('mut_types[\'' + str(mut) + '\'] =', round(avg, 4))
-
-        columns = {mut: col for mut, col in
-                   sorted(columns.items(), key=lambda item: item[1][-1])}
-
-        with open('stats/mut_table.' + self.logfile + '.txt', 'a') as file:
-            file.truncate(0)
-            for i, mut in enumerate(columns):
-                if i % MUT_TABLE_COLUMN_NUMBER == 0:
-                    if i > 0:
-                        file.write(table.get_string() + '\n')
-                    table = PrettyTable()
-                    table.add_column('Mutated inputs', rows)
-                table.add_column(mut, columns[mut])
-            if len(columns) < MUT_TABLE_COLUMN_NUMBER:
-                file.write(table.get_string() + '\n')
+    def get_mutation_weights(self):
+        entries_ind = self.df[self.df['SWAP_AND'].notnull()].index.tolist()
+        last_ind = entries_ind[-1]
+        last_entry = self.df.iloc[last_ind]
+        mut_weights_ind = last_entry.notnull()
+        mut_weights = last_entry[mut_weights_ind]
+        with open('stats/mut_weights.txt', 'w+') as file:
+            file.write(mut_weights.to_string())
 
     def analyze_entries(self, status: str):
         print('_______________' + status +
               '_______________', end='\n')
         ind = self.df['status'] == status
         for i, entry in self.df.loc[ind].iterrows():
-            print(entry['filename'], end='\n')
+            print(entry['filename'], entry['message'],
+                  end='\n')
 
 
 def analyze(log_names: list, options: list, select: list):
@@ -161,8 +103,9 @@ def analyze(log_names: list, options: list, select: list):
                 if not cur_stats.seed_num and 'seed_number' in entry:
                     info = entry
                     cur_stats.seed_num = info['seed_number']
-                else:
+                elif 'context_deletion_error' not in entry:
                     entries.append(list(entry.values())[0])
+
             except Exception:
                 print('Can\'t read the line:', line)
         cur_stats.df = pd.DataFrame(entries)
@@ -186,7 +129,7 @@ def analyze(log_names: list, options: list, select: list):
         if 'time' in options:
             cur_stats.create_time_graph(times)
         if 'mutations' in options:
-            cur_stats.get_mutation_stats()
+            cur_stats.get_mutation_weights()
 
     for cur_stats in stats:
         if 'traces' in options:
