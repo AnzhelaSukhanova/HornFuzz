@@ -180,7 +180,6 @@ class Instance(object):
         if chc is not None:
             self.set_chc(chc)
         self.satis = unknown
-        self.model = None
         self.trace_stats = TraceStats()
         self.sort_key = 0
         self.info = ClauseInfo(0)
@@ -223,8 +222,6 @@ class Instance(object):
 
         solver.add(self.chc)
         self.satis = solver.check()
-        if self.satis == sat:
-            self.model = solver.model()
 
         if get_stats:
             self.trace_stats.read_from_trace(is_seed)
