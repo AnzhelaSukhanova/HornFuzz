@@ -203,21 +203,18 @@ def equivalence_check(seed_file: str, mut_file: str) -> bool:
     seed = parse_smt2_file(seed_file, ctx=current_ctx)
     mutant = parse_smt2_file(mut_file, ctx=current_ctx)
 
-    solver = SolverFor('HORN', ctx=current_ctx)
-    solver.set('engine', 'spacer')
+    solver = Solver(ctx=current_ctx)
 
     for i, clause in enumerate(seed):
+        solver.reset()
         mut_clause = mutant[i]
         expr = Xor(clause, mut_clause, ctx=current_ctx)
         solver.add(expr)
-
-    result = solver.check()
-    if result == sat:
-        return False
-    elif result == unsat:
-        return True
-    else:
-        assert False, solver.reason_unknown()
+        result = solver.check()
+        if result == sat:
+            return False
+        assert result != unknown, solver.reason_unknown()
+    return True
 
 
 def main():
