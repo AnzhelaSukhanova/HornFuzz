@@ -2,6 +2,7 @@ import math
 import time
 import json
 import re
+import traceback
 from utils import *
 
 MUT_APPLY_TIME_LIMIT = 10
@@ -63,7 +64,7 @@ class InstanceGroup(object):
         seed = self[0]
         self.instances = {0: seed}
         if not seed.chc:
-            seed.restore(is_seed=True)
+            seed.restore(ctx=Context(), is_seed=True)
         self.find_pred_info()
         self.analyze_vars()
 
@@ -164,11 +165,15 @@ class InstanceGroup(object):
         self.push(instance)
 
         for mut in mutations:
-            mut_instance = Instance(id)
-            mut_instance.mutation.restore(mut)
-            mut_instance.mutation.apply(instance, mut_instance)
-            self.push(mut_instance)
-            instance = mut_instance
+            try:
+                mut_instance = Instance(id)
+                mut_instance.mutation.restore(mut)
+                mut_instance.mutation.apply(instance, mut_instance)
+                self.push(mut_instance)
+                instance = mut_instance
+            except AssertionError as err:
+                message = traceback.format_exc()
+                print(message)
 
 
 class Instance(object):

@@ -2,7 +2,6 @@ import argparse
 import faulthandler
 import gc
 import logging
-import traceback
 import itertools
 from typing import Optional
 
@@ -164,7 +163,7 @@ def log_run_info(status: str, message: str = None,
         else:
             mutant_info = mut_instance.get_log()
             log.update(mutant_info)
-            if status != 'pass':
+            if status not in {'pass', 'without_change'}:
                 chain = mut_instance.mutation.get_chain()
                 log['mut_chain'] = chain
                 if status in {'bug', 'mutant_unknown', 'error'}:
@@ -514,9 +513,8 @@ def fuzz(files: set):
 
                 if problems_num == PROBLEMS_LIMIT:
                     i = ONE_INST_MUT_LIMIT
-                if i >= ONE_INST_MUT_LIMIT:
-                    queue.append(instance)
 
+            queue.append(instance)
             instance.dump('output/last_mutants',
                           group.filename,
                           start_mut_ind)
@@ -572,6 +570,7 @@ def main():
     if heuristic_flags['transitions'] or heuristic_flags['states']:
         general_stats = TraceStats()
     options = argv.options
+    with_oracles = 'with_oracles' in options
 
     directory = os.path.dirname(os.path.dirname(parser.prog))
     if directory:
@@ -583,7 +582,6 @@ def main():
     seed_number = len(files)
     assert seed_number > 0, 'Seeds not found'
 
-    with_oracles = 'with_oracles' in options
     fuzz(files)
 
 

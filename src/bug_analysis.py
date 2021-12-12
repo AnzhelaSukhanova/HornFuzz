@@ -199,6 +199,27 @@ def redo_mutations(filename: str, mutations):
         assert False, 'Bug not found'
 
 
+def equivalence_check(seed_file: str, mut_file: str) -> bool:
+    seed = parse_smt2_file(seed_file, ctx=current_ctx)
+    mutant = parse_smt2_file(mut_file, ctx=current_ctx)
+
+    solver = SolverFor('HORN', ctx=current_ctx)
+    solver.set('engine', 'spacer')
+
+    for i, clause in enumerate(seed):
+        mut_clause = mutant[i]
+        expr = Xor(clause, mut_clause, ctx=current_ctx)
+        solver.add(expr)
+
+    result = solver.check()
+    if result == sat:
+        return False
+    elif result == unsat:
+        return True
+    else:
+        assert False, solver.reason_unknown()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('file',
@@ -210,14 +231,24 @@ def main():
                         default='',
                         help='chain of mutations to be applied '
                              'to the instance from the file')
+    parser.add_argument('-bug_file',
+                        nargs='?',
+                        default=None)
     argv = parser.parse_args()
+
     if not argv.file:
         reduce()
     else:
-        if not argv.mut_chain:
-            assert False, 'The chain of mutations not given'
-        mutations = argv.mut_chain.split('->')
-        redo_mutations(argv.file, mutations)
+        if argv.bug_file:
+            if equivalence_check(argv.file, argv.bug_file):
+                print('The mutant is equivalent to its seed')
+            else:
+                assert False, 'The mutant is not equivalent to its seed'
+        else:
+            if not argv.mut_chain:
+                assert False, 'The chain of mutations not given'
+            mutations = argv.mut_chain.split('->')
+            redo_mutations(argv.file, mutations)
 
 
 if __name__ == '__main__':
