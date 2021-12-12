@@ -33,6 +33,8 @@ general_stats = None
 ONE_INST_MUT_LIMIT = 1000
 PROBLEMS_LIMIT = 10
 MUT_WEIGHT_UPDATE_RUNS = 10000
+
+with_oracles = False
 oracles_names = {'Eldarica'}
 
 
@@ -130,7 +132,8 @@ def print_general_info(counter: defaultdict, solve_time: time = None,
               'Timeout:', counter['timeout'],
               'Unknown:', counter['unknown'],
               'Errors:', counter['error'])
-        print('Solver conflicts:', counter['conflict'])
+        if with_oracles and counter['runs'] > seed_number:
+            print('Solver conflicts:', counter['conflict'])
     log['unique_traces'] = traces_num
     if traces_num:
         print('Unique traces:', traces_num, '\n')
@@ -404,9 +407,10 @@ def fuzz(files: set):
 
             stats_limit -= 1
 
-            i = -1
+            i = 0
             problems_num = 0
             mut_types_exc = set()
+
             while i < ONE_INST_MUT_LIMIT:
                 if i > 0:
                     counter['runs'] += 1
@@ -474,11 +478,15 @@ def fuzz(files: set):
                         start_mut_ind = 0
 
                     else:
-                        found_problem, states = compare_satis(mut_instance)
+                        if with_oracles:
+                            found_problem, states = compare_satis(mut_instance)
+                        else:
+                            found_problem = False
                         group.push(mut_instance)
                         if not heuristic_flags['default'] and \
                                 len(instance_groups) > 1:
                             stats_limit = group.check_stats(stats_limit)
+
                         if found_problem:
                             log_run_info('oracle_bug',
                                          message=str(states),
@@ -525,7 +533,8 @@ def fuzz(files: set):
 
 
 def main():
-    global general_stats, heuristics, heuristic_flags, options, seed_number
+    global general_stats, heuristics, heuristic_flags, \
+        options, seed_number, with_oracles
 
     parser = argparse.ArgumentParser()
     parser.add_argument('seeds',
@@ -541,7 +550,8 @@ def main():
 
     parser.add_argument('-options', '-opt',
                         nargs='*',
-                        choices=['only_simplify', 'without_mutation_weights'],
+                        choices=['only_simplify', 'without_mutation_weights',
+                                 'with_oracles'],
                         default=[])
     argv = parser.parse_args()
 
@@ -573,6 +583,7 @@ def main():
     seed_number = len(files)
     assert seed_number > 0, 'Seeds not found'
 
+    with_oracles = 'with_oracles' in options
     fuzz(files)
 
 

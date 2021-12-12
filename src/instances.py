@@ -678,6 +678,8 @@ class Mutation(object):
 
                 if rewritten_clause.sexpr() == clause.sexpr():
                     self.simplify_changed = False
+
+                del cur_clause, rewritten_clause
             else:
                 clause = chc_system[i]
             mut_system.push(clause)
@@ -723,13 +725,17 @@ class Mutation(object):
         ctx = instance.chc.ctx
 
         bv_size = math.floor(math.log2(len(body_vars) + 1))
+        bv_size = max(bv_size, 1)
         bv = FreshConst(BitVecSort(bv_size, ctx=ctx), prefix='bv')
         body_vars.append(bv)
         body = body_upred
         for i, var in enumerate(body_vars):
-            expr = Not(bv + i >= 0, ctx=ctx)
             body = Not(body, ctx=ctx)
+            expr = Not(bv + i >= 0, ctx=ctx)
             body = Not(Or(body, expr), ctx=ctx)
+            if len(body_vars) == 1:
+                expr = Not(bv + 1 >= 0, ctx=ctx)
+                body = Not(Or(body, expr), ctx=ctx)
             body = Not(ForAll([var], Not(body, ctx=ctx)), ctx=ctx)
 
         implication = Implies(body, head, ctx=ctx)
