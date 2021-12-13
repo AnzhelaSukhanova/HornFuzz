@@ -165,9 +165,9 @@ class InstanceGroup(object):
         self.push(instance)
 
         for mut in mutations:
+            mut_instance = Instance(id)
+            mut_instance.mutation.restore(mut)
             try:
-                mut_instance = Instance(id)
-                mut_instance.mutation.restore(mut)
                 mut_instance.mutation.apply(instance, mut_instance)
                 self.push(mut_instance)
                 instance = mut_instance
@@ -529,7 +529,7 @@ class Mutation(object):
         self.type = 'ID'
         self.number = prev_mutation.number + 1 if prev_mutation else 0
         self.path = [None]
-        self.kind_ind = 0
+        self.kind_ind = None
         self.prev_mutation = prev_mutation
         self.applied = False
         self.trans_num = None
@@ -597,7 +597,7 @@ class Mutation(object):
         types_to_choose = set()
         info = instance.info
 
-        if self.type == 'ID' or not self.kind_ind:
+        if self.type == 'ID' or self.kind_ind is None:
             if not only_simplify:
                 for i in range(len(info_kinds)):
                     if info.expr_exists[i]:
@@ -645,7 +645,7 @@ class Mutation(object):
 
             self.type = mut_type
 
-        if not self.kind_ind:
+        if self.kind_ind is None:
             if self.type == 'ADD_INEQ':
                 self.kind_ind = random.choices(mult_kinds[self.type])[0]
             elif self.type in type_kind_corr:
@@ -788,7 +788,7 @@ class Mutation(object):
         chc_system = instance.chc
         kind = info_kinds[self.kind_ind]
 
-        if not self.trans_num:
+        if self.trans_num is None:
             ind = np.where(info.is_expr_in_clause[self.kind_ind])[0]
             i = int(random.choice(ind))
             clause = chc_system[i]
@@ -915,7 +915,7 @@ class Mutation(object):
 
     def restore(self, mut_entry):
         """Restore mutations by log or chain."""
-        if type(mut_entry) == list:
+        if type(mut_entry) == dict:
             for field in mut_entry:
                 setattr(self, field, mut_entry[field])
 
@@ -959,6 +959,5 @@ def create_add_ineq(children, expr_kind: int) -> BoolRef:
         new_child = children[1] - 1
         new_ineq = children[0] > new_child
     else:
-        print(expr_kind)
         assert False, 'Incorrect kind of expression'
     return new_ineq

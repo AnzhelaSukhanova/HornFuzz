@@ -188,7 +188,7 @@ def redo_mutations(filename: str, mutations):
     id = 0
     group = InstanceGroup(id, filename)
     group.restore(id, mutations, ctx=current_ctx)
-    instance = group[-1]
+    instance = group.pop()
     res = check_satis(instance)
     if not res:
         instance.dump('output/bugs',
