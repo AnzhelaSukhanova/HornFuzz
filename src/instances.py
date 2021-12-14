@@ -919,7 +919,7 @@ class Mutation(object):
             for field in mut_entry:
                 setattr(self, field, mut_entry[field])
 
-        elif type(mut_entry) == str:
+        elif type(mut_entry) == str and mut_entry != 'nan':
             mut_info = re.findall(r"[\w]+|[0-9]+", mut_entry)
             self.type = mut_info[0]
 

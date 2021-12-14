@@ -110,13 +110,10 @@ def undo_mutations(instance: Instance, ind: range) -> InstanceGroup:
         mut_instance = Instance(last_instance.group_id)
         mut_instance.mutation = group[i].mutation
         mut = mut_instance.mutation
-        info = last_instance.info
-        if mut.trans_num is not None:
-            clause_ind = mut.path[0]
-            expr_num = info.expr_num[mut.kind_ind][clause_ind]
-            if mut.trans_num >= expr_num:
-                return group
-        mut.apply(last_instance, mut_instance)
+        try:
+            mut.apply(last_instance, mut_instance)
+        except AssertionError:
+            return group
         new_group.push(mut_instance)
         last_instance = mut_instance
 
@@ -171,6 +168,15 @@ def reduce():
             'Incorrect mutant-restoration'
 
         mut_instance = reduce_mut_chain(mut_instance, message)
+
+        if not os.path.exists('output/reduced'):
+            os.mkdir('output/reduced')
+            for dir in {'spacer-benchmarks/', 'chc-comp21-benchmarks/',
+                        'sv-benchmarks-clauses/'}:
+                for subdir in os.walk(dir):
+                    dir_path = dir + '/' + subdir[0]
+                    if not os.path.exists(dir_path):
+                        os.mkdir(dir_path)
         try:
             reduced_chc = reduce_instance(instance,
                                           mut_instance.mutation,

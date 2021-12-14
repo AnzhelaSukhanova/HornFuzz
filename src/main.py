@@ -68,7 +68,7 @@ def check_satis(instance: Instance, is_seed: bool = False, get_stats: bool = Tru
 
     instance.check(solver, is_seed, get_stats)
     group = instance.get_group()
-    satis = group[-1].satis if not is_seed else instance.satis
+    satis = group[1].satis if not is_seed else instance.satis
 
     if get_stats and (heuristic_flags['transitions'] or
                       heuristic_flags['states']):
@@ -590,24 +590,18 @@ def create_output_dirs():
 
     if not os.path.exists('output'):
         os.mkdir('output')
-    for dir in {'output/last_mutants', 'output/reduced',
-                'output/ctx', 'output/bugs',
-                'output/problems'}:
+    for dir in {'output/last_mutants', 'output/ctx',
+                'output/bugs', 'output/problems'}:
         if not os.path.exists(dir):
             os.mkdir(dir)
         if dir != 'output':
-            for subdir in os.walk('spacer-benchmarks/'):
-                dir_path = dir + '/' + subdir[0]
-                if not os.path.exists(dir_path):
-                    os.mkdir(dir_path)
-            for subdir in os.walk('chc-comp21-benchmarks/'):
-                dir_path = dir + '/' + subdir[0]
-                if not os.path.exists(dir_path):
-                    os.mkdir(dir_path)
-            for subdir in os.walk('sv-benchmarks-clauses/'):
-                dir_path = dir + '/' + subdir[0]
-                if not os.path.exists(dir_path):
-                    os.mkdir(dir_path)
+            for benchmark_dir in {'spacer-benchmarks/',
+                                  'chc-comp21-benchmarks/',
+                                  'sv-benchmarks-clauses/'}:
+                for subdir in os.walk(benchmark_dir):
+                    dir_path = dir + '/' + subdir[0]
+                    if not os.path.exists(dir_path):
+                        os.mkdir(dir_path)
 
 
 if __name__ == '__main__':
