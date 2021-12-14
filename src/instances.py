@@ -597,7 +597,8 @@ class Mutation(object):
         types_to_choose = set()
         info = instance.info
 
-        if self.type == 'ID' or self.kind_ind is None:
+        if self.type == 'ID' or \
+                (self.type in type_kind_corr and self.kind_ind is None):
             if not only_simplify:
                 for i in range(len(info_kinds)):
                     if info.expr_exists[i]:
@@ -645,13 +646,11 @@ class Mutation(object):
 
             self.type = mut_type
 
-        if self.kind_ind is None:
+        if self.type in type_kind_corr and self.kind_ind is None:
             if self.type == 'ADD_INEQ':
                 self.kind_ind = random.choices(mult_kinds[self.type])[0]
-            elif self.type in type_kind_corr:
-                self.kind_ind = type_kind_corr[self.type]
             else:
-                pass
+                self.kind_ind = type_kind_corr[self.type]
 
     def simplify_by_one(self, chc_system: AstVector) -> AstVector:
         """Simplify instance with arith_ineq_lhs, arith_lhs and eq2ineq."""

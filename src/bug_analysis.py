@@ -27,6 +27,7 @@ def reduce_instance(instance: Instance, mutation: Mutation,
                     message: str = None) -> Instance:
     """Reduce the chc-system causing the problem."""
 
+    print('Instance reducing')
     group = instance.get_group()
     new_instance = deepcopy(instance)
     new_instance.mutation = mutation
@@ -77,6 +78,7 @@ def reduce_mut_chain(instance: Instance, message: str = None) -> Instance:
     chunk_size = initial_size // 2
 
     while chunk_size:
+        print('Chunk size:', chunk_size)
         for i in range(initial_size - 1, 0, -chunk_size):
             from_ind = max(i - chunk_size + 1, 1)
             ind_chunk = range(from_ind, i + 1)
@@ -87,12 +89,13 @@ def reduce_mut_chain(instance: Instance, message: str = None) -> Instance:
                 group = new_group
 
             if chunk_size == 1:
-                if group[ind_chunk[0]].mutation.type == 'SIMPLIFY':
-                    group[ind_chunk[0]] = reduce_simplify(group[ind_chunk[0] - 1], message)
+                mut_type = group[ind_chunk[0]].mutation.type
+                if mut_type not in type_kind_corr:
+                    group[ind_chunk[0]] = reduce_simplify(group[ind_chunk[0] - 1], mut_type, message)
         chunk_size //= 2
 
-    instance = group[-1]
-    group.pop()
+    instance = group.pop()
+    print(instance.mutation.get_chain())
     return instance
 
 
@@ -120,20 +123,12 @@ def undo_mutations(instance: Instance, ind: range) -> InstanceGroup:
     return new_group
 
 
-def reduce_simplify(instance: Instance, message: str = None) -> Instance:
+def reduce_simplify(instance: Instance, mut_type: str, message: str = None) -> Instance:
     """Reduce the applying of SIMPLIFY"""
 
     mut_instance = Instance(instance.group_id)
     mut = mut_instance.mutation
-    mut.type = 'SIMPLIFY'
-    flags_num = len(mut.simp_flags)
-
-    for i in range(flags_num):
-        mut.simp_flags[i] = False
-        mut.apply(instance, mut_instance)
-        if not is_same_res(mut_instance, message=message):
-            mut.simp_flags[i] = True
-        mut_instance.set_chc(instance.chc)
+    mut.type = mut_type
 
     mut.path[0] = [i for i in range(len(instance.chc))]
     for i in range(len(instance.chc)):
@@ -152,6 +147,7 @@ def reduce_simplify(instance: Instance, message: str = None) -> Instance:
 def reduce():
     filenames = get_filenames('output/bugs')
     for i, filename in enumerate(filenames):
+        print(filename)
         with open(filename) as file:
             mut_line = file.readline()[2:]
             message = file.readline()
