@@ -32,8 +32,15 @@ def reduce_instance(seed: Instance, bug_instance: Instance,
 
     for i, clause in enumerate(instance.chc):
         print('Clause:', i)
-        expr_set = {clause}
-        trans_number = 0
+        fst_child = clause.children()[0] if clause.children() else None
+        if is_quantifier(clause):
+            expr_set = {clause.body()}
+        elif is_not(clause) and fst_child.is_exists():
+            expr_set = {fst_child.body()}
+        else:
+            expr_set = {clause}
+        trans_number = 1
+
         while len(expr_set):
             cur_expr = expr_set.pop()
             children = cur_expr.children()
@@ -49,13 +56,18 @@ def reduce_instance(seed: Instance, bug_instance: Instance,
                     instance.set_chc(mutation.transform(instance))
                 except Exception as err:
                     print(repr(err))
+                    instance.set_chc(bug_instance.chc)
+                    expr_set.add(child)
+                    continue
 
-                if not is_same_res(instance, message=message) and equivalence_check(seed, instance):
+                is_eq = equivalence_check(seed, instance)
+                if is_same_res(instance, message=message) and is_eq:
                     bug_instance.set_chc(instance.chc)
                     print('Reduced:', trans_number)
                 else:
                     instance.set_chc(bug_instance.chc)
                     expr_set.add(child)
+                    # print('Cannot be reduced:', trans_number)
     return bug_instance
 
 
@@ -145,37 +157,36 @@ def reduce(reduce_chain: bool = False):
             message = file.readline()
             message = message[2:] if message[0] == ';' else None
 
-        mutations = json.loads(mut_line)
         filename = '/'.join(filename.split('/')[2:])
         seed_name = '_'.join(filename.split('_')[:-1]) + '.smt2'
         group = InstanceGroup(i, seed_name)
 
         if reduce_chain:
+            mutations = json.loads(mut_line)
             group.restore(i, mutations, ctx=current_ctx)
             mut_instance = group[-1]
             assert is_same_res(mut_instance, message=message), \
                 'Incorrect mutant-restoration'
             mut_instance = reduce_mut_chain(mut_instance, message)
         else:
-            group.restore(i, [], ctx=current_ctx)
+            group.restore(i, {}, ctx=current_ctx)
             mut_system = parse_smt2_file('output/bugs/' + filename, ctx=current_ctx)
             mut_instance = Instance(i, mut_system)
             assert is_same_res(mut_instance, message=message), \
                 'Incorrect mutant-restoration'
 
-        if not os.path.exists('output/reduced'):
-            os.mkdir('output/reduced')
-            for dir in {'spacer-benchmarks/', 'chc-comp21-benchmarks/',
-                        'sv-benchmarks-clauses/'}:
-                for subdir in os.walk(dir):
-                    dir_path = dir + '/' + subdir[0]
-                    if not os.path.exists(dir_path):
-                        os.mkdir(dir_path)
+        reduce_dir = 'output/reduced/'
+        if not os.path.exists(reduce_dir):
+            os.mkdir(reduce_dir)
+        for dir in {'spacer-benchmarks/', 'chc-comp21-benchmarks/',
+                    'sv-benchmarks-clauses/'}:
+            for subdir in os.walk(dir):
+                dir_path = reduce_dir + subdir[0]
+                if not os.path.exists(dir_path):
+                    os.mkdir(dir_path)
         try:
-            reduced_chc = reduce_instance(group[0],
-                                          mut_instance,
-                                          message)
-            reduced_chc.dump('output/reduced', seed_name, 0)
+            reduced_instance = reduce_instance(group[0], mut_instance, message)
+            reduced_instance.dump('output/reduced', seed_name, 0)
         except Exception:
             print(traceback.format_exc())
 
@@ -200,9 +211,9 @@ def redo_mutations(filename: str, mutations):
 def equivalence_check(seed: Instance, mutant: Instance) -> bool:
     solver = Solver(ctx=current_ctx)
 
-    for i, clause in enumerate(seed):
+    for i, clause in enumerate(seed.chc):
         solver.reset()
-        mut_clause = mutant[i]
+        mut_clause = mutant.chc[i]
         expr = Xor(clause, mut_clause, ctx=current_ctx)
         solver.add(expr)
         result = solver.check()

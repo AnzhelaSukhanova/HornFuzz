@@ -217,6 +217,15 @@ def update_expr(expr, children, vars: list = None):
     if not is_quantifier(expr):
         for i in range(len(children)):
             upd_expr = substitute(upd_expr, (old_children[i], children[i]))
+        for i in range(len(children), len(old_children) - 1):
+            if is_and(expr):
+                true = BoolVal(True, ctx=expr.ctx)
+                upd_expr = substitute(upd_expr, (old_children[i], true))
+            elif is_or(expr):
+                false = BoolVal(False, ctx=expr.ctx)
+                upd_expr = substitute(upd_expr, (old_children[i], false))
+            else:
+                assert expr.arity() > 2, 'Incorrect substitution'
     else:
         if vars is None:
             vars = get_bound_vars(expr)

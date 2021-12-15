@@ -815,7 +815,7 @@ class Mutation(object):
                                         [clause_ind])
         assert self.applied, 'Mutation ' + self.type + ' wasn\'t applied'
         for j, clause in enumerate(chc_system):
-            if j == clause_ind and mut_clause is not None:
+            if j == clause_ind:
                 mut_system.push(mut_clause)
             else:
                 mut_system.push(chc_system[j])
@@ -873,6 +873,7 @@ class Mutation(object):
         if mut_children:
             return update_expr(expr, mut_children)
         else:
+            self.applied = False
             return None
 
     def get_chain(self, in_log_format=False):
