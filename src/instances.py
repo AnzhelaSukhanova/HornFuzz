@@ -787,7 +787,7 @@ class Mutation(object):
         chc_system = instance.chc
         kind = info_kinds[self.kind_ind]
 
-        if self.trans_num is None:
+        if self.trans_num is None and len(self.path) == 0:
             ind = np.where(info.is_expr_in_clause[self.kind_ind])[0]
             i = int(random.choice(ind))
             clause = chc_system[i]
@@ -815,7 +815,7 @@ class Mutation(object):
                                         [clause_ind])
         assert self.applied, 'Mutation ' + self.type + ' wasn\'t applied'
         for j, clause in enumerate(chc_system):
-            if j == clause_ind:
+            if j == clause_ind and mut_clause is not None:
                 mut_system.push(mut_clause)
             else:
                 mut_system.push(chc_system[j])
@@ -827,7 +827,9 @@ class Mutation(object):
         if not len(expr.children()):
             return expr
 
-        if is_app_of(expr, expr_kind) or check_ast_kind(expr, expr_kind):
+        if expr_kind is None or \
+                is_app_of(expr, expr_kind) or \
+                check_ast_kind(expr, expr_kind):
             if trans_n == 0:
                 children = expr.children()
                 if self.type in {'SWAP_AND', 'SWAP_OR'}:
@@ -850,6 +852,8 @@ class Mutation(object):
                     vars = get_bound_vars(expr)
                     shuffle_vars(vars)
                     mut_expr = update_expr(expr, children, vars)
+                elif self.type == 'REMOVE_EXPR':
+                    mut_expr = None
                 else:
                     mut_expr = And([expr, new_ineq])
                 self.path = path
@@ -861,11 +865,15 @@ class Mutation(object):
         for i, child in enumerate(expr.children()):
             new_path = path + [i]
             if trans_n >= 0:
-                mut_children.append(
-                    self.transform_nth(child, expr_kind, new_path))
+                mut_child = self.transform_nth(child, expr_kind, new_path)
+                if mut_child is not None:
+                    mut_children.append(mut_child)
             else:
                 mut_children.append(child)
-        return update_expr(expr, mut_children)
+        if mut_children:
+            return update_expr(expr, mut_children)
+        else:
+            return None
 
     def get_chain(self, in_log_format=False):
         """Return the full mutation chain."""

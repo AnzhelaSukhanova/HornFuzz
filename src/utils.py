@@ -15,7 +15,7 @@ trace_states = defaultdict(int)
 trace_offset = 0
 info_kinds = [Z3_OP_AND, Z3_OP_OR, Z3_QUANTIFIER_AST,
               Z3_OP_LE, Z3_OP_GE, Z3_OP_LT, Z3_OP_GT,
-              Z3_OP_UNINTERPRETED]
+              Z3_OP_UNINTERPRETED, None]
 
 
 class State(object):
