@@ -53,6 +53,7 @@ def reduce_instance(seed: Instance, bug_instance: Instance,
                 mutation.kind_ind = -1
 
                 try:
+                    last_chc = instance.chc
                     instance.set_chc(mutation.transform(instance))
                 except Exception as err:
                     print(repr(err))
@@ -60,7 +61,7 @@ def reduce_instance(seed: Instance, bug_instance: Instance,
                     expr_set.add(child)
                     continue
 
-                is_eq = equivalence_check(seed, instance)
+                is_eq = equivalence_check(seed.chc, instance.chc)
                 if is_same_res(instance, message=message) and is_eq:
                     bug_instance.set_chc(instance.chc)
                     print('Reduced:', trans_number)
@@ -152,17 +153,10 @@ def reduce(reduce_chain: bool = False):
     filenames = get_filenames('output/bugs')
     for i, filename in enumerate(filenames):
         print(filename)
-        with open(filename) as file:
-            mut_line = file.readline()[2:]
-            message = file.readline()
-            message = message[2:] if message[0] == ';' else None
-
-        filename = '/'.join(filename.split('/')[2:])
-        seed_name = '_'.join(filename.split('_')[:-1]) + '.smt2'
+        mutations, message, seed_name = get_bug_info(filename)
         group = InstanceGroup(i, seed_name)
 
         if reduce_chain:
-            mutations = json.loads(mut_line)
             group.restore(i, mutations, ctx=current_ctx)
             mut_instance = group[-1]
             assert is_same_res(mut_instance, message=message), \
@@ -170,7 +164,7 @@ def reduce(reduce_chain: bool = False):
             mut_instance = reduce_mut_chain(mut_instance, message)
         else:
             group.restore(i, {}, ctx=current_ctx)
-            mut_system = parse_smt2_file('output/bugs/' + filename, ctx=current_ctx)
+            mut_system = parse_smt2_file(filename, ctx=current_ctx)
             mut_instance = Instance(i, mut_system)
             assert is_same_res(mut_instance, message=message), \
                 'Incorrect mutant-restoration'
@@ -191,15 +185,27 @@ def reduce(reduce_chain: bool = False):
             print(traceback.format_exc())
 
 
-def redo_mutations(filename: str, mutations):
-    """Reproduce the bug."""
+def get_bug_info(filename: str):
+    with open(filename) as file:
+        mut_line = file.readline()[2:]
+        message = file.readline()
+        message = message[2:] if message[0] == ';' else None
 
+    mutations = json.loads(mut_line)
+    filename = '/'.join(filename.split('/')[2:])
+    seed_name = '_'.join(filename.split('_')[:-1]) + '.smt2'
+
+    return mutations, message, seed_name
+
+
+def redo_mutations(filename: str):
+    """Reproduce the bug."""
+    mutations, message, seed_name = get_bug_info(filename)
     id = 0
-    group = InstanceGroup(id, filename)
+    group = InstanceGroup(id, seed_name)
     group.restore(id, mutations, ctx=current_ctx)
     instance = group.pop()
-    res = check_satis(instance)
-    if not res:
+    if is_same_res(instance, message=message):
         instance.dump('output/bugs',
                       group.filename,
                       0,
@@ -211,51 +217,42 @@ def redo_mutations(filename: str, mutations):
 def equivalence_check(seed: Instance, mutant: Instance) -> bool:
     solver = Solver(ctx=current_ctx)
 
-    for i, clause in enumerate(seed.chc):
+    for i, clause in enumerate(seed):
         solver.reset()
-        mut_clause = mutant.chc[i]
+        mut_clause = mutant[i]
         expr = Xor(clause, mut_clause, ctx=current_ctx)
         solver.add(expr)
         result = solver.check()
-        if result == sat:
+        if result != unsat:
             return False
-        assert result != unknown, solver.reason_unknown()
     return True
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('file',
+    parser.add_argument('bug_file',
                         nargs='?',
-                        default=None,
-                        help='file to reproduce the bug')
-    parser.add_argument('mut_chain',
-                        nargs='?',
-                        default='',
-                        help='chain of mutations to be applied '
-                             'to the instance from the file')
-    parser.add_argument('-bug_file',
+                        default=None)
+    parser.add_argument('seed_file',
                         nargs='?',
                         default=None)
     parser.add_argument('-reduce_chain', action='store_true')
+    parser.add_argument('-reproduce', action='store_true')
     argv = parser.parse_args()
 
     init_mut_types([])
-    if not argv.file:
-        reduce(argv.reduce_chain)
-    else:
-        if argv.bug_file:
-            seed = parse_smt2_file(argv.file, ctx=current_ctx)
-            mutant = parse_smt2_file(argv.bug_file, ctx=current_ctx)
-            if equivalence_check(seed, mutant):
-                print('The mutant is equivalent to its seed')
-            else:
-                assert False, 'The mutant is not equivalent to its seed'
+    if not argv.seed_file:
+        if not argv.reproduce:
+            reduce(argv.reduce_chain)
         else:
-            if not argv.mut_chain:
-                assert False, 'The chain of mutations not given'
-            mutations = argv.mut_chain.split('->')
-            redo_mutations(argv.file, mutations)
+            redo_mutations(argv.bug_file)
+    else:
+        seed = parse_smt2_file(argv.seed_file, ctx=current_ctx)
+        mutant = parse_smt2_file(argv.bug_file, ctx=current_ctx)
+        if equivalence_check(seed, mutant):
+            print('The mutant is equivalent to its seed')
+        else:
+            assert False, 'The mutant is not equivalent to its seed'
 
 
 if __name__ == '__main__':

@@ -34,6 +34,6 @@ and place them in the root directory of this repository.
 ## Output analysis and reducing
 You can look at bugs in in the auto-generated directory _output/bugs/_.  
 Use `python src/bug_analysis.py [-reduce_chain]` to reduce bug-сausing examples and optionally the mutation chain (results of reducing are placed in _output/reduced/_). Also you can:  
-* specify the file and mutation chain to reproduce the bug: `python src/bug_analysis.py <filename> <mutation chain>`;  
-* specify the seed and mutant files to check instances equivalence: `python src/bug_analysis.py <seed_filename> -bug_file=<mutant_file>`.
+* specify the file and mutation chain to reproduce the bug: `python src/bug_analysis.py <bug_mutant_filename> -reproduce`;  
+* specify the seed and mutant files to check instances equivalence: `python src/bug_analysis.py <seed_filename> <mutant_filename>`.
 

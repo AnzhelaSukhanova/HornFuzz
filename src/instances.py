@@ -171,7 +171,7 @@ class InstanceGroup(object):
                 mut_instance.mutation.apply(instance, mut_instance)
                 self.push(mut_instance)
                 instance = mut_instance
-            except AssertionError as err:
+            except AssertionError:
                 message = traceback.format_exc()
                 print(message)
 
@@ -813,7 +813,8 @@ class Mutation(object):
         mut_clause = self.transform_nth(clause,
                                         kind,
                                         [clause_ind])
-        assert self.applied, 'Mutation ' + self.type + ' wasn\'t applied'
+        assert self.applied and mut_clause.sexpr() != clause.sexpr(), \
+            'Mutation ' + self.type + ' wasn\'t applied'
         for j, clause in enumerate(chc_system):
             if j == clause_ind:
                 mut_system.push(mut_clause)
@@ -824,7 +825,7 @@ class Mutation(object):
     def transform_nth(self, expr, expr_kind: int, path: list):
         """Transform nth expression of the specific kind in dfs-order."""
         global trans_n
-        if not len(expr.children()):
+        if not len(expr.children()) and self.type != 'REMOVE_EXPR':
             return expr
 
         if expr_kind is None or \
@@ -873,8 +874,7 @@ class Mutation(object):
         if mut_children:
             return update_expr(expr, mut_children)
         else:
-            self.applied = False
-            return None
+            return expr
 
     def get_chain(self, in_log_format=False):
         """Return the full mutation chain."""

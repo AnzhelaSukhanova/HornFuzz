@@ -225,7 +225,7 @@ def update_expr(expr, children, vars: list = None):
                 false = BoolVal(False, ctx=expr.ctx)
                 upd_expr = substitute(upd_expr, (old_children[i], false))
             else:
-                assert expr.arity() > 2, 'Incorrect substitution'
+                pass
     else:
         if vars is None:
             vars = get_bound_vars(expr)

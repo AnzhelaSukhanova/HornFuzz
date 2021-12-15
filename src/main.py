@@ -68,7 +68,12 @@ def check_satis(instance: Instance, is_seed: bool = False, get_stats: bool = Tru
 
     instance.check(solver, is_seed, get_stats)
     group = instance.get_group()
-    satis = group[1].satis if not is_seed else instance.satis
+    if not is_seed:
+        if group[0].satis == unknown:
+            group[0].check(solver, True, get_stats)
+        satis = group[0].satis
+    else:
+        satis = instance.satis
 
     if get_stats and (heuristic_flags['transitions'] or
                       heuristic_flags['states']):
