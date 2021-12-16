@@ -1,8 +1,6 @@
-import math
 import time
 import json
 import re
-import traceback
 from utils import *
 
 MUT_APPLY_TIME_LIMIT = 10
@@ -787,7 +785,7 @@ class Mutation(object):
         chc_system = instance.chc
         kind = info_kinds[self.kind_ind]
 
-        if self.trans_num is None and len(self.path) == 0:
+        if self.trans_num is None and self.path[0] is None:
             ind = np.where(info.is_expr_in_clause[self.kind_ind])[0]
             i = int(random.choice(ind))
             clause = chc_system[i]

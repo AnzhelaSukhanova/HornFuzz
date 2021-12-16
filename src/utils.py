@@ -1,5 +1,6 @@
 import hashlib
 import random
+import traceback
 from collections import defaultdict
 from copy import deepcopy
 from enum import Enum
@@ -210,22 +211,11 @@ def get_bound_vars(expr) -> list:
 def update_expr(expr, children, vars: list = None):
     """Return the expression with new children."""
 
-    upd_expr = expr
-    old_children = upd_expr.children()
-    while len(children) > len(old_children):
-        old_children.append(children[0])
     if not is_quantifier(expr):
-        for i in range(len(children)):
-            upd_expr = substitute(upd_expr, (old_children[i], children[i]))
-        for i in range(len(children), len(old_children) - 1):
-            if is_and(expr):
-                true = BoolVal(True, ctx=expr.ctx)
-                upd_expr = substitute(upd_expr, (old_children[i], true))
-            elif is_or(expr):
-                false = BoolVal(False, ctx=expr.ctx)
-                upd_expr = substitute(upd_expr, (old_children[i], false))
-            else:
-                pass
+        if expr.decl().arity() != len(children):
+            return expr
+        decl = expr.decl()
+        upd_expr = decl.__call__(children)
     else:
         if vars is None:
             vars = get_bound_vars(expr)

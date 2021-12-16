@@ -53,7 +53,6 @@ def reduce_instance(seed: Instance, bug_instance: Instance,
                 mutation.kind_ind = -1
 
                 try:
-                    last_chc = instance.chc
                     instance.set_chc(mutation.transform(instance))
                 except Exception as err:
                     print(repr(err))
@@ -214,7 +213,7 @@ def redo_mutations(filename: str):
         assert False, 'Bug not found'
 
 
-def equivalence_check(seed: Instance, mutant: Instance) -> bool:
+def equivalence_check(seed: AstVector, mutant: AstVector) -> bool:
     solver = Solver(ctx=current_ctx)
 
     for i, clause in enumerate(seed):
@@ -250,7 +249,7 @@ def main():
         seed = parse_smt2_file(argv.seed_file, ctx=current_ctx)
         mutant = parse_smt2_file(argv.bug_file, ctx=current_ctx)
         if equivalence_check(seed, mutant):
-            print('The mutant is equivalent to its seed')
+            print('Equivalent')
         else:
             assert False, 'The mutant is not equivalent to its seed'
 
