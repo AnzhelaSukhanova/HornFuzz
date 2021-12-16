@@ -81,7 +81,7 @@ def get_seeds(argv, directory: str) -> set:
         seeds = exclude_unknown_seed(seeds)
     else:
         if argv[0].endswith('.smt2'):
-            seeds = argv
+            seeds = set(argv)
         else:
             dir_path = directory + argv[0] + '/'
             seeds = get_filenames(dir_path)

@@ -1,5 +1,6 @@
 import hashlib
 import random
+import traceback
 from collections import defaultdict
 from copy import deepcopy
 from enum import Enum
@@ -12,10 +13,10 @@ from z3 import *
 TRACE_FILE = '.z3-trace'
 
 trace_states = defaultdict(int)
-trans_offset = 0
+trace_offset = 0
 info_kinds = [Z3_OP_AND, Z3_OP_OR, Z3_QUANTIFIER_AST,
               Z3_OP_LE, Z3_OP_GE, Z3_OP_LT, Z3_OP_GT,
-              Z3_OP_UNINTERPRETED]
+              Z3_OP_UNINTERPRETED, None]
 
 
 class State(object):
@@ -62,11 +63,12 @@ class StatsType(Enum):
 
 
 stats_type = StatsType.DEFAULT
+with_difficulty_heur = False
 
 
 def set_stats_type(heuristics: defaultdict):
     """Set the type of statistics based on heuristics."""
-    global stats_type
+    global stats_type, with_difficulty_heur
 
     if heuristics['transitions'] and heuristics['states']:
         stats_type = StatsType.ALL
@@ -74,6 +76,9 @@ def set_stats_type(heuristics: defaultdict):
         stats_type = StatsType.TRANSITIONS
     elif heuristics['states']:
         stats_type = StatsType.STATES
+
+    if heuristics['difficulty']:
+        with_difficulty_heur = True
 
 
 class TraceStats(object):
@@ -114,20 +119,18 @@ class TraceStats(object):
 
     def read_from_trace(self, is_seed: bool = False):
         """Read z3-trace from last read line."""
-        global trans_offset
         with open(TRACE_FILE, 'r') as trace:
-            trace.seek(trans_offset)
+            trace.seek(trace_offset)
             lines = trace.readlines()
-            trans_offset = trace.tell()
         states = [State(line) for line in lines]
         self.load_states(states)
         if is_seed:
             self.states = states
 
     def reset_trace_offset(self):
-        global trans_offset
+        global trace_offset
         with open(TRACE_FILE, 'r') as trace:
-            trans_offset = trace.tell()
+            trace_offset = trace.seek(0, io.SEEK_END)
 
     def load_states(self, states: List[State]):
         hash_builder = hashlib.sha512()
@@ -208,13 +211,11 @@ def get_bound_vars(expr) -> list:
 def update_expr(expr, children, vars: list = None):
     """Return the expression with new children."""
 
-    upd_expr = expr
-    old_children = upd_expr.children()
-    while len(children) > len(old_children):
-        old_children.append(children[0])
     if not is_quantifier(expr):
-        for i in range(len(children)):
-            upd_expr = substitute(upd_expr, (old_children[i], children[i]))
+        if expr.decl().arity() != len(children):
+            return expr
+        decl = expr.decl()
+        upd_expr = decl.__call__(children)
     else:
         if vars is None:
             vars = get_bound_vars(expr)

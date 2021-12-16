@@ -2,7 +2,6 @@ import argparse
 import faulthandler
 import gc
 import logging
-import traceback
 import itertools
 from typing import Optional
 
@@ -19,17 +18,22 @@ from seed_info_utils import *
 import z3_api_mods
 
 faulthandler.enable()
+enable_trace('spacer')
 
-general_stats = None
-seed_number = 0
-heuristics = ''
+heuristics = []
 heuristic_flags = defaultdict(bool)
+options = []
+
+seed_number = 0
 queue = []
 current_ctx = None
+general_stats = None
 
 ONE_INST_MUT_LIMIT = 1000
-MUT_AFTER_PROBLEM = 10
+PROBLEMS_LIMIT = 10
 MUT_WEIGHT_UPDATE_RUNS = 10000
+
+with_oracles = False
 oracles_names = {'Eldarica'}
 
 
@@ -56,10 +60,6 @@ def calc_sort_key(heuristic: str, stats, weights=None) -> int:
 
 
 def check_satis(instance: Instance, is_seed: bool = False, get_stats: bool = True) -> bool:
-    """
-    Return True if the test suites have the same satisfiability and
-    False otherwise.
-    """
 
     global general_stats
     ctx = instance.chc.ctx
@@ -68,7 +68,12 @@ def check_satis(instance: Instance, is_seed: bool = False, get_stats: bool = Tru
 
     instance.check(solver, is_seed, get_stats)
     group = instance.get_group()
-    satis = group[-1].satis if not is_seed else instance.satis
+    if not is_seed:
+        if group[0].satis == unknown:
+            group[0].check(solver, True, get_stats)
+        satis = group[0].satis
+    else:
+        satis = instance.satis
 
     if get_stats and (heuristic_flags['transitions'] or
                       heuristic_flags['states']):
@@ -113,7 +118,7 @@ def update_mutation_weights():
 
 
 def print_general_info(counter: defaultdict, solve_time: time = None,
-                       mut_time: time = None, trace_has_changed: bool = None):
+                       mut_time: time = None, trace_changed: bool = None):
     """Print and log information about runs."""
 
     traces_num = len(unique_traces)
@@ -123,15 +128,16 @@ def print_general_info(counter: defaultdict, solve_time: time = None,
         log['solve_time'] = solve_time
     if mut_time:
         log['mut_time'] = mut_time
-    if trace_has_changed is not None:
-        log['trace_has_changed'] = trace_has_changed
+    if trace_changed is not None:
+        log['trace_changed'] = trace_changed
     if counter['runs']:
         print('Total:', counter['runs'],
               'Bugs:', counter['bug'],
               'Timeout:', counter['timeout'],
               'Unknown:', counter['unknown'],
               'Errors:', counter['error'])
-        print('Solver conflicts:', counter['conflict'])
+        if with_oracles and counter['runs'] > seed_number:
+            print('Solver conflicts:', counter['conflict'])
     log['unique_traces'] = traces_num
     if traces_num:
         print('Unique traces:', traces_num, '\n')
@@ -162,12 +168,12 @@ def log_run_info(status: str, message: str = None,
         else:
             mutant_info = mut_instance.get_log()
             log.update(mutant_info)
-            if status != 'pass':
+            if status not in {'pass', 'without_change'}:
                 chain = mut_instance.mutation.get_chain()
                 log['mut_chain'] = chain
-                if status in {'bug', 'mutant_unknown'}:
+                if status in {'bug', 'mutant_unknown', 'error'}:
                     log['prev_chc'] = instance.chc.sexpr()
-                    log['excepted_satis'] = str(instance.satis)
+                    log['expected_satis'] = str(instance.satis)
 
     logging.info(json.dumps({'run_info': log}))
 
@@ -228,17 +234,21 @@ def analyze_check_exception(instance: Instance, err: Exception,
         del group
 
 
-def mk_seed_instance(ctx: Context, idx: int, seed_file_name: str, counter) -> Optional[Instance]:
+def mk_seed_instance(ctx: Context, idx: int, seed_file_name: str,
+                     counter, parse: bool = False) -> Optional[Instance]:
     group = InstanceGroup(idx, seed_file_name)
     instance = Instance(idx)
     try:
-        parse_ctx = Context()
-        seed = parse_smt2_file(seed_file_name, ctx=parse_ctx)
-        seed = seed.translate(ctx)
-        if not seed:
-            return None
-        instance.set_chc(seed)
-        group.same_stats_limit = 5 * len(seed)
+        if parse:
+            parse_ctx = Context()
+            seed = parse_smt2_file(seed_file_name, ctx=parse_ctx)
+            seed = seed.translate(ctx)
+            if not seed:
+                return None
+            instance.set_chc(seed)
+        else:
+            instance.reset_chc()
+
         group.push(instance)
         return instance
     except Exception as err:
@@ -251,6 +261,8 @@ def mk_seed_instance(ctx: Context, idx: int, seed_file_name: str, counter) -> Op
 
 def known_seeds_processor(ctx: Context, files: set, base_idx: int, seed_info_index, counter):
     def process_seed(i, seed, seed_info):
+        global general_stats
+
         if 'error' in seed_info:
             return None
         instance = mk_seed_instance(ctx, i, seed, counter)
@@ -259,6 +271,8 @@ def known_seeds_processor(ctx: Context, files: set, base_idx: int, seed_info_ind
         counter['runs'] += 1
         solve_time = instance.process_seed_info(seed_info)
         instance.update_traces_info()
+        if heuristic_flags['transitions'] or heuristic_flags['states']:
+            general_stats += instance.trace_stats
         return instance, solve_time
 
     apply_data = {
@@ -275,7 +289,7 @@ def known_seeds_processor(ctx: Context, files: set, base_idx: int, seed_info_ind
 def new_seeds_processor(ctx: Context, files: set, base_idx: int, seed_info_index, counter):
     seed_info = {}
     for i, seed in enumerate(files, start=base_idx):
-        instance = mk_seed_instance(ctx, i, seed, counter)
+        instance = mk_seed_instance(ctx, i, seed, counter, parse=True)
         if instance is None:
             seed_info[seed] = {'error': 'error at instance creation'}
             continue
@@ -297,8 +311,10 @@ def new_seeds_processor(ctx: Context, files: set, base_idx: int, seed_info_index
                                     is_seed=True)
             print_general_info(counter)
             seed_info[seed] = {'error': 'error at seed check'}
-        if (i + 1) % 300 == 0:
-            store_seed_info(seed_info, seed_info_index)
+        finally:
+            if len(seed_info) > 300:
+                store_seed_info(seed_info, seed_info_index)
+                seed_info = {}
     if seed_info:
         store_seed_info(seed_info, seed_info_index)
 
@@ -364,128 +380,149 @@ def fuzz(files: set):
     global queue, current_ctx
 
     counter = defaultdict(int)
+
     run_seeds(files, counter)
-    init_runs_number = 2 * seed_number - \
-                       counter['unknown'] - counter['timeout']
     logging.info(json.dumps({'seed_number': seed_number,
-                             'heuristics': heuristics}))
-    stats_limit = seed_number
-    runs_before_weight_update = MUT_WEIGHT_UPDATE_RUNS
+                             'heuristics': heuristics,
+                             'options': options}))
+    stats_limit = 0
+    if with_weights:
+        runs_before_weight_update = MUT_WEIGHT_UPDATE_RUNS
 
     while queue:
+        if not heuristic_flags['default'] and not stats_limit:
+            sort_queue()
+            queue_len = len(queue)
+            stats_limit = random.randint(queue_len // 5, queue_len)
+
         instance = queue.pop(0)
         counter['runs'] += 1
         group = instance.get_group()
         try:
-            if counter['runs'] > init_runs_number:
-                ensure_current_context_is_deletable()
-                start_mut_ind = len(group.instances) - 1
-                instance.restore()
-                current_ctx = instance.chc.ctx
-                mut_limit = ONE_INST_MUT_LIMIT
-            else:
-                start_mut_ind = 0
-                mut_limit = 1
+            ensure_current_context_is_deletable()
+            start_mut_ind = len(group.instances) - 1
+            current_ctx = Context()
+            instance.restore(ctx=current_ctx, is_seed=(start_mut_ind == 0))
 
-            if runs_before_weight_update <= 0:
-                update_mutation_weights()
-                runs_before_weight_update = MUT_WEIGHT_UPDATE_RUNS
+            if with_weights:
+                if runs_before_weight_update <= 0:
+                    update_mutation_weights()
+                    runs_before_weight_update = MUT_WEIGHT_UPDATE_RUNS
 
             stats_limit -= 1
 
             i = 0
-            while i < mut_limit:
+            problems_num = 0
+            mut_types_exc = set()
+
+            while i < ONE_INST_MUT_LIMIT:
                 if i > 0:
                     counter['runs'] += 1
-                runs_before_weight_update -= 1
+                i += 1
+                if with_weights:
+                    runs_before_weight_update -= 1
 
                 mut_instance = Instance(instance.group_id)
                 mut = mut_instance.mutation
+                if mut_types_exc:
+                    mut.exceptions = mut_types_exc
                 mut_time = time.perf_counter()
-                timeout = mut.apply(instance, mut_instance)
+                timeout, changed = mut.apply(instance, mut_instance)
                 mut_time = time.perf_counter() - mut_time
                 mut_instance.update_mutation_stats(new_application=True)
 
-                try:
-                    st_time = time.perf_counter()
-                    res = check_satis(mut_instance)
-                    solve_time = time.perf_counter() - st_time
-                except AssertionError as err:
-                    analyze_check_exception(instance,
-                                            err,
-                                            counter,
-                                            mut_instance=mut_instance)
-                    mut_instance.dump('output/problems',
-                                      group.filename,
-                                      len(group.instances),
-                                      repr(err),
-                                      mut_instance.id)
-                    i = max(i + 1, mut_limit - MUT_AFTER_PROBLEM)
-                    instance = group[0]
-                    start_mut_ind = 0
-                    print_general_info(counter, mut_time)
-                    continue
+                if changed:
+                    mut_types_exc = set()
+                    try:
+                        st_time = time.perf_counter()
+                        res = check_satis(mut_instance)
+                        solve_time = time.perf_counter() - st_time
+                    except AssertionError as err:
+                        analyze_check_exception(instance,
+                                                err,
+                                                counter,
+                                                mut_instance=mut_instance)
+                        mut_instance.dump('output/problems',
+                                          group.filename,
+                                          len(group.instances),
+                                          repr(err),
+                                          mut_instance.id)
 
-                trace_has_changed = (instance.trace_stats.hash !=
+                        problems_num += 1
+                        if problems_num == PROBLEMS_LIMIT:
+                            i = ONE_INST_MUT_LIMIT
+                        instance = group[0]
+                        start_mut_ind = 0
+                        print_general_info(counter, mut_time)
+                        continue
+
+                    trace_changed = (instance.trace_stats.hash !=
                                      mut_instance.trace_stats.hash)
-                mut_instance.update_mutation_stats(new_trace_found=trace_has_changed)
+                    mut_instance.update_mutation_stats(new_trace_found=trace_changed)
 
-                if not res:
-                    counter['bug'] += 1
-                    log_run_info('bug',
-                                 instance=instance,
-                                 mut_instance=mut_instance)
-                    i = max(i + 1, mut_limit - MUT_AFTER_PROBLEM)
-                    if i == mut_limit - 1:
-                        queue.append(instance)
-                    mut_instance.dump('output/bugs',
-                                      group.filename,
-                                      len(group.instances),
-                                      to_name=mut_instance.id)
+                    if not res:
+                        counter['bug'] += 1
+                        log_run_info('bug',
+                                     instance=instance,
+                                     mut_instance=mut_instance)
+                        problems_num += 1
+                        mut_instance.dump('output/bugs',
+                                          group.filename,
+                                          len(group.instances),
+                                          to_name=mut_instance.id)
 
-                elif timeout:
-                    counter['timeout'] += 1
-                    log_run_info('simplify_timeout',
-                                 instance=instance,
-                                 mut_instance=mut_instance)
-                    group.roll_back()
-                    instance = group[0]
-                    queue.append(instance)
+                    elif timeout:
+                        counter['timeout'] += 1
+                        log_run_info('mutant_timeout',
+                                     instance=instance,
+                                     mut_instance=mut_instance)
+                        problems_num += 1
+                        group.roll_back()
+                        instance = group[0]
+                        start_mut_ind = 0
+
+                    else:
+                        if with_oracles:
+                            found_problem, states = compare_satis(mut_instance)
+                        else:
+                            found_problem = False
+                        group.push(mut_instance)
+                        if not heuristic_flags['default'] and \
+                                len(instance_groups) > 1:
+                            stats_limit = group.check_stats(stats_limit)
+
+                        if found_problem:
+                            log_run_info('oracle_bug',
+                                         message=str(states),
+                                         instance=instance,
+                                         mut_instance=mut_instance)
+                            counter['conflict'] += 1
+                        else:
+                            log_run_info('pass',
+                                         instance=instance,
+                                         mut_instance=mut_instance)
+                        instance = mut_instance
+
+                    print_general_info(counter,
+                                       solve_time,
+                                       mut_time,
+                                       trace_changed)
 
                 else:
-                    found_problem, states = compare_satis(mut_instance)
-                    if i == mut_limit - 1:
-                        queue.append(mut_instance)
-                    group.push(mut_instance)
-                    if not heuristic_flags['default'] and \
-                            len(instance_groups) > 1:
-                        stats_limit = group.check_stats(stats_limit)
-                    if found_problem:
-                        log_run_info('oracle_bug',
-                                     message=str(states),
-                                     instance=instance,
-                                     mut_instance=mut_instance)
-                        counter['conflict'] += 1
-                    else:
-                        log_run_info('pass',
-                                     instance=instance,
-                                     mut_instance=mut_instance)
-                    instance = mut_instance
-                    i += 1
+                    exc_type = instance.mutation.type
+                    mut_types_exc.add(exc_type)
+                    log_run_info('without_change',
+                                 instance=instance,
+                                 mut_instance=mut_instance)
+                    print_general_info(counter)
 
-                print_general_info(counter,
-                                   solve_time,
-                                   mut_time,
-                                   trace_has_changed)
+                if problems_num == PROBLEMS_LIMIT:
+                    i = ONE_INST_MUT_LIMIT
 
+            queue.append(instance)
             instance.dump('output/last_mutants',
                           group.filename,
                           start_mut_ind)
-
-            if not heuristic_flags['default'] and not stats_limit:
-                sort_queue()
-                queue_len = len(queue)
-                stats_limit = random.randint(queue_len // 5, queue_len)
 
         except Exception as err:
             message = traceback.format_exc()
@@ -499,7 +536,8 @@ def fuzz(files: set):
 
 
 def main():
-    global general_stats, heuristics, heuristic_flags, seed_number
+    global general_stats, heuristics, heuristic_flags, \
+        options, seed_number, with_oracles
 
     parser = argparse.ArgumentParser()
     parser.add_argument('seeds',
@@ -512,6 +550,12 @@ def main():
                         default=['default'],
                         help='trace data which will be used to '
                              'select an instance for mutation')
+
+    parser.add_argument('-options', '-opt',
+                        nargs='*',
+                        choices=['only_simplify', 'without_mutation_weights',
+                                 'with_oracles'],
+                        default=[])
     argv = parser.parse_args()
 
     # help_simplify()
@@ -523,7 +567,6 @@ def main():
     np.set_printoptions(suppress=True)
     set_option(max_args=int(1e6), max_lines=int(1e6),
                max_depth=int(1e6), max_visited=int(1e6))
-    enable_trace('spacer')
 
     heuristics = argv.heuristics
     for heur in heuristics:
@@ -531,13 +574,15 @@ def main():
     set_stats_type(heuristic_flags)
     if heuristic_flags['transitions'] or heuristic_flags['states']:
         general_stats = TraceStats()
+    options = argv.options
+    with_oracles = 'with_oracles' in options
 
     directory = os.path.dirname(os.path.dirname(parser.prog))
     if directory:
         directory += '/'
     files = get_seeds(argv.seeds, directory)
     create_output_dirs()
-    init_mut_types()
+    init_mut_types(options)
 
     seed_number = len(files)
     assert seed_number > 0, 'Seeds not found'
@@ -550,24 +595,18 @@ def create_output_dirs():
 
     if not os.path.exists('output'):
         os.mkdir('output')
-    for dir in {'output/last_mutants', 'output/reduced',
-                'output/ctx', 'output/bugs',
-                'output/problems'}:
+    for dir in {'output/last_mutants', 'output/ctx',
+                'output/bugs', 'output/problems'}:
         if not os.path.exists(dir):
             os.mkdir(dir)
         if dir != 'output':
-            for subdir in os.walk('spacer-benchmarks/'):
-                dir_path = dir + '/' + subdir[0]
-                if not os.path.exists(dir_path):
-                    os.mkdir(dir_path)
-            for subdir in os.walk('chc-comp21-benchmarks/'):
-                dir_path = dir + '/' + subdir[0]
-                if not os.path.exists(dir_path):
-                    os.mkdir(dir_path)
-            for subdir in os.walk('sv-benchmarks-clauses/'):
-                dir_path = dir + '/' + subdir[0]
-                if not os.path.exists(dir_path):
-                    os.mkdir(dir_path)
+            for benchmark_dir in {'spacer-benchmarks/',
+                                  'chc-comp21-benchmarks/',
+                                  'sv-benchmarks-clauses/'}:
+                for subdir in os.walk(benchmark_dir):
+                    dir_path = dir + '/' + subdir[0]
+                    if not os.path.exists(dir_path):
+                        os.mkdir(dir_path)
 
 
 if __name__ == '__main__':

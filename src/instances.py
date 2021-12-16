@@ -1,4 +1,3 @@
-import math
 import time
 import json
 import re
@@ -41,15 +40,17 @@ class InstanceGroup(object):
         if length == 0:
             self.find_pred_info()
             instance.get_system_info()
+            self.dump_ctx()
 
-            filename = 'output/ctx/' + self.filename
-            with open(self.filename, 'r') as seed_file:
-                file = seed_file.read()
-                formula = re.sub(r"\(set-info.*\"\)", "",
-                                 file, flags=re.DOTALL)
-                ctx = formula.split('(assert')[0]
-                with open(filename, 'w') as ctx_file:
-                    ctx_file.write(ctx)
+    def dump_ctx(self):
+        filename = 'output/ctx/' + self.filename
+        with open(self.filename, 'r') as seed_file:
+            file = seed_file.read()
+            formula = re.sub(r"\(set-info.*\"\)", "",
+                             file, flags=re.DOTALL)
+            ctx = formula.split('(assert')[0]
+            with open(filename, 'w') as ctx_file:
+                ctx_file.write(ctx)
 
     def pop(self):
         """Take an instance from the group."""
@@ -61,8 +62,7 @@ class InstanceGroup(object):
         seed = self[0]
         self.instances = {0: seed}
         if not seed.chc:
-            seed.restore(is_seed=True)
-        self.same_stats_limit = 5 * len(seed.chc)
+            seed.restore(ctx=Context(), is_seed=True)
         self.find_pred_info()
         self.analyze_vars()
 
@@ -94,9 +94,14 @@ class InstanceGroup(object):
         Find whether the chc-system is linear, the number of
         uninterpreted predicates and their set.
         """
+        if not only_simplify and not with_difficulty_heur:
+            return
+
         assert len(self.instances) > 0, "Instance group is empty"
         instance = self[-1]
         chc_system = instance.chc
+        if chc_system is None:
+            return
         all_uninter_pred = set()
 
         for i, clause in enumerate(chc_system):
@@ -152,17 +157,21 @@ class InstanceGroup(object):
                 if is_array(var):
                     self.has_array[i] = True
 
-    def restore(self, id: int, mutations):
-        seed = parse_smt2_file(self.filename)
+    def restore(self, id: int, mutations, ctx: Context):
+        seed = parse_smt2_file(self.filename, ctx=ctx)
         instance = Instance(id, seed)
         self.push(instance)
 
         for mut in mutations:
             mut_instance = Instance(id)
             mut_instance.mutation.restore(mut)
-            mut_instance.mutation.apply(instance, mut_instance)
-            self.push(mut_instance)
-            instance = mut_instance
+            try:
+                mut_instance.mutation.apply(instance, mut_instance)
+                self.push(mut_instance)
+                instance = mut_instance
+            except AssertionError:
+                message = traceback.format_exc()
+                print(message)
 
 
 class Instance(object):
@@ -178,6 +187,7 @@ class Instance(object):
         self.satis = unknown
         self.trace_stats = TraceStats()
         self.sort_key = 0
+        self.info = ClauseInfo(0)
 
         group = self.get_group()
         if not group.instances:
@@ -190,8 +200,11 @@ class Instance(object):
     def set_chc(self, chc: AstVector):
         """Set the chc-system of the instance."""
         assert chc is not None, 'CHC-system wasn\'t given'
+
         self.chc = chc
         group = self.get_group()
+        group.same_stats_limit = 5 * len(self.chc)
+
         if not group.instances:
             chc_len = len(self.chc)
             self.info = ClauseInfo(chc_len)
@@ -217,6 +230,7 @@ class Instance(object):
 
         solver.add(self.chc)
         self.satis = solver.check()
+
         if get_stats:
             self.trace_stats.read_from_trace(is_seed)
             self.update_traces_info()
@@ -243,6 +257,9 @@ class Instance(object):
         Get information about the existence of subexpressions of kind
         from info_kinds and about their .
         """
+        if self.chc is None or only_simplify:
+            return
+
         info = self.info
         info.expr_exists = expr_exists(self.chc, info_kinds)
 
@@ -256,12 +273,11 @@ class Instance(object):
             for j in range(len(info_kinds)):
                 info.is_expr_in_clause[j, i] = is_there_expr[j]
 
-    def restore(self, is_seed: bool = False):
+    def restore(self, ctx: Context, is_seed: bool = False):
         """Restore the instance from output/last_mutants/."""
         group = self.get_group()
         filename = group.filename if is_seed else \
             'output/last_mutants/' + group.filename
-        ctx = Context()
         self.set_chc(z3.parse_smt2_file(filename, ctx=ctx))
         assert len(self.chc) > 0, "Empty chc-system"
         self.get_system_info()
@@ -308,25 +324,39 @@ class Instance(object):
 
 mut_types = {'ID': 0.0}
 mut_stats = {}
+with_weights = True
+only_simplify = False
 
 
-def init_mut_types():
-    global mut_types
-    """
-    And(a, b) -> And(b, a)"""
-    mut_types['SWAP_AND'] = 0.0512
-    """
-    And(a, b) -> And(a, b, a)"""
-    mut_types['DUP_AND'] = 0.0636
-    """
-    And(a, b, c) -> And(a, And(b, c))
-    And(a, b) -> And(a, And(a, b))"""
-    mut_types['BREAK_AND'] = 0.0612
+def init_mut_types(options: list):
+    global mut_types, with_weights, only_simplify
 
-    mut_types['SWAP_OR'] = 0.0536
-    mut_types['MIX_BOUND_VARS'] = 0.059
-    mut_types['ADD_INEQ'] = 0.0602
+    if 'without_mutation_weights' in options:
+        with_weights = False
+    if 'only_simplify' in options:
+        only_simplify = True
 
+    if not only_simplify:
+        """
+        And(a, b) -> And(b, a)"""
+        mut_types['SWAP_AND'] = 0.0512
+        """
+        And(a, b) -> And(a, b, a)"""
+        mut_types['DUP_AND'] = 0.0636
+        """
+        And(a, b, c) -> And(a, And(b, c))
+        And(a, b) -> And(a, And(a, b))"""
+        mut_types['BREAK_AND'] = 0.0612
+
+        mut_types['SWAP_OR'] = 0.0536
+        mut_types['MIX_BOUND_VARS'] = 0.059
+        mut_types['ADD_INEQ'] = 0.0602
+
+        mut_types['ADD_LIN_RULE'] = 0.06
+        mut_types['ADD_OR_RULE'] = 0.06
+        mut_types['ADD_NONLIN_RULE'] = 0.06
+
+    mut_types['EMPTY_SIMPLIFY'] = 0.06
     """
     Rewrite inequalities so that right-hand-side is a constant."""
     mut_types['ARITH_INEQ_LHS'] = 0.0599
@@ -467,18 +497,16 @@ def init_mut_types():
     Distribute to_real over * and +."""
     mut_types['PUSH_TO_REAL'] = 0.0554
 
-    mut_types['ADD_LIN_RULE'] = 0.05
-
-    mut_types['ADD_OR_RULE'] = 0.05
-
-    mut_types['ADD_NONLIN_RULE'] = 0.05
-
 
 # The values are the indices of the info_kinds elements
 type_kind_corr = {'SWAP_AND': 0, 'DUP_AND': 0, 'BREAK_AND': 0,
                   'SWAP_OR': 1, 'MIX_BOUND_VARS': 2,
                   'ADD_INEQ': {3, 4, 5, 6}, 'ADD_LIN_RULE': 7,
                   'ADD_OR_RULE': 7, 'ADD_NONLIN_RULE': 7}
+
+default_simplify_options = {'algebraic_number_evaluator', 'bit2bool',
+                            'elim_ite', 'elim_sign_ext', 'flat', 'hi_div0',
+                            'ignore_patterns_on_ground_qbody', 'push_to_real'}
 
 
 def update_mutation_weights():
@@ -499,10 +527,12 @@ class Mutation(object):
         self.type = 'ID'
         self.number = prev_mutation.number + 1 if prev_mutation else 0
         self.path = [None]
-        self.kind_ind = 0
+        self.kind_ind = None
         self.prev_mutation = prev_mutation
         self.applied = False
         self.trans_num = None
+        self.simplify_changed = True
+        self.exceptions = set()
 
     def clear(self):
         self.type = 'ID'
@@ -510,19 +540,19 @@ class Mutation(object):
         self.number = 0
         self.prev_mutation = None
 
-    def apply(self, instance: Instance, new_instance: Instance,
-              exceptions: set = None):
+    def apply(self, instance: Instance, new_instance: Instance):
         """Mutate instances."""
         timeout = False
+        is_simplify = False
 
-        if self.type == 'ID':
-            self.next_mutation(instance, exceptions)
+        self.next_mutation(instance)
 
         if self.type == 'ID':
             assert False, 'No mutation can be applied'
 
         assert instance.chc is not None, 'Instance chc is None'
 
+        st_time = time.perf_counter()
         if self.type == 'ADD_LIN_RULE':
             new_instance.set_chc(self.add_lin_rule(instance))
 
@@ -532,89 +562,99 @@ class Mutation(object):
         elif self.type == 'ADD_NONLIN_RULE':
             new_instance.set_chc(self.add_nonlin_rule(instance))
 
+        elif self.type == 'EMPTY_SIMPLIFY':
+            is_simplify = True
+            new_instance.set_chc(self.empty_simplify(instance.chc))
+
         elif self.type in type_kind_corr:
             new_instance.set_chc(self.transform(instance))
 
         else:
-            st_time = time.perf_counter()
+            is_simplify = True
             new_instance.set_chc(self.simplify_by_one(instance.chc))
-            if time.perf_counter() - st_time >= MUT_APPLY_TIME_LIMIT:
-                timeout = True
+
+        if time.perf_counter() - st_time >= MUT_APPLY_TIME_LIMIT:
+            timeout = True
+
+        changed = True
+        if not self.simplify_changed or \
+                instance.chc.sexpr() == new_instance.chc.sexpr():
+            self.simplify_changed = True
+            changed = False
+        elif is_simplify:
             new_instance.get_system_info()
 
-        if bool(instance.chc == new_instance.chc):
-            exc_type = self.type
-            if not exceptions:
-                exceptions = {exc_type}
-            else:
-                exceptions.add(exc_type)
-            self.type = 'ID'
-            self.apply(instance, new_instance, exceptions)
+        return timeout, changed
 
-        return timeout
-
-    def next_mutation(self, instance: Instance, exceptions: set):
+    def next_mutation(self, instance: Instance):
         """
         Return the next mutation based on the instance,
         type of the previous mutation etc.
         """
         mult_kinds = defaultdict(list)
-
         types_to_choose = set()
         info = instance.info
 
-        for i in range(len(info_kinds)):
-            if info.expr_exists[i]:
-                if i == type_kind_corr['SWAP_AND']:
-                    types_to_choose.update({'SWAP_AND',
-                                            'DUP_AND',
-                                            'BREAK_AND'})
-                elif i == type_kind_corr['SWAP_OR']:
-                    types_to_choose.add('SWAP_OR')
-                elif i == type_kind_corr['MIX_BOUND_VARS']:
-                    types_to_choose.add('MIX_BOUND_VARS')
-                elif i in type_kind_corr['ADD_INEQ']:
-                    if not mult_kinds['ADD_INEQ']:
-                        types_to_choose.add('ADD_INEQ')
-                    mult_kinds['ADD_INEQ'].append(i)
-                elif i == type_kind_corr['ADD_LIN_RULE']:
-                    mult_kinds['ADD_LIN_RULE'].append(i)
-                    mult_kinds['ADD_OR_RULE'].append(i)
-                    mult_kinds['ADD_NONLIN_RULE'].append(i)
-                else:
-                    pass
+        if self.type == 'ID' or \
+                (self.type in type_kind_corr and self.kind_ind is None):
+            if not only_simplify:
+                for i in range(len(info_kinds)):
+                    if info.expr_exists[i]:
+                        if i == type_kind_corr['SWAP_AND']:
+                            types_to_choose.update({'SWAP_AND',
+                                                    'DUP_AND',
+                                                    'BREAK_AND'})
+                        elif i == type_kind_corr['SWAP_OR']:
+                            types_to_choose.add('SWAP_OR')
+                        elif i == type_kind_corr['MIX_BOUND_VARS']:
+                            types_to_choose.add('MIX_BOUND_VARS')
+                        elif i in type_kind_corr['ADD_INEQ']:
+                            if not mult_kinds['ADD_INEQ']:
+                                types_to_choose.add('ADD_INEQ')
+                            mult_kinds['ADD_INEQ'].append(i)
+                        elif i == type_kind_corr['ADD_LIN_RULE']:
+                            types_to_choose.add('ADD_LIN_RULE')
+                            types_to_choose.add('ADD_OR_RULE')
+                            types_to_choose.add('ADD_NONLIN_RULE')
+                        else:
+                            pass
 
-        for mut in mut_types:
-            if mut not in type_kind_corr:
-                types_to_choose.add(mut)
+        if self.type == 'ID':
+            for mut in mut_types:
+                if mut not in type_kind_corr:
+                    types_to_choose.add(mut)
+            types_to_choose = list(types_to_choose.difference(self.exceptions)) \
+                if self.exceptions else list(types_to_choose)
 
-        weights = []
-        for name in types_to_choose:
-            weight = mut_types[name]
-            weights.append(weight)
+            if with_weights:
+                weights = []
+                for name in types_to_choose:
+                    weight = mut_types[name]
+                    weights.append(weight)
+                try:
+                    mut_type = random.choices(types_to_choose, weights)[0]
+                except IndexError:
+                    mut_type = 'ID'
 
-        types_to_choose = list(types_to_choose.difference(exceptions)) \
-            if exceptions else list(types_to_choose)
-        try:
-            mut_type = random.choices(types_to_choose, weights)[0]
-        except IndexError:
-            mut_type = 'ID'
-        self.type = mut_type
+            else:
+                try:
+                    mut_type = random.choice(types_to_choose)
+                except IndexError:
+                    mut_type = 'ID'
 
-        if mut_type == 'ADD_INEQ':
-            self.kind_ind = random.choices(mult_kinds[mut_type])[0]
-        elif mut_type in type_kind_corr:
-            self.kind_ind = type_kind_corr[mut_type]
-        else:
-            pass
+            self.type = mut_type
+
+        if self.type in type_kind_corr and self.kind_ind is None:
+            if self.type == 'ADD_INEQ':
+                self.kind_ind = random.choices(mult_kinds[self.type])[0]
+            else:
+                self.kind_ind = type_kind_corr[self.type]
 
     def simplify_by_one(self, chc_system: AstVector) -> AstVector:
         """Simplify instance with arith_ineq_lhs, arith_lhs and eq2ineq."""
         mut_system = AstVector(ctx=chc_system.ctx)
         params = defaultdict(bool)
-        for key in {'algebraic_number_evaluator', 'bit2bool',
-                    'elim_ite', 'elim_sign_ext', 'flat', 'hi_div0',
-                    'ignore_patterns_on_ground_qbody', 'push_to_real'}:
+        for key in default_simplify_options:
             params[key] = False
         mut_type = self.type.lower()
         params[mut_type] = True
@@ -622,7 +662,11 @@ class Mutation(object):
         ind = range(0, len(chc_system)) if not self.path[0] else {self.path[0]}
         for i in range(len(chc_system)):
             if i in ind:
-                clause = simplify(chc_system[i], mut_type, params[mut_type],
+                cur_clause = AstVector(ctx=chc_system.ctx)
+                cur_clause.push(chc_system[i])
+                rewritten_clause = self.empty_simplify(cur_clause)[0]
+
+                clause = simplify(rewritten_clause, mut_type, params[mut_type],
                                   algebraic_number_evaluator=
                                   params['algebraic_number_evaluator'],
                                   bit2bool=params['bit2bool'],
@@ -633,9 +677,32 @@ class Mutation(object):
                                   ignore_patterns_on_ground_qbody=
                                   params['ignore_patterns_on_ground_qbody'],
                                   push_to_real=params['push_to_real'])
+
+                if rewritten_clause.sexpr() == clause.sexpr():
+                    self.simplify_changed = False
+
+                del cur_clause, rewritten_clause
             else:
                 clause = chc_system[i]
             mut_system.push(clause)
+
+        return mut_system
+
+    def empty_simplify(self, chc_system: AstVector) -> AstVector:
+        mut_system = AstVector(ctx=chc_system.ctx)
+
+        for i in range(len(chc_system)):
+            clause = simplify(chc_system[i],
+                              algebraic_number_evaluator=False,
+                              bit2bool=False,
+                              elim_ite=False,
+                              elim_sign_ext=False,
+                              flat=False,
+                              hi_div0=False,
+                              ignore_patterns_on_ground_qbody=False,
+                              push_to_real=False)
+            mut_system.push(clause)
+
         return mut_system
 
     def add_lin_rule(self, instance: Instance) -> AstVector:
@@ -660,13 +727,17 @@ class Mutation(object):
         ctx = instance.chc.ctx
 
         bv_size = math.floor(math.log2(len(body_vars) + 1))
+        bv_size = max(bv_size, 1)
         bv = FreshConst(BitVecSort(bv_size, ctx=ctx), prefix='bv')
         body_vars.append(bv)
         body = body_upred
         for i, var in enumerate(body_vars):
-            expr = Not(bv + i >= 0, ctx=ctx)
             body = Not(body, ctx=ctx)
+            expr = Not(bv + i >= 0, ctx=ctx)
             body = Not(Or(body, expr), ctx=ctx)
+            if len(body_vars) == 1:
+                expr = Not(bv + 1 >= 0, ctx=ctx)
+                body = Not(Or(body, expr), ctx=ctx)
             body = Not(ForAll([var], Not(body, ctx=ctx)), ctx=ctx)
 
         implication = Implies(body, head, ctx=ctx)
@@ -714,12 +785,13 @@ class Mutation(object):
         chc_system = instance.chc
         kind = info_kinds[self.kind_ind]
 
-        if not self.trans_num:
+        if self.trans_num is None and self.path[0] is None:
             ind = np.where(info.is_expr_in_clause[self.kind_ind])[0]
             i = int(random.choice(ind))
             clause = chc_system[i]
             expr_num = count_expr(clause, [kind])[0]
-            self.trans_num = random.randint(0, expr_num - 1)
+            self.trans_num = random.randint(0, expr_num - 1) \
+                if expr_num > 1 else 0
         else:
             i = self.path[0]
             clause = chc_system[i]
@@ -738,9 +810,9 @@ class Mutation(object):
         kind = info_kinds[self.kind_ind]
         mut_clause = self.transform_nth(clause,
                                         kind,
-                                        [clause_ind],
-                                        time.perf_counter())
-        assert self.applied, 'Mutation ' + self.type + ' wasn\'t applied'
+                                        [clause_ind])
+        assert self.applied and mut_clause.sexpr() != clause.sexpr(), \
+            'Mutation ' + self.type + ' wasn\'t applied'
         for j, clause in enumerate(chc_system):
             if j == clause_ind:
                 mut_system.push(mut_clause)
@@ -748,16 +820,15 @@ class Mutation(object):
                 mut_system.push(chc_system[j])
         return mut_system
 
-    def transform_nth(self, expr, expr_kind: int,
-                      path: list, st_time: float):
+    def transform_nth(self, expr, expr_kind: int, path: list):
         """Transform nth expression of the specific kind in dfs-order."""
         global trans_n
-        if time.perf_counter() - st_time >= MUT_APPLY_TIME_LIMIT:
-            raise TimeoutError('Timeout of applying mutation')
-        if not len(expr.children()):
+        if not len(expr.children()) and self.type != 'REMOVE_EXPR':
             return expr
 
-        if is_app_of(expr, expr_kind) or check_ast_kind(expr, expr_kind):
+        if expr_kind is None or \
+                is_app_of(expr, expr_kind) or \
+                check_ast_kind(expr, expr_kind):
             if trans_n == 0:
                 children = expr.children()
                 if self.type in {'SWAP_AND', 'SWAP_OR'}:
@@ -780,6 +851,8 @@ class Mutation(object):
                     vars = get_bound_vars(expr)
                     shuffle_vars(vars)
                     mut_expr = update_expr(expr, children, vars)
+                elif self.type == 'REMOVE_EXPR':
+                    mut_expr = None
                 else:
                     mut_expr = And([expr, new_ineq])
                 self.path = path
@@ -791,11 +864,15 @@ class Mutation(object):
         for i, child in enumerate(expr.children()):
             new_path = path + [i]
             if trans_n >= 0:
-                mut_children.append(
-                    self.transform_nth(child, expr_kind, new_path, st_time))
+                mut_child = self.transform_nth(child, expr_kind, new_path)
+                if mut_child is not None:
+                    mut_children.append(mut_child)
             else:
                 mut_children.append(child)
-        return update_expr(expr, mut_children)
+        if mut_children:
+            return update_expr(expr, mut_children)
+        else:
+            return expr
 
     def get_chain(self, in_log_format=False):
         """Return the full mutation chain."""
@@ -816,10 +893,17 @@ class Mutation(object):
 
     def get_name(self):
         """Get mutation name with some information about it."""
-        if self.type in type_kind_corr:
+        if self.type == 'ADD_INEQ':
+            return self.type + '(' + \
+                   str(self.kind_ind) + ', ' + \
+                   str(self.path[0]) + ', ' + \
+                   str(self.trans_num) + ')'
+
+        elif self.type in type_kind_corr:
             return self.type + '(' + \
                    str(self.path[0]) + ', ' + \
                    str(self.trans_num) + ')'
+
         else:
             return self.type
 
@@ -837,15 +921,19 @@ class Mutation(object):
 
     def restore(self, mut_entry):
         """Restore mutations by log or chain."""
-        if type(mut_entry) == list:
+        if type(mut_entry) == dict:
             for field in mut_entry:
                 setattr(self, field, mut_entry[field])
 
-        elif type(mut_entry) == str:
+        elif type(mut_entry) == str and mut_entry != 'nan':
             mut_info = re.findall(r"[\w]+|[0-9]+", mut_entry)
             self.type = mut_info[0]
 
-            if self.type in type_kind_corr:
+            if self.type == 'ADD_INEQ':
+                self.kind_ind = int(mut_info[1])
+                self.path = [int(mut_info[2])]
+                self.trans_num = int(mut_info[3])
+            elif self.type in type_kind_corr:
                 self.path = [int(mut_info[1])]
                 self.trans_num = int(mut_info[2])
         else:
