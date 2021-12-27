@@ -39,7 +39,6 @@ class InstanceGroup(object):
         self.instances[length] = instance
         if length == 0:
             self.find_pred_info()
-            instance.get_system_info()
             self.dump_ctx()
 
     def dump_ctx(self):
@@ -280,7 +279,6 @@ class Instance(object):
             'output/last_mutants/' + group.filename
         self.set_chc(z3.parse_smt2_file(filename, ctx=ctx))
         assert len(self.chc) > 0, "Empty chc-system"
-        self.get_system_info()
 
     def dump(self, dir: str, filename: str, start_ind=0,
              message: str = None, to_name=None, clear: bool = True):
@@ -543,7 +541,6 @@ class Mutation(object):
     def apply(self, instance: Instance, new_instance: Instance):
         """Mutate instances."""
         timeout = False
-        is_simplify = False
 
         self.next_mutation(instance)
 
@@ -563,14 +560,12 @@ class Mutation(object):
             new_instance.set_chc(self.add_nonlin_rule(instance))
 
         elif self.type == 'EMPTY_SIMPLIFY':
-            is_simplify = True
             new_instance.set_chc(self.empty_simplify(instance.chc))
 
         elif self.type in type_kind_corr:
             new_instance.set_chc(self.transform(instance))
 
         else:
-            is_simplify = True
             new_instance.set_chc(self.simplify_by_one(instance.chc))
 
         if time.perf_counter() - st_time >= MUT_APPLY_TIME_LIMIT:
@@ -581,8 +576,6 @@ class Mutation(object):
                 instance.chc.sexpr() == new_instance.chc.sexpr():
             self.simplify_changed = True
             changed = False
-        elif is_simplify:
-            new_instance.get_system_info()
 
         return timeout, changed
 
@@ -594,6 +587,7 @@ class Mutation(object):
         mult_kinds = defaultdict(list)
         types_to_choose = set()
         info = instance.info
+        instance.get_system_info()
 
         if self.type == 'ID' or \
                 (self.type in type_kind_corr and self.kind_ind is None):

@@ -208,14 +208,59 @@ def get_bound_vars(expr) -> list:
     return vars
 
 
+def mk_app_builders():
+    builders = {}
+    OP_PREFIX = 'Z3_OP_'
+    for c in dir(z3consts):
+        if not c.startswith(OP_PREFIX):
+            continue
+        kind_name = str(c).removeprefix('Z3_OP_').lower()
+        kind_value = getattr(z3consts, c)
+        mk_function = getattr(z3core, f'Z3_mk_{kind_name}', None)
+        if mk_function is not None:
+            builders[kind_value] = mk_function
+    return builders
+
+
+Z3_APP_BUILDERS = mk_app_builders()
+
+
 def update_expr(expr, children, vars: list = None):
     """Return the expression with new children."""
 
     if not is_quantifier(expr):
-        if expr.decl().arity() != len(children):
-            return expr
         decl = expr.decl()
-        upd_expr = decl.__call__(children)
+        kind = decl.kind()
+        mk_function = Z3_APP_BUILDERS.get(kind)
+        if mk_function is None:
+            return expr
+
+        ctx_ref = expr.ctx.ref()
+        ast_children = to_ast_list(children)
+
+        try:
+            if kind in {Z3_OP_IMPLIES, Z3_OP_XOR, Z3_OP_ARRAY_EXT,
+                        Z3_OP_SET_DIFFERENCE, Z3_OP_SET_SUBSET,
+                        Z3_OP_GE, Z3_OP_GT, Z3_OP_LE, Z3_OP_LT,
+                        Z3_OP_MOD, Z3_OP_DIV, Z3_OP_EQ, Z3_OP_POWER,
+                        Z3_OP_SELECT}:
+                upd_expr = mk_function(ctx_ref, ast_children[0],
+                                       ast_children[1])
+
+            elif kind in {Z3_OP_NOT, Z3_OP_TO_REAL, Z3_OP_TO_INT,
+                          Z3_OP_IS_INT, Z3_OP_FPA_ABS, Z3_OP_FPA_ABS}:
+                upd_expr = mk_function(ctx_ref, ast_children[0])
+
+            elif kind in {Z3_OP_ITE}:
+                upd_expr = mk_function(ctx_ref, ast_children[0], ast_children[1], ast_children[2])
+
+            else:
+                arity = len(children)
+                upd_expr = mk_function(ctx_ref, arity, ast_children)
+        except Exception:
+            print(traceback.format_exc())
+            print('Expression kind:', kind)
+            return expr
     else:
         if vars is None:
             vars = get_bound_vars(expr)
@@ -224,6 +269,16 @@ def update_expr(expr, children, vars: list = None):
         else:
             upd_expr = Exists(vars, children[0])
     return upd_expr
+
+
+def to_ast_list(args: list):
+    """Function from z3.py with a slight change."""
+    sz = len(args)
+    _args = (Ast * sz)()
+    for i in range(sz):
+        _args[i] = args[i].as_ast() if not isinstance(args[i], Ast) \
+            else args[i]
+    return _args
 
 
 def expr_exists(instance, kinds: list) -> defaultdict:
@@ -315,7 +370,10 @@ def take_pred_from_clause(clause: AstVector, with_term=False):
     _, uninter_pred = count_expr(clause,
                                  [Z3_OP_UNINTERPRETED],
                                  is_unique=True)
+    assert uninter_pred, "Uninterpreted predicate not found" + clause.sexpr()
     upred = random.sample(uninter_pred[0], 1)[0]
+
+
     vars = []
     for i in range(upred.arity()):
         sort = upred.domain(i)
@@ -324,4 +382,4 @@ def take_pred_from_clause(clause: AstVector, with_term=False):
     if with_term:
         return upred_value, vars, upred
     else:
-        return upred_value , vars
+        return upred_value, vars
