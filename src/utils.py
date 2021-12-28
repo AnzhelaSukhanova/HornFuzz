@@ -8,7 +8,7 @@ from typing import List
 
 import numpy as np
 from scipy.sparse import dok_matrix
-from z3 import *
+from from_z3 import *
 
 TRACE_FILE = '.z3-trace'
 
@@ -235,8 +235,12 @@ def update_expr(expr, children, vars: list = None):
         if mk_function is None:
             return expr
 
-        ctx_ref = expr.ctx.ref()
-        ast_children = to_ast_list(children)
+        ctx = expr.ctx
+        ctx_ref = ctx.ref()
+        cast_children = []
+        for child in children:
+            cast_children.append(coerce_exprs(child, ctx))
+        ast_children = to_ast_list(cast_children)
 
         try:
             if kind in {Z3_OP_IMPLIES, Z3_OP_XOR, Z3_OP_ARRAY_EXT,
@@ -257,6 +261,9 @@ def update_expr(expr, children, vars: list = None):
             else:
                 arity = len(children)
                 upd_expr = mk_function(ctx_ref, arity, ast_children)
+
+            upd_expr = to_expr_ref(upd_expr, ctx)
+
         except Exception:
             print(traceback.format_exc())
             print('Expression kind:', kind)
@@ -269,16 +276,6 @@ def update_expr(expr, children, vars: list = None):
         else:
             upd_expr = Exists(vars, children[0])
     return upd_expr
-
-
-def to_ast_list(args: list):
-    """Function from z3.py with a slight change."""
-    sz = len(args)
-    _args = (Ast * sz)()
-    for i in range(sz):
-        _args[i] = args[i].as_ast() if not isinstance(args[i], Ast) \
-            else args[i]
-    return _args
 
 
 def expr_exists(instance, kinds: list) -> defaultdict:
@@ -383,3 +380,19 @@ def take_pred_from_clause(clause: AstVector, with_term=False):
         return upred_value, vars, upred
     else:
         return upred_value, vars
+
+
+def equivalence_check(seed: AstVector, mutant: AstVector, ctx: Context) -> bool:
+    solver = Solver(ctx=ctx)
+
+    for i, clause in enumerate(seed):
+        solver.reset()
+        mut_clause = mutant[i]
+        expr = Xor(clause, mut_clause, ctx=ctx)
+        solver.add(expr)
+        result = solver.check()
+
+        del expr
+        if result != unsat:
+            return False
+    return True

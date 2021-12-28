@@ -571,6 +571,11 @@ class Mutation(object):
         if time.perf_counter() - st_time >= MUT_APPLY_TIME_LIMIT:
             timeout = True
 
+        ctx = instance.chc.ctx
+        if not equivalence_check(instance.chc, new_instance.chc, ctx):
+            mutation = new_instance.mutation
+            assert False, "The mutant is not equivalent to its seed: " + mutation.type
+        
         changed = True
         if not self.simplify_changed or \
                 instance.chc.sexpr() == new_instance.chc.sexpr():

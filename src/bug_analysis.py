@@ -213,20 +213,6 @@ def redo_mutations(filename: str):
         assert False, 'Bug not found'
 
 
-def equivalence_check(seed: AstVector, mutant: AstVector) -> bool:
-    solver = Solver(ctx=current_ctx)
-
-    for i, clause in enumerate(seed):
-        solver.reset()
-        mut_clause = mutant[i]
-        expr = Xor(clause, mut_clause, ctx=current_ctx)
-        solver.add(expr)
-        result = solver.check()
-        if result != unsat:
-            return False
-    return True
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('bug_file',
@@ -248,7 +234,7 @@ def main():
     else:
         seed = parse_smt2_file(argv.seed_file, ctx=current_ctx)
         mutant = parse_smt2_file(argv.bug_file, ctx=current_ctx)
-        if equivalence_check(seed, mutant):
+        if equivalence_check(seed, mutant, current_ctx):
             print('Equivalent')
         else:
             assert False, 'The mutant is not equivalent to its seed'
