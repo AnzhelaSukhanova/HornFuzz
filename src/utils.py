@@ -1,4 +1,5 @@
 import hashlib
+import json
 import random
 import traceback
 from collections import defaultdict
@@ -14,9 +15,15 @@ TRACE_FILE = '.z3-trace'
 
 trace_states = defaultdict(int)
 trace_offset = 0
-info_kinds = [Z3_OP_AND, Z3_OP_OR, Z3_QUANTIFIER_AST,
-              Z3_OP_LE, Z3_OP_GE, Z3_OP_LT, Z3_OP_GT,
-              Z3_OP_UNINTERPRETED, None]
+info_kinds = {Z3_OP_AND: '(declare-fun and *)',
+              Z3_OP_OR: '(declare-fun or *)',
+              Z3_QUANTIFIER_AST: 'quantifiers',
+              Z3_OP_LE: '(declare-fun <= *)',
+              Z3_OP_GE: '(declare-fun >= *)',
+              Z3_OP_LT: '(declare-fun < *)',
+              Z3_OP_GT: '(declare-fun > *)',
+              Z3_OP_UNINTERPRETED: 'uninterpreted-function',
+              None: None}
 
 
 class State(object):
@@ -50,9 +57,10 @@ class State(object):
 class ClauseInfo(object):
 
     def __init__(self, number: int):
-        self.expr_exists = defaultdict(bool)
-        self.is_expr_in_clause = np.zeros((len(info_kinds), number),
-                                          dtype=bool)
+        self.expr_num = defaultdict(int)
+        self.clause_expr_num = defaultdict(object)
+        for kind in info_kinds:
+            self.clause_expr_num[kind] = np.zeros(number, dtype=int)
 
 
 class StatsType(Enum):
@@ -278,55 +286,27 @@ def update_expr(expr, children, vars: list = None):
     return upd_expr
 
 
-def expr_exists(instance, kinds: list) -> defaultdict:
-    """Return if there is a subexpression of the specific kind."""
-
-    expr_ex = defaultdict(bool)
-    ind = list(range(len(kinds)))
-    length = len(instance) if isinstance(instance, AstVector) else 1
-    for i in range(length):
-        expr = instance[i] if isinstance(instance, AstVector) else instance
-        expr_set = {expr} if not is_var(expr) and not is_const(expr) else {}
-        while len(expr_set) and ind:
-            cur_expr = expr_set.pop()
-            for j in ind:
-                if check_ast_kind(cur_expr, kinds[j]) or \
-                        is_app_of(cur_expr, kinds[j]):
-                    expr_ex[j] = True
-                    ind.remove(j)
-                    break
-            if ind:
-                for child in cur_expr.children():
-                    expr_set.add(child)
-    return expr_ex
-
-
 def count_expr(instance, kinds: list, is_unique=False):
     """Return the number of subexpressions of the specific kind."""
 
-    unique_expr = defaultdict(set)
     expr_num = defaultdict(int)
-    length = len(instance) if isinstance(instance, AstVector) else 1
-    for i in range(length):
-        expr = instance[i] if isinstance(instance, AstVector) else instance
-        expr_set = {expr} if not is_var(expr) and not is_const(expr) else {}
-        while len(expr_set):
-            cur_expr = expr_set.pop()
-            for j in range(len(kinds)):
-                if check_ast_kind(cur_expr, kinds[j]) or \
-                        is_app_of(cur_expr, kinds[j]):
-                    if is_unique:
-                        expr_num[j] += 1
-                        unique_expr[j].add(cur_expr.decl())
-                    else:
-                        expr_num[j] += 1
-                    break
-            for child in cur_expr.children():
-                expr_set.add(child)
-    if is_unique:
-        return expr_num, unique_expr
-    else:
-        return expr_num
+
+    goal = Goal(ctx=instance.ctx)
+    goal.append(instance)
+    tactic = Tactic('collect-statistics', ctx=instance.ctx)
+    tactic.apply(goal, 'to_file', True)
+
+    with open(".collect_stats.json") as file:
+        stats = json.load(file)
+
+    for kind in kinds:
+        decl = kinds[kind]
+        if decl in stats:
+            if kind == Z3_OP_UNINTERPRETED and not is_unique:
+                kind += "-occurrences"
+            expr_num[kind] = stats[decl]
+
+    return expr_num
 
 
 def check_ast_kind(expr, kind) -> bool:
@@ -370,7 +350,6 @@ def take_pred_from_clause(clause: AstVector, with_term=False):
     assert uninter_pred, "Uninterpreted predicate not found" + clause.sexpr()
     upred = random.sample(uninter_pred[0], 1)[0]
 
-
     vars = []
     for i in range(upred.arity()):
         sort = upred.domain(i)
@@ -392,7 +371,6 @@ def equivalence_check(seed: AstVector, mutant: AstVector, ctx: Context) -> bool:
         solver.add(expr)
         result = solver.check()
 
-        del expr
         if result != unsat:
             return False
     return True

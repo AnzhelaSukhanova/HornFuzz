@@ -364,14 +364,14 @@ def ensure_current_context_is_deletable():
     global current_ctx
     refs = gc.get_referrers(current_ctx)
     if len(refs) > 1:
-        dot_file = io.StringIO()
-        objgraph.show_backrefs([current_ctx],
-                               max_depth=7,
-                               output=dot_file)
-        dot_file.seek(0)
+        # dot_file = io.StringIO()
+        # objgraph.show_backrefs([current_ctx],
+        #                        max_depth=7,
+        #                        output=dot_file)
+        # dot_file.seek(0)
         logging.error(json.dumps({'context_deletion_error': {
-            'refs': str(refs),
-            'grapf': dot_file.read()
+            # 'refs': str(refs),
+            # 'grapf': dot_file.read()
         }}))
         current_ctx.__del__()
 
