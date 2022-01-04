@@ -300,7 +300,7 @@ def count_expr(instance, kinds: list, is_unique=False):
         stats = json.load(file)
 
     for kind in kinds:
-        decl = kinds[kind]
+        decl = info_kinds[kind]
         if decl in stats:
             if kind == Z3_OP_UNINTERPRETED and not is_unique:
                 kind += "-occurrences"
