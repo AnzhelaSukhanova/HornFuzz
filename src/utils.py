@@ -263,7 +263,7 @@ def update_expr(expr, children, vars: list = None):
                           Z3_OP_IS_INT, Z3_OP_FPA_ABS, Z3_OP_FPA_ABS}:
                 upd_expr = mk_function(ctx_ref, ast_children[0])
 
-            elif kind in {Z3_OP_ITE}:
+            elif kind in {Z3_OP_ITE, Z3_OP_STORE}:
                 upd_expr = mk_function(ctx_ref, ast_children[0], ast_children[1], ast_children[2])
 
             else:

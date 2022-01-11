@@ -65,6 +65,11 @@ def check_satis(instance: Instance, is_seed: bool = False, get_stats: bool = Tru
     ctx = instance.chc.ctx
     solver = SolverFor('HORN', ctx=ctx)
     solver.set('engine', 'spacer')
+    mut_type = instance.mutation.type
+    if mut_type.is_solving_param():
+        param = mut_type.name.lower()
+        value = not mut_type.default_value
+        solver.set(param, value)
 
     instance.check(solver, is_seed, get_stats)
     group = instance.get_group()
