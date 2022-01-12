@@ -1,12 +1,12 @@
 import time
 import re
-from statistics import fmean
 from utils import *
 
 MUT_APPLY_TIME_LIMIT = 10
 SEED_SOLVE_TIME_LIMIT_MS = int(2 * 1e3)
 MUT_SOLVE_TIME_LIMIT_MS = int(1e5)
 INSTANCE_ID = 0
+ONE_INST_MUT_LIMIT = 1000
 
 trans_n = 0
 unique_traces = set()
@@ -56,12 +56,12 @@ class InstanceGroup(object):
         length = len(self.instances)
         return self.instances.pop(length - 1)
 
-    def roll_back(self):
+    def roll_back(self, ctx: Context):
         """Roll back the group to the seed."""
         seed = self[0]
         self.instances = {0: seed}
         if not seed.chc:
-            seed.restore(ctx=Context(), is_seed=True)
+            seed.restore(ctx=ctx, is_seed=True)
         self.find_pred_info()
         self.analyze_vars()
 
@@ -84,7 +84,7 @@ class InstanceGroup(object):
             choice = np.random.choice([False, True], 1,
                                       p=[probability, 1 - probability])
             if choice:
-                self.roll_back()
+                self.roll_back(ctx=self[0].chc.ctx)
                 return 0
         return stats_limit
 
@@ -184,6 +184,7 @@ class Instance(object):
         self.satis = unknown
         self.trace_stats = TraceStats()
         self.sort_key = 0
+        self.params = []
 
         group = self.get_group()
         if not group.instances:
@@ -208,10 +209,10 @@ class Instance(object):
         _trace_states = [State.load(state_date) for state_date in info['trace_states']]
         self.trace_stats.load_states(_trace_states)
         return info['time']
-            
+
     def reset_chc(self):
         self.chc = None
-        
+
     def check(self, solver: Solver, is_seed: bool = False,
               get_stats: bool = True):
         """Check the satisfiability of the instance."""
@@ -310,7 +311,7 @@ class Instance(object):
         current_mutation_stats['new_traces'] += int(new_trace_found)
 
 
-class MutType:
+class MutType(object):
 
     def __init__(self, name, group_id, weight, default_value=None):
         self.name = name
@@ -326,6 +327,14 @@ class MutType:
 
     def is_solving_param(self):
         return self.group_id == 2
+
+
+class MutTypeEncoder(json.JSONEncoder):
+
+    def default(self, obj):
+        if isinstance(obj, MutType):
+            return obj.__dict__
+        return json.JSONEncoder.default(self, obj)
 
 
 mut_types = {'ID': MutType('ID', 0, -1.0)}
@@ -589,24 +598,14 @@ default_simplify_options = {'algebraic_number_evaluator', 'bit2bool',
 def update_mutation_weights():
     global mut_types, mut_stats
 
-    zero_mut_types = set()
-
     for mut_name in mut_types:
         current_mut_stats = mut_stats.get(mut_name)
         if current_mut_stats is None or mut_name == 'ID':
             continue
         trace_discover_probability = current_mut_stats['new_traces'] / \
                                      current_mut_stats['applications']
-        mut_types[mut_name] = 0.62 * mut_types[mut_name] + \
-                              0.38 * trace_discover_probability
-
-        if not mut_types[mut_name]:
-            zero_mut_types.add(mut_name)
-
-    weights = map(lambda mut_type: mut_type.weight, mut_types.values())
-    mean_weight = fmean(weights)
-    for mut_name in zero_mut_types:
-        mut_types[mut_name] = mean_weight
+        mut_types[mut_name].weight = 0.62 * mut_types[mut_name].weight + \
+                                     0.38 * trace_discover_probability
 
 
 class Mutation(object):
@@ -643,6 +642,9 @@ class Mutation(object):
 
         if self.type.is_solving_param():
             new_instance.set_chc(instance.chc)
+            param = mut_name.lower()
+            value = not self.type.default_value
+            new_instance.params += [param, value]
             return timeout, changed
 
         st_time = time.perf_counter()
@@ -718,12 +720,18 @@ class Mutation(object):
                 if self.exceptions else list(types_to_choose)
 
             if with_weights:
+                reverse_weights = random.choice([True, False]) \
+                    if self.number > 0.9 * ONE_INST_MUT_LIMIT \
+                    else False
                 weights = []
                 for name in types_to_choose:
                     weight = mut_types[name].weight
+                    if reverse_weights:
+                        weight = 1 - weight
                     weights.append(weight)
                 try:
                     mut_name = random.choices(types_to_choose, weights)[0]
+
                 except IndexError:
                     mut_name = 'ID'
 

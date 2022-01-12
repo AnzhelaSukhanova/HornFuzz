@@ -29,7 +29,6 @@ queue = []
 current_ctx = None
 general_stats = None
 
-ONE_INST_MUT_LIMIT = 1000
 PROBLEMS_LIMIT = 10
 MUT_WEIGHT_UPDATE_RUNS = 10000
 
@@ -65,11 +64,8 @@ def check_satis(instance: Instance, is_seed: bool = False, get_stats: bool = Tru
     ctx = instance.chc.ctx
     solver = SolverFor('HORN', ctx=ctx)
     solver.set('engine', 'spacer')
-    mut_type = instance.mutation.type
-    if mut_type.is_solving_param():
-        param = mut_type.name.lower()
-        value = not mut_type.default_value
-        solver.set(param, value)
+    if instance.params:
+        solver.set(*instance.params)
 
     instance.check(solver, is_seed, get_stats)
     group = instance.get_group()
@@ -228,7 +224,7 @@ def analyze_check_exception(instance: Instance, err: Exception,
                          instance,
                          mut_instance)
         if status != 'error':
-            group.roll_back()
+            group.roll_back(ctx=current_ctx)
             if status == 'timeout_before_check':
                 group[0].dump('output/last_mutants', group.filename)
             queue.append(group[0])
@@ -482,7 +478,7 @@ def fuzz(files: set):
                                      instance=instance,
                                      mut_instance=mut_instance)
                         problems_num += 1
-                        group.roll_back()
+                        group.roll_back(ctx=current_ctx)
                         instance = group[0]
                         start_mut_ind = 0
 
@@ -520,6 +516,8 @@ def fuzz(files: set):
                                  instance=instance,
                                  mut_instance=mut_instance)
                     print_general_info(counter)
+
+                    del mut_instance
 
                 if problems_num == PROBLEMS_LIMIT:
                     i = ONE_INST_MUT_LIMIT
