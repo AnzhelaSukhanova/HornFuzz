@@ -317,6 +317,9 @@ class MutType(object):
     def is_solving_param(self):
         return self.group_id == 2
 
+    def is_simplification(self):
+        return self.group_id == 3
+
 
 class MutTypeEncoder(json.JSONEncoder):
 
@@ -373,8 +376,26 @@ def init_mut_types(options: list):
         name = 'ADD_NONLIN_RULE'
         mut_types[name] = MutType(name, 1, 0.06)
 
+        name = 'XFORM.ARRAY_BLAST'
+        mut_types[name] = MutType(name, 2, 0.06, False)
+
+        name = 'XFORM.ARRAY_BLAST_FULL'
+        mut_types[name] = MutType(name, 2, 0.06, False)
+
+        name = 'XFORM.COALESCE_RULES'
+        mut_types[name] = MutType(name, 2, 0.06, False)
+
         name = 'XFORM.COI'
         mut_types[name] = MutType(name, 2, 0.06, True)
+
+        name = 'XFORM.COMPRESS_UNBOUND'
+        mut_types[name] = MutType(name, 2, 0.06, True)
+
+        name = 'XFORM.ELIM_TERM_ITE'
+        mut_types[name] = MutType(name, 2, 0.06, False)
+
+        name = 'XFORM.FIX_UNBOUND_VARS'
+        mut_types[name] = MutType(name, 2, 0.06, False)
 
         name = 'XFORM.INLINE_EAGER'
         mut_types[name] = MutType(name, 2, 0.06, True)
@@ -383,6 +404,33 @@ def init_mut_types(options: list):
         mut_types[name] = MutType(name, 2, 0.06, True)
 
         name = 'XFORM.INLINE_LINEAR_BRANCH'
+        mut_types[name] = MutType(name, 2, 0.06, False)
+
+        name = 'XFORM.INSTANTIATE_ARRAYS'
+        mut_types[name] = MutType(name, 2, 0.06, False)
+
+        name = 'XFORM.INSTANTIATE_ARRAYS.ENFORCE'
+        mut_types[name] = MutType(name, 2, 0.06, False)
+
+        name = 'XFORM.INSTANTIATE_QUANTIFIERS'
+        mut_types[name] = MutType(name, 2, 0.06, False)
+
+        name = 'XFORM.MAGIC'
+        mut_types[name] = MutType(name, 2, 0.06, False)
+
+        name = 'XFORM.QUANTIFY_ARRAYS'
+        mut_types[name] = MutType(name, 2, 0.06, False)
+
+        name = 'XFORM.SCALE'
+        mut_types[name] = MutType(name, 2, 0.06, False)
+
+        name = 'XFORM.SLICE'
+        mut_types[name] = MutType(name, 2, 0.06, True)
+
+        name = 'XFORM.TAIL_SIMPLIFIER_PVE'
+        mut_types[name] = MutType(name, 2, 0.06, True)
+
+        name = 'XFORM.TRANSFORM_ARRAYS'
         mut_types[name] = MutType(name, 2, 0.06, False)
 
     name = 'EMPTY_SIMPLIFY'
@@ -703,13 +751,21 @@ class Mutation(object):
                             pass
 
         if mut_name == 'ID':
-            for mut in mut_types:
-                if mut in {'BLAST_SELECT_STORE', 'EXPAND_SELECT_STORE',
-                           'EXPAND_STORE_EQ', 'SORT_STORE'} and \
+            for mut_name in mut_types:
+                if mut_name in {'BLAST_SELECT_STORE', 'EXPAND_SELECT_STORE',
+                                'EXPAND_STORE_EQ', 'SORT_STORE', 'XFORM.ARRAY_BLAST',
+                                'XFORM.ARRAY_BLAST_FULL', 'XFORM.INSTANTIATE_ARRAYS',
+                                'XFORM.INSTANTIATE_ARRAYS.ENFORCE',
+                                'XFORM.QUANTIFY_ARRAYS', 'XFORM.TRANSFORM_ARRAYS'} and \
                         not group.has_array:
                     continue
-                elif mut not in type_kind_corr:
-                    types_to_choose.add(mut)
+                elif not mut_types[mut_name].is_simplification() and \
+                        only_simplify:
+                    continue
+                elif mut_name not in type_kind_corr:
+                    types_to_choose.add(mut_name)
+                else:
+                    pass
             types_to_choose = list(types_to_choose.difference(self.exceptions)) \
                 if self.exceptions else list(types_to_choose)
 
