@@ -23,7 +23,7 @@ class InstanceGroup(object):
         self.same_stats_limit = 0
         self.is_linear = True
         self.upred_num = 0
-        self.has_array = defaultdict(bool)
+        self.has_array = False
 
     def __getitem__(self, index: int):
         index = index % len(self.instances)
@@ -103,42 +103,8 @@ class InstanceGroup(object):
             return
 
         for i, clause in enumerate(chc_system):
-            expr = clause
-            child = clause.children()[0] if clause.children() else None
-            while is_quantifier(expr) or is_quantifier(child):
-                if is_quantifier(expr) and expr.is_forall():
-                    expr = expr.body()
-                elif is_not(expr) and child.is_exists():
-                    expr = Not(child.body())
-                else:
-                    break
-                child = expr.children()[0] if expr.children() else None
+            body = get_chc_body(clause)
 
-            while is_not(expr) and is_not(child):
-                expr = child.children()[0]
-                child = expr.children()[0] if expr.children() else None
-
-            if is_implies(expr):
-                body = expr.children()[0]
-            elif is_or(expr) or (is_not(expr) and is_and(child)):
-                body_expr = []
-                expr = child if is_not(clause) else clause
-                for subexpr in expr.children():
-                    if not is_not(subexpr):
-                        # it is not necessary to take the negation of
-                        # and-subexpressions, since we are counting the
-                        # number of predicates
-                        body_expr.append(subexpr)
-                body = Or(body_expr)
-            elif is_not(expr) and is_or(child):
-                pass
-            elif (is_not(expr) and child.decl().kind() == Z3_OP_UNINTERPRETED) or \
-                    expr.decl().kind() == Z3_OP_UNINTERPRETED:
-                body = None
-            else:
-                assert False, self.filename + \
-                              ' -- clause-kind: ' + \
-                              str(expr)
             if body is not None:
                 upred_num = count_expr(body,
                                        [Z3_OP_UNINTERPRETED],
@@ -148,11 +114,15 @@ class InstanceGroup(object):
         self.upred_num = count_expr(body, [Z3_OP_UNINTERPRETED], is_unique=True)
 
     def analyze_vars(self):
+        if self.has_array:
+            return
+
         instance = self[-1]
         for i, clause in enumerate(instance.chc):
             for var in get_bound_vars(clause):
                 if is_array(var):
-                    self.has_array[i] = True
+                    self.has_array = True
+                    return
 
     def restore(self, id: int, mutations, ctx: Context):
         seed = parse_smt2_file(self.filename, ctx=ctx)
@@ -185,6 +155,7 @@ class Instance(object):
         self.trace_stats = TraceStats()
         self.sort_key = 0
         self.params = []
+        self.model = None
 
         group = self.get_group()
         if not group.instances:
@@ -199,9 +170,11 @@ class Instance(object):
 
         self.chc = chc
         group = self.get_group()
-        group.same_stats_limit = 5 * len(self.chc)
+        if len(group.instances):
+            group.analyze_vars()
 
         chc_len = len(self.chc)
+        group.same_stats_limit = 5 * chc_len
         self.info = ClauseInfo(chc_len)
 
     def process_seed_info(self, info: dict):
@@ -225,11 +198,27 @@ class Instance(object):
 
         solver.add(self.chc)
         self.satis = solver.check()
+        if self.satis == sat:
+            self.model = solver.model()
 
         if get_stats:
             self.trace_stats.read_from_trace(is_seed)
             self.update_traces_info()
         assert self.satis != unknown, solver.reason_unknown()
+
+    def check_model(self):
+        if self.model is None:
+            return True if self.satis != sat else False
+        elif self.satis != sat:
+            return False
+
+        solver = Solver(ctx=self.chc.ctx)
+        for clause in self.chc:
+            inter_clause = self.model.eval(clause)
+            solver.add(inter_clause)
+        res = solver.check()
+
+        return True if res == sat else False
 
     def update_traces_info(self):
         unique_traces.add(self.trace_stats.hash)
@@ -319,7 +308,7 @@ class MutType(object):
         0 -- ID
         1 -- custom mutations
         2 -- solving parameters
-        3 -- simplifies
+        3 -- simplifications
         '''
         self.group_id = group_id
         self.weight = weight
@@ -378,7 +367,7 @@ def init_mut_types(options: list):
         name = 'ADD_LIN_RULE'
         mut_types[name] = MutType(name, 1, 0.06)
 
-        name = 'ADD_OR_RULE'
+        name = 'ADD_BV_RULE'
         mut_types[name] = MutType(name, 1, 0.06)
 
         name = 'ADD_NONLIN_RULE'
@@ -586,7 +575,7 @@ type_kind_corr = {'SWAP_AND': Z3_OP_AND, 'DUP_AND': Z3_OP_AND,
                   'MIX_BOUND_VARS': Z3_QUANTIFIER_AST,
                   'ADD_INEQ': {Z3_OP_LE, Z3_OP_GE, Z3_OP_LT, Z3_OP_GT},
                   'ADD_LIN_RULE': Z3_OP_UNINTERPRETED,
-                  'ADD_OR_RULE': Z3_OP_UNINTERPRETED,
+                  'ADD_BV_RULE': Z3_OP_UNINTERPRETED,
                   'ADD_NONLIN_RULE': Z3_OP_UNINTERPRETED}
 
 
@@ -651,8 +640,8 @@ class Mutation(object):
         if mut_name == 'ADD_LIN_RULE':
             new_instance.set_chc(self.add_lin_rule(instance))
 
-        elif mut_name == 'ADD_OR_RULE':
-            new_instance.set_chc(self.add_or_rule(instance))
+        elif mut_name == 'ADD_BV_RULE':
+            new_instance.set_chc(self.add_bv_rule(instance))
 
         elif mut_name == 'ADD_NONLIN_RULE':
             new_instance.set_chc(self.add_nonlin_rule(instance))
@@ -685,6 +674,7 @@ class Mutation(object):
         types_to_choose = set()
         instance.get_system_info()
         info = instance.info
+        group = instance.get_group()
 
         mut_name = self.type.name
 
@@ -707,14 +697,18 @@ class Mutation(object):
                             mult_kinds['ADD_INEQ'].append(kind)
                         elif kind == type_kind_corr['ADD_LIN_RULE']:
                             types_to_choose.add('ADD_LIN_RULE')
-                            types_to_choose.add('ADD_OR_RULE')
+                            types_to_choose.add('ADD_BV_RULE')
                             types_to_choose.add('ADD_NONLIN_RULE')
                         else:
                             pass
 
         if mut_name == 'ID':
             for mut in mut_types:
-                if mut not in type_kind_corr:
+                if mut in {'BLAST_SELECT_STORE', 'EXPAND_SELECT_STORE',
+                           'EXPAND_STORE_EQ', 'SORT_STORE'} and \
+                        not group.has_array:
+                    continue
+                elif mut not in type_kind_corr:
                     types_to_choose.add(mut)
             types_to_choose = list(types_to_choose.difference(self.exceptions)) \
                 if self.exceptions else list(types_to_choose)
@@ -809,7 +803,7 @@ class Mutation(object):
         mut_system.push(rule)
         return mut_system
 
-    def add_or_rule(self, instance: Instance) -> AstVector:
+    def add_bv_rule(self, instance: Instance) -> AstVector:
         mut_system = deepcopy(instance.chc)
         _, clause = self.get_clause_info(instance)
         head, head_vars = take_pred_from_clause(clause)

@@ -59,8 +59,8 @@ def calc_sort_key(heuristic: str, stats, weights=None) -> int:
 
 
 def check_satis(instance: Instance, is_seed: bool = False, get_stats: bool = True) -> bool:
-
     global general_stats
+
     ctx = instance.chc.ctx
     solver = SolverFor('HORN', ctx=ctx)
     solver.set('engine', 'spacer')
@@ -115,7 +115,8 @@ def sort_queue():
 
 def update_mutation_weights():
     instances.update_mutation_weights()
-    logging.info(json.dumps({'update_mutation_weights': instances.mut_types}))
+    logging.info(json.dumps({'update_mutation_weights': instances.mut_types},
+                            cls=MutTypeEncoder))
 
 
 def print_general_info(counter: defaultdict, solve_time: time = None,
@@ -172,9 +173,13 @@ def log_run_info(status: str, message: str = None,
             if status not in {'pass', 'without_change'}:
                 chain = mut_instance.mutation.get_chain()
                 log['mut_chain'] = chain
-                if status in {'bug', 'mutant_unknown', 'error'}:
+                if status in {'bug', 'wrong_model',
+                              'mutant_unknown', 'error'}:
                     log['prev_chc'] = instance.chc.sexpr()
-                    log['expected_satis'] = str(instance.satis)
+                    log['satis'] = str(mut_instance.satis)
+                    if status == 'wrong_model':
+                        log['model'] = mut_instance.model.sexpr() \
+                            if mut_instance.model else None
 
     logging.info(json.dumps({'run_info': log}))
 
@@ -461,9 +466,13 @@ def fuzz(files: set):
                                      mut_instance.trace_stats.hash)
                     mut_instance.update_mutation_stats(new_trace_found=trace_changed)
 
-                    if not res:
+                    correct_model = mut_instance.check_model()
+
+                    if not res or not correct_model:
                         counter['bug'] += 1
-                        log_run_info('bug',
+
+                        status = 'bug' if not res else 'wrong_model'
+                        log_run_info(status,
                                      instance=instance,
                                      mut_instance=mut_instance)
                         problems_num += 1

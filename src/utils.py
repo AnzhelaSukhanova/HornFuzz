@@ -374,3 +374,63 @@ def equivalence_check(seed: AstVector, mutant: AstVector, ctx: Context) -> bool:
         if result != unsat:
             return False
     return True
+
+
+def get_body(clause):
+    body = clause
+    child = clause.children()[0] if clause.children() else None
+    body = remove_dup_not(body)
+
+    while is_quantifier(body) or is_quantifier(child):
+        if is_quantifier(body) and body.is_forall():
+            body = body.body()
+        elif is_not(body) and child.is_exists():
+            body = Not(child.body())
+        else:
+            break
+        child = body.children()[0] if body.children() else None
+        body = remove_dup_not(body)
+
+    return body
+
+
+def remove_dup_not(expr):
+    if not expr.children():
+        return expr
+    child = expr.children()[0]
+
+    while is_not(expr) and is_not(child):
+        expr = child.children()[0]
+        if not expr.children():
+            break
+        child = expr.children()[0]
+    return expr
+
+
+def get_chc_body(clause):
+    expr = get_body(clause)
+    child = expr.children()[0] if expr.children() else None
+    body = expr
+
+    if is_implies(expr):
+        body = expr.children()[0]
+    elif is_or(expr) or (is_not(expr) and is_and(child)):
+        body_expr = []
+        expr = child if is_not(expr) else expr
+        for subexpr in expr.children():
+            if not is_not(subexpr):
+                # it is not necessary to take the negation of
+                # and-subexpressions, since we are counting the
+                # number of predicates
+                body_expr.append(subexpr)
+        body = Or(body_expr)
+    elif is_not(expr) and is_or(child):
+        pass
+    elif (is_not(expr) and child.decl().kind() == Z3_OP_UNINTERPRETED) or \
+            expr.decl().kind() == Z3_OP_UNINTERPRETED:
+        body = None
+    else:
+        assert False, 'Can\'t find body of the expression: ' + \
+                      str(clause)
+
+    return body
