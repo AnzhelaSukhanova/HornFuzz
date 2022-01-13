@@ -398,6 +398,8 @@ def fuzz(files: set):
         runs_before_weight_update = MUT_WEIGHT_UPDATE_RUNS
 
     while queue:
+        assert len(queue) == seed_number - counter['error']
+
         if not heuristic_flags['default'] and not stats_limit:
             sort_queue()
             queue_len = len(queue)

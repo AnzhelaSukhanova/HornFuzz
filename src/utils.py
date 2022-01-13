@@ -201,21 +201,6 @@ class TraceStats(object):
         return weights
 
 
-def get_bound_vars(expr) -> list:
-    """Return bound variables."""
-
-    vars = []
-    if is_not(expr):
-        expr = expr.children()[0]
-    if is_quantifier(expr):
-        for i in range(expr.num_vars()):
-            name = expr.var_name(i)
-            sort = expr.var_sort(i)
-            var = Const(name, sort)
-            vars.append(var)
-    return vars
-
-
 def mk_app_builders():
     builders = {}
     OP_PREFIX = 'Z3_OP_'
@@ -278,7 +263,7 @@ def update_expr(expr, children, vars: list = None):
             return expr
     else:
         if vars is None:
-            vars = get_bound_vars(expr)
+            vars, _ = get_vars_and_body(expr)
         if expr.is_forall():
             upd_expr = ForAll(vars, children[0])
         else:
@@ -376,22 +361,35 @@ def equivalence_check(seed: AstVector, mutant: AstVector, ctx: Context) -> bool:
     return True
 
 
-def get_body(clause):
-    body = clause
-    child = clause.children()[0] if clause.children() else None
-    body = remove_dup_not(body)
+def get_vars_and_body(clause):
+    def get_vars(expr):
+        vars = []
+        for i in range(expr.num_vars()):
+            name = expr.var_name(i)
+            sort = expr.var_sort(i)
+            var = Const(name, sort)
+            vars.append(var)
+        return vars
 
-    while is_quantifier(body) or is_quantifier(child):
-        if is_quantifier(body) and body.is_forall():
-            body = body.body()
-        elif is_not(body) and child.is_exists():
-            body = Not(child.body())
+    expr = clause
+    vars = []
+    child = clause.children()[0] if clause.children() else None
+    expr = remove_dup_not(expr)
+
+    while is_quantifier(expr) or is_quantifier(child):
+        if is_quantifier(expr) and expr.is_forall():
+            vars += get_vars(expr)
+            expr = expr.body()
+
+        elif is_not(expr) and child.is_exists():
+            vars += get_vars(child)
+            expr = Not(child.body())
         else:
             break
-        child = body.children()[0] if body.children() else None
-        body = remove_dup_not(body)
+        child = expr.children()[0] if expr.children() else None
+        expr = remove_dup_not(expr)
 
-    return body
+    return vars, expr
 
 
 def remove_dup_not(expr):
@@ -408,7 +406,7 @@ def remove_dup_not(expr):
 
 
 def get_chc_body(clause):
-    expr = get_body(clause)
+    _, expr = get_vars_and_body(clause)
     child = expr.children()[0] if expr.children() else None
     body = expr
 

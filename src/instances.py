@@ -6,7 +6,7 @@ MUT_APPLY_TIME_LIMIT = 10
 SEED_SOLVE_TIME_LIMIT_MS = int(2 * 1e3)
 MUT_SOLVE_TIME_LIMIT_MS = int(1e5)
 INSTANCE_ID = 0
-ONE_INST_MUT_LIMIT = 1000
+ONE_INST_MUT_LIMIT = 10
 
 trans_n = 0
 unique_traces = set()
@@ -110,7 +110,7 @@ class InstanceGroup(object):
             if body is not None:
                 upred_num = count_expr(body,
                                        [Z3_OP_UNINTERPRETED],
-                                       is_unique=True)
+                                       is_unique=True)[0]
                 if upred_num > 1:
                     self.is_linear = False
         self.upred_num = count_expr(body, [Z3_OP_UNINTERPRETED], is_unique=True)
@@ -186,7 +186,8 @@ class Instance(object):
         if group.has_array:
             return
         for i, clause in enumerate(self.chc):
-            for var in get_bound_vars(clause):
+            vars, _ = get_vars_and_body(clause)
+            for var in vars:
                 if is_array(var):
                     group.has_array = True
                     return
@@ -220,8 +221,7 @@ class Instance(object):
         ctx = self.chc.ctx
         solver = Solver(ctx=ctx)
         for clause in self.chc:
-            body = get_body(clause)
-            vars = get_bound_vars(clause)
+            vars, body = get_vars_and_body(clause)
             not_expr = Not(body, ctx=ctx)
             exists_expr = Exists(vars, not_expr)
             inter_clause = self.model.eval(exists_expr)
@@ -229,6 +229,7 @@ class Instance(object):
             solver.add(inter_clause)
             res = solver.check()
             solver.reset()
+
             if res != unsat:
                 return False
 
@@ -358,12 +359,12 @@ def init_mut_types(options: list = None, mutations: list = None):
     if 'without_mutation_weights' in options:
         with_weights = False
 
+    if not mutations or 'custom' in mutations:
+        mut_group_flags[1] = True
     if not mutations or 'solving_parameters' in mutations:
         mut_group_flags[2] = True
-    elif not mutations or 'simplifications' in mutations:
+    if not mutations or 'simplifications' in mutations:
         mut_group_flags[3] = True
-    else:
-        mut_group_flags[1] = True
 
     if mut_group_flags[1]:
         for name in {'SWAP_AND',
@@ -927,7 +928,7 @@ class Mutation(object):
                 elif expr_kind == Z3_OP_OR:
                     mut_expr = Or(children)
                 elif expr_kind == Z3_QUANTIFIER_AST:
-                    vars = get_bound_vars(expr)
+                    vars, _ = get_vars_and_body(expr)
                     shuffle_vars(vars)
                     mut_expr = update_expr(expr, children, vars)
                 else:
