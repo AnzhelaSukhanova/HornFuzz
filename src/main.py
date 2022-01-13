@@ -22,6 +22,7 @@ enable_trace('spacer')
 
 heuristics = []
 heuristic_flags = defaultdict(bool)
+mutations = []
 options = []
 
 seed_number = 0
@@ -390,6 +391,7 @@ def fuzz(files: set):
     run_seeds(files, counter)
     logging.info(json.dumps({'seed_number': seed_number,
                              'heuristics': heuristics,
+                             'mutations': mutations,
                              'options': options}))
     stats_limit = 0
     if with_weights:
@@ -549,7 +551,7 @@ def fuzz(files: set):
 
 def main():
     global general_stats, heuristics, heuristic_flags, \
-        options, seed_number, with_oracles
+        mutations, options, seed_number, with_oracles
 
     parser = argparse.ArgumentParser()
     parser.add_argument('seeds',
@@ -562,11 +564,14 @@ def main():
                         default=['default'],
                         help='trace data which will be used to '
                              'select an instance for mutation')
-
+    parser.add_argument('-mutations', '-mut',
+                        nargs='*',
+                        choices=['simplifications', 'solving_parameters',
+                                 'custom'],
+                        default=[])
     parser.add_argument('-options', '-opt',
                         nargs='*',
-                        choices=['only_simplify', 'without_mutation_weights',
-                                 'with_oracles'],
+                        choices=['without_mutation_weights', 'with_oracles'],
                         default=[])
     argv = parser.parse_args()
 
@@ -586,15 +591,17 @@ def main():
     set_stats_type(heuristic_flags)
     if heuristic_flags['transitions'] or heuristic_flags['states']:
         general_stats = TraceStats()
+        
     options = argv.options
     with_oracles = 'with_oracles' in options
+    mutations = argv.mutations
 
     directory = os.path.dirname(os.path.dirname(parser.prog))
     if directory:
         directory += '/'
     files = get_seeds(argv.seeds, directory)
     create_output_dirs()
-    init_mut_types(options)
+    init_mut_types(options, mutations)
 
     seed_number = len(files)
     assert seed_number > 0, 'Seeds not found'
