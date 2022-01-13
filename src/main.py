@@ -192,7 +192,6 @@ def analyze_check_exception(instance: Instance, err: Exception,
                             mut_instance: Instance = None,
                             is_seed: bool = False):
     """Log information about exceptions that occur during the check."""
-    global queue
     group = instance.get_group()
 
     if is_seed:
