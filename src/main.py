@@ -182,6 +182,8 @@ def log_run_info(status: str, message: str = None,
                         log['model'] = mut_instance.model.sexpr() \
                             if mut_instance.model else None
 
+            mut_instance.reset_model()
+        instance.reset_model()
     logging.info(json.dumps({'run_info': log}))
 
 
@@ -233,7 +235,6 @@ def analyze_check_exception(instance: Instance, err: Exception,
             group.roll_back(ctx=current_ctx)
             if status == 'timeout_before_check':
                 group[0].dump('output/last_mutants', group.filename)
-            queue.append(group[0])
 
     if status == 'error':
         for inst in group.instances.values():
@@ -408,9 +409,9 @@ def fuzz(files: set):
         group = instance.get_group()
         try:
             ensure_current_context_is_deletable()
-            start_mut_ind = len(group.instances) - 1
             current_ctx = Context()
-            instance.restore(ctx=current_ctx, is_seed=(start_mut_ind == 0))
+            is_seed = len(group.instances) == 1
+            instance.restore(ctx=current_ctx, is_seed=is_seed)
 
             if with_weights:
                 if runs_before_weight_update <= 0:
@@ -460,7 +461,6 @@ def fuzz(files: set):
                         if problems_num == PROBLEMS_LIMIT:
                             i = ONE_INST_MUT_LIMIT
                         instance = group[0]
-                        start_mut_ind = 0
                         print_general_info(counter, mut_time)
                         continue
 
@@ -491,7 +491,8 @@ def fuzz(files: set):
                         problems_num += 1
                         group.roll_back(ctx=current_ctx)
                         instance = group[0]
-                        start_mut_ind = 0
+
+                        mut_instance.reset_chc()
 
                     else:
                         if with_oracles:
@@ -528,15 +529,14 @@ def fuzz(files: set):
                                  mut_instance=mut_instance)
                     print_general_info(counter)
 
-                    del mut_instance
+                    mut_instance.reset_chc()
 
                 if problems_num == PROBLEMS_LIMIT:
                     i = ONE_INST_MUT_LIMIT
 
-            queue.append(instance)
             instance.dump('output/last_mutants',
-                          group.filename,
-                          start_mut_ind)
+                          group.filename)
+            queue.append(instance)
 
         except Exception as err:
             message = traceback.format_exc()

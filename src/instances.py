@@ -24,6 +24,7 @@ class InstanceGroup(object):
         self.is_linear = True
         self.upred_num = 0
         self.has_array = False
+        self.start_dump_ind = 0
 
     def __getitem__(self, index: int):
         index = index % len(self.instances)
@@ -63,7 +64,8 @@ class InstanceGroup(object):
         if not seed.chc:
             seed.restore(ctx=ctx, is_seed=True)
         self.find_pred_info()
-        self.analyze_vars()
+        self.start_dump_ind = 0
+        seed.analyze_vars()
 
     def check_stats(self, stats_limit: int) -> int:
         """
@@ -113,17 +115,6 @@ class InstanceGroup(object):
                     self.is_linear = False
         self.upred_num = count_expr(body, [Z3_OP_UNINTERPRETED], is_unique=True)
 
-    def analyze_vars(self):
-        if self.has_array:
-            return
-
-        instance = self[-1]
-        for i, clause in enumerate(instance.chc):
-            for var in get_bound_vars(clause):
-                if is_array(var):
-                    self.has_array = True
-                    return
-
     def restore(self, id: int, mutations, ctx: Context):
         seed = parse_smt2_file(self.filename, ctx=ctx)
         instance = Instance(id, seed)
@@ -170,8 +161,8 @@ class Instance(object):
 
         self.chc = chc
         group = self.get_group()
-        if len(group.instances):
-            group.analyze_vars()
+        if len(group.instances) == 1:
+            self.analyze_vars()
 
         chc_len = len(self.chc)
         group.same_stats_limit = 5 * chc_len
@@ -185,6 +176,20 @@ class Instance(object):
 
     def reset_chc(self):
         self.chc = None
+
+    def reset_model(self):
+        self.model = None
+
+    def analyze_vars(self):
+        group = self.get_group()
+
+        if group.has_array:
+            return
+        for i, clause in enumerate(self.chc):
+            for var in get_bound_vars(clause):
+                if is_array(var):
+                    group.has_array = True
+                    return
 
     def check(self, solver: Solver, is_seed: bool = False,
               get_stats: bool = True):
@@ -212,13 +217,22 @@ class Instance(object):
         elif self.satis != sat:
             return False
 
-        solver = Solver(ctx=self.chc.ctx)
+        ctx = self.chc.ctx
+        solver = Solver(ctx=ctx)
         for clause in self.chc:
-            inter_clause = self.model.eval(clause)
-            solver.add(inter_clause)
-        res = solver.check()
+            body = get_body(clause)
+            vars = get_bound_vars(clause)
+            not_expr = Not(body, ctx=ctx)
+            exists_expr = Exists(vars, not_expr)
+            inter_clause = self.model.eval(exists_expr)
 
-        return True if res == sat else False
+            solver.add(inter_clause)
+            res = solver.check()
+            solver.reset()
+            if res != unsat:
+                return False
+
+        return True
 
     def update_traces_info(self):
         unique_traces.add(self.trace_stats.hash)
@@ -260,7 +274,7 @@ class Instance(object):
         self.set_chc(z3.parse_smt2_file(filename, ctx=ctx))
         assert len(self.chc) > 0, "Empty chc-system"
 
-    def dump(self, dir: str, filename: str, start_ind=0,
+    def dump(self, dir: str, filename: str, start_ind: int = None,
              message: str = None, to_name=None, clear: bool = True):
         """Dump the instance to the specified directory."""
         ctx_path = 'output/ctx/' + filename
@@ -282,8 +296,11 @@ class Instance(object):
         if clear:
             group = self.get_group()
             length = len(group.instances)
+            if start_ind is None:
+                start_ind = group.start_dump_ind
             for i in range(length - 1, start_ind - 1, -1):
                 group[i].reset_chc()
+            group.start_dump_ind = length - 1
             if self.chc:
                 self.reset_chc()
 
