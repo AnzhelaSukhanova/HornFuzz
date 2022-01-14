@@ -68,7 +68,7 @@ def check_satis(instance: Instance, is_seed: bool = False, get_stats: bool = Tru
     if instance.params:
         solver.set(*instance.params)
 
-    instance.check(solver, is_seed, get_stats)
+    message = instance.check(solver, is_seed, get_stats)
     group = instance.get_group()
     if not is_seed:
         if group[0].satis == unknown:
@@ -80,7 +80,7 @@ def check_satis(instance: Instance, is_seed: bool = False, get_stats: bool = Tru
     if get_stats and (heuristic_flags['transitions'] or
                       heuristic_flags['states']):
         general_stats += instance.trace_stats
-    return instance.satis == satis
+    return instance.satis == satis, message
 
 
 def sort_queue():
@@ -179,11 +179,9 @@ def log_run_info(status: str, message: str = None,
                     log['prev_chc'] = instance.chc.sexpr()
                     log['satis'] = str(mut_instance.satis)
                     if status == 'wrong_model':
-                        log['model'] = mut_instance.model.sexpr() \
-                            if mut_instance.model else None
+                        log['model'] = mut_instance.model.sexpr()
+                        mut_instance.reset_model()
 
-            mut_instance.reset_model()
-        instance.reset_model()
     logging.info(json.dumps({'run_info': log}))
 
 
@@ -445,7 +443,7 @@ def fuzz(files: set):
                     mut_types_exc = set()
                     try:
                         st_time = time.perf_counter()
-                        res = check_satis(mut_instance)
+                        res, message = check_satis(mut_instance)
                         solve_time = time.perf_counter() - st_time
                     except AssertionError as err:
                         analyze_check_exception(instance,
@@ -469,19 +467,19 @@ def fuzz(files: set):
                                      mut_instance.trace_stats.hash)
                     mut_instance.update_mutation_stats(new_trace_found=trace_changed)
 
-                    correct_model = mut_instance.check_model()
-
-                    if not res or not correct_model:
+                    if not res or mut_instance.model is not None:
                         counter['bug'] += 1
 
                         status = 'bug' if not res else 'wrong_model'
                         log_run_info(status,
+                                     message,
                                      instance=instance,
                                      mut_instance=mut_instance)
                         problems_num += 1
                         mut_instance.dump('output/bugs',
                                           group.filename,
                                           len(group.instances),
+                                          message,
                                           to_name=mut_instance.id)
 
                     elif timeout:

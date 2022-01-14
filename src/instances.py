@@ -145,7 +145,7 @@ class Instance(object):
         self.satis = unknown
         self.trace_stats = TraceStats()
         self.sort_key = 0
-        self.params = []
+        self.params = ['validate', True]
         self.model = None
 
         group = self.get_group()
@@ -203,37 +203,22 @@ class Instance(object):
             solver.set('timeout', MUT_SOLVE_TIME_LIMIT_MS)
 
         solver.add(self.chc)
-        self.satis = solver.check()
-        if self.satis == sat:
-            self.model = solver.model()
+        message = None
+        try:
+            self.satis = solver.check()
+        except Exception as err:
+            if str(err).startswith("rule validation failed"):
+                self.model = solver.model()
+                message = repr(err)
+            else:
+                raise
 
         if get_stats:
             self.trace_stats.read_from_trace(is_seed)
             self.update_traces_info()
         assert self.satis != unknown, solver.reason_unknown()
 
-    def check_model(self):
-        if self.model is None:
-            return True if self.satis != sat else False
-        elif self.satis != sat:
-            return False
-
-        ctx = self.chc.ctx
-        solver = Solver(ctx=ctx)
-        for clause in self.chc:
-            vars, body = get_vars_and_body(clause)
-            not_expr = Not(body, ctx=ctx)
-            exists_expr = Exists(vars, not_expr)
-            inter_clause = self.model.eval(exists_expr)
-
-            solver.add(inter_clause)
-            res = solver.check()
-            solver.reset()
-
-            if res != unsat:
-                return False
-
-        return True
+        return message
 
     def update_traces_info(self):
         unique_traces.add(self.trace_stats.hash)
@@ -390,7 +375,6 @@ def init_mut_types(options: list = None, mutations: list = None):
                      'XFORM.INSTANTIATE_QUANTIFIERS',
                      'XFORM.MAGIC',
                      'XFORM.QUANTIFY_ARRAYS',
-                     'XFORM.SCALE',
                      'XFORM.TRANSFORM_ARRAYS'}:
             mut_types[name] = MutType(name, 2, default_value=False)
 
