@@ -39,7 +39,6 @@ class InstanceGroup(object):
         length = len(self.instances)
         self.instances[length] = instance
         if length == 0:
-            self.find_pred_info()
             self.dump_ctx()
 
     def dump_ctx(self):
@@ -146,7 +145,6 @@ class Instance(object):
         self.trace_stats = TraceStats()
         self.sort_key = 0
         self.params = ['validate', True]
-        self.model = None
 
         group = self.get_group()
         if not group.instances:
@@ -177,9 +175,6 @@ class Instance(object):
     def reset_chc(self):
         self.chc = None
 
-    def reset_model(self):
-        self.model = None
-
     def analyze_vars(self):
         group = self.get_group()
 
@@ -201,23 +196,20 @@ class Instance(object):
             solver.set('timeout', SEED_SOLVE_TIME_LIMIT_MS)
         else:
             solver.set('timeout', MUT_SOLVE_TIME_LIMIT_MS)
-
         solver.add(self.chc)
-        message = None
-        try:
-            self.satis = solver.check()
-        except Exception as err:
-            if str(err).startswith("rule validation failed"):
-                self.model = solver.model()
-                message = repr(err)
-            else:
-                raise
+        self.satis = solver.check()
+
+        file = open('.model_exception', 'r+')
+        message = file.readline()
+        file.truncate(0)
+        file.close()
 
         if get_stats:
             self.trace_stats.read_from_trace(is_seed)
             self.update_traces_info()
-        assert self.satis != unknown, solver.reason_unknown()
 
+        if not message:
+            assert self.satis != unknown, solver.reason_unknown()
         return message
 
     def update_traces_info(self):
