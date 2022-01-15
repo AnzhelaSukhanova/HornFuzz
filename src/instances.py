@@ -197,11 +197,14 @@ class Instance(object):
         else:
             solver.set('timeout', MUT_SOLVE_TIME_LIMIT_MS)
         solver.add(self.chc)
+
+        file = open('.model_exception', 'w+')
+        file.close()
+
         self.satis = solver.check()
 
-        file = open('.model_exception', 'r+')
-        message = file.readline()
-        file.truncate(0)
+        file = open('.model_exception', 'r')
+        message = ''.join(file.readlines())
         file.close()
 
         if get_stats:
