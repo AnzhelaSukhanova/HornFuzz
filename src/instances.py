@@ -87,34 +87,6 @@ class InstanceGroup(object):
                 return 0
         return stats_limit
 
-    def find_pred_info(self):
-        """
-        Find whether the chc-system is linear, the number of
-        uninterpreted predicates and their set.
-        """
-        if not mut_group_flags[1] and not with_difficulty_heur:
-            return
-
-        assert len(self.instances) > 0, "Instance group is empty"
-        instance = self[-1]
-        chc_system = instance.chc
-        if chc_system is None:
-            return
-
-        for i, clause in enumerate(chc_system):
-            body = get_chc_body(clause)
-
-            if body is not None:
-                upred_num = count_expr(body,
-                                       [Z3_OP_UNINTERPRETED],
-                                       is_unique=True)[0]
-                if upred_num > 1:
-                    self.is_linear = False
-
-        self.upred_num = count_expr(chc_system,
-                                    [Z3_OP_UNINTERPRETED],
-                                    is_unique=True)[0]
-
     def restore(self, id: int, mutations, ctx: Context):
         seed = parse_smt2_file(self.filename, ctx=ctx)
         instance = Instance(id, seed)
@@ -169,7 +141,7 @@ class Instance(object):
         self.chc = chc
         group = self.get_group()
         if group.upred_num == 0:
-            group.find_pred_info()
+            self.find_pred_info()
             self.analyze_vars()
 
         chc_len = len(self.chc)
@@ -241,7 +213,7 @@ class Instance(object):
             log['mut_type'] = self.mutation.get_name()
         return log
 
-    def get_system_info(self):
+    def find_system_info(self):
         """
         Get information about the number of subexpressions of kind
         from info_kinds in the system and clauses.
@@ -256,6 +228,32 @@ class Instance(object):
             expr_num = count_expr(clause, info_kinds)
             for kind in info_kinds:
                 info.clause_expr_num[kind][i] = expr_num[kind]
+                
+    def find_pred_info(self):
+        """
+        Find whether the chc-system is linear, the number of
+        uninterpreted predicates and their set.
+        """
+        if not mut_group_flags[1] and not with_difficulty_heur:
+            return
+        group = self.get_group()
+        chc_system = self.chc
+        if chc_system is None:
+            return
+
+        for i, clause in enumerate(chc_system):
+            body = get_chc_body(clause)
+
+            if body is not None:
+                upred_num = count_expr(body,
+                                       [Z3_OP_UNINTERPRETED],
+                                       is_unique=True)[0]
+                if upred_num > 1:
+                    group.is_linear = False
+
+        group.upred_num = count_expr(chc_system,
+                                     [Z3_OP_UNINTERPRETED],
+                                     is_unique=True)[0]
 
     def restore(self, ctx: Context, is_seed: bool = False):
         """Restore the instance from output/last_mutants/."""
@@ -633,7 +631,7 @@ class Mutation(object):
         types_to_choose = set()
         info = instance.info
         group = instance.get_group()
-        instance.get_system_info()
+        instance.find_system_info()
 
         mut_name = self.type.name
 

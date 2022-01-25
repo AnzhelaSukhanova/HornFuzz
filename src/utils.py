@@ -286,8 +286,12 @@ def count_expr(chc, kinds: list, is_unique=False):
     tactic = Tactic('collect-statistics', ctx=chc.ctx)
     tactic.apply(goal, 'to_file', True)
 
-    with open(".collect_stats.json") as file:
-        stats = json.load(file)
+    try:
+        with open(".collect_stats.json") as file:
+            stats = json.load(file)
+    except Exception:
+        print(traceback.format_exc())
+        exit(0)
 
     for kind in kinds:
         decl = info_kinds[kind]
@@ -388,7 +392,7 @@ def get_vars_and_body(clause):
 
         elif is_not(expr):
             vars += get_vars(child)
-            expr = Not(child.body())
+            expr = Not(child.body(), ctx=clause.ctx)
         else:
             break
         child = expr.children()[0] if expr.children() else None
@@ -426,8 +430,8 @@ def get_chc_body(clause):
                 # and-subexpressions, since we are counting the
                 # number of predicates
                 body_expr.append(subexpr)
-        body = Or(body_expr)
-    elif is_not(expr) and is_or(child):
+        body = Or(body_expr, clause.ctx)
+    elif (is_not(expr) and is_or(child)) or is_true(expr):
         pass
     elif (is_not(expr) and child.decl().kind() == Z3_OP_UNINTERPRETED) or \
             expr.decl().kind() == Z3_OP_UNINTERPRETED:

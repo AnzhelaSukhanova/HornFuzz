@@ -369,15 +369,14 @@ def handle_bug(instance: Instance, mut_instance: Instance = None,
     if mut_instance:
         mut_instance.dump('output/bugs',
                           group.filename,
-                          start_ind=len(group.instances),
                           message=message,
                           to_name=mut_instance.id)
     else:
         instance.dump('output/bugs',
                       group.filename,
-                      start_ind=0,
                       message=message,
                       to_name=0)
+        group.reset()
 
 
 def compare_satis(instance: Instance, is_seed: bool = False):
