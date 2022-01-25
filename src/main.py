@@ -198,7 +198,7 @@ def analyze_check_exception(instance: Instance, err: Exception,
         elif message:
             counter['error'] += 1
             status = 'error'
-        elif instance.satis == unknown:
+        else:
             counter['unknown'] += 1
             status = 'seed_unknown'
             message = repr(err)
@@ -227,15 +227,18 @@ def analyze_check_exception(instance: Instance, err: Exception,
                          message,
                          instance,
                          mut_instance)
+        if status == 'unknown':
+            mut_instance.dump('output/unknown',
+                              group.filename,
+                              message=message,
+                              to_name=mut_instance.id)
+        elif status == 'timeout_before_check':
+            group[0].dump('output/last_mutants',
+                          group.filename)
+        group.reset()
+
         if status != 'error':
             group.roll_back(ctx=current_ctx)
-            if status == 'timeout_before_check':
-                group[0].dump('output/last_mutants', group.filename)
-
-    if status == 'error':
-        for inst in group.instances.values():
-            del inst.chc, inst
-        del group
 
 
 def mk_seed_instance(ctx: Context, idx: int, seed_file_name: str,
@@ -377,7 +380,6 @@ def handle_bug(instance: Instance, mut_instance: Instance = None,
                       to_name=0)
 
 
-
 def compare_satis(instance: Instance, is_seed: bool = False):
     group = instance.get_group()
     states = defaultdict()
@@ -480,17 +482,12 @@ def fuzz(files: set):
                         analyze_check_exception(instance,
                                                 err,
                                                 mut_instance=mut_instance)
-                        mut_instance.dump('output/problems',
-                                          group.filename,
-                                          len(group.instances),
-                                          repr(err),
-                                          mut_instance.id)
 
                         problems_num += 1
                         if problems_num == PROBLEMS_LIMIT:
                             i = ONE_INST_MUT_LIMIT
-                        instance = group[0]
                         print_general_info(mut_time)
+                        instance = group[0]
                         continue
 
                     trace_changed = (instance.trace_stats.hash !=
@@ -553,6 +550,7 @@ def fuzz(files: set):
 
             instance.dump('output/last_mutants',
                           group.filename)
+            group.reset()
             queue.append(instance)
 
         except Exception as err:
@@ -631,7 +629,7 @@ def create_output_dirs():
     if not os.path.exists('output'):
         os.mkdir('output')
     for dir in {'output/last_mutants', 'output/ctx',
-                'output/bugs', 'output/problems'}:
+                'output/bugs', 'output/unknown'}:
         if not os.path.exists(dir):
             os.mkdir(dir)
         if dir != 'output':

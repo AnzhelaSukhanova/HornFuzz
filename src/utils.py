@@ -264,21 +264,26 @@ def update_expr(expr, children, vars: list = None):
     else:
         if vars is None:
             vars, _ = get_vars_and_body(expr)
-        if expr.is_forall():
-            upd_expr = ForAll(vars, children[0])
-        else:
-            upd_expr = Exists(vars, children[0])
+        try:
+            if expr.is_forall():
+                upd_expr = ForAll(vars, children[0])
+            else:
+                upd_expr = Exists(vars, children[0])
+        except Exception:
+            print(expr)
+            raise
     return upd_expr
 
 
-def count_expr(instance, kinds: list, is_unique=False):
+def count_expr(chc, kinds: list, is_unique=False):
     """Return the number of subexpressions of the specific kind."""
 
+    assert chc is not None, "Empty chc-system"
     expr_num = defaultdict(int)
 
-    goal = Goal(ctx=instance.ctx)
-    goal.append(instance)
-    tactic = Tactic('collect-statistics', ctx=instance.ctx)
+    goal = Goal(ctx=chc.ctx)
+    goal.append(chc)
+    tactic = Tactic('collect-statistics', ctx=chc.ctx)
     tactic.apply(goal, 'to_file', True)
 
     with open(".collect_stats.json") as file:
@@ -377,11 +382,11 @@ def get_vars_and_body(clause):
     expr = remove_dup_not(expr)
 
     while is_quantifier(expr) or is_quantifier(child):
-        if is_quantifier(expr) and expr.is_forall():
+        if is_quantifier(expr):
             vars += get_vars(expr)
             expr = expr.body()
 
-        elif is_not(expr) and child.is_exists():
+        elif is_not(expr):
             vars += get_vars(child)
             expr = Not(child.body())
         else:

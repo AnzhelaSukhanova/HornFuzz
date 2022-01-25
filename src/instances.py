@@ -62,9 +62,7 @@ class InstanceGroup(object):
         self.instances = {0: seed}
         if not seed.chc:
             seed.restore(ctx=ctx, is_seed=True)
-        self.find_pred_info()
         self.start_dump_ind = 0
-        seed.analyze_vars()
 
     def check_stats(self, stats_limit: int) -> int:
         """
@@ -112,7 +110,10 @@ class InstanceGroup(object):
                                        is_unique=True)[0]
                 if upred_num > 1:
                     self.is_linear = False
-        self.upred_num = count_expr(body, [Z3_OP_UNINTERPRETED], is_unique=True)
+
+        self.upred_num = count_expr(chc_system,
+                                    [Z3_OP_UNINTERPRETED],
+                                    is_unique=True)[0]
 
     def restore(self, id: int, mutations, ctx: Context):
         seed = parse_smt2_file(self.filename, ctx=ctx)
@@ -129,6 +130,14 @@ class InstanceGroup(object):
             except AssertionError:
                 message = traceback.format_exc()
                 print(message)
+
+    def reset(self, start_ind: int = None):
+        length = len(self.instances)
+        if start_ind is None:
+            start_ind = self.start_dump_ind
+            self.start_dump_ind = length - 1
+        for i in range(length - 1, start_ind - 1, -1):
+            self[i].reset_chc()
 
 
 class Instance(object):
@@ -155,11 +164,12 @@ class Instance(object):
 
     def set_chc(self, chc: AstVector):
         """Set the chc-system of the instance."""
-        assert chc is not None, 'CHC-system wasn\'t given'
+        assert chc is not None, "Empty chc-system"
 
         self.chc = chc
         group = self.get_group()
-        if len(group.instances) == 1:
+        if group.upred_num == 0:
+            group.find_pred_info()
             self.analyze_vars()
 
         chc_len = len(self.chc)
@@ -255,8 +265,8 @@ class Instance(object):
         self.set_chc(z3.parse_smt2_file(filename, ctx=ctx))
         assert len(self.chc) > 0, "Empty chc-system"
 
-    def dump(self, dir: str, filename: str, start_ind: int = None,
-             message: str = None, to_name=None, clear: bool = True):
+    def dump(self, dir: str, filename: str, message: str = None,
+             to_name=None, clear: bool = True):
         """Dump the instance to the specified directory."""
         ctx_path = 'output/ctx/' + filename
         with open(ctx_path, 'r') as ctx_file:
@@ -275,15 +285,7 @@ class Instance(object):
             file.write('(check-sat)\n(exit)\n\n')
 
         if clear:
-            group = self.get_group()
-            length = len(group.instances)
-            if start_ind is None:
-                start_ind = group.start_dump_ind
-            for i in range(length - 1, start_ind - 1, -1):
-                group[i].reset_chc()
-            group.start_dump_ind = length - 1
-            if self.chc:
-                self.reset_chc()
+            self.reset_chc()
 
     def update_mutation_stats(self, new_application: bool = False, new_trace_found: bool = False):
         global mut_stats
@@ -368,7 +370,6 @@ def init_mut_types(options: list = None, mutations: list = None):
                      'XFORM.INSTANTIATE_ARRAYS',
                      'XFORM.INSTANTIATE_ARRAYS.ENFORCE',
                      'XFORM.INSTANTIATE_QUANTIFIERS',
-                     'XFORM.MAGIC',
                      'XFORM.QUANTIFY_ARRAYS',
                      'XFORM.TRANSFORM_ARRAYS'}:
             mut_types[name] = MutType(name, 2, default_value=False)
@@ -585,7 +586,7 @@ class Mutation(object):
         if mut_name == 'ID':
             assert False, 'No mutation can be applied'
 
-        assert instance.chc is not None, 'Instance chc is None'
+        assert instance.chc is not None, "Empty chc-system"
 
         if self.type.is_solving_param():
             new_instance.set_chc(instance.chc)
@@ -630,9 +631,9 @@ class Mutation(object):
         """
         mult_kinds = defaultdict(list)
         types_to_choose = set()
-        instance.get_system_info()
         info = instance.info
         group = instance.get_group()
+        instance.get_system_info()
 
         mut_name = self.type.name
 
