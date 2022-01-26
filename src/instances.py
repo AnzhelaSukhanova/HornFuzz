@@ -195,6 +195,8 @@ class Instance(object):
 
         if not message:
             assert self.satis != unknown, solver.reason_unknown()
+        else:
+            message, _ = message.split("model:")
         return message
 
     def update_traces_info(self):
