@@ -290,11 +290,9 @@ class Instance(object):
     def update_mutation_stats(self, new_application: bool = False, new_trace_found: bool = False):
         global mut_stats
 
-        mutation_type = self.mutation and self.mutation.type
-        if mutation_type is None:
-            return
+        mut_name = self.mutation.type.name
         current_mutation_stats = \
-            mut_stats.setdefault(mutation_type,
+            mut_stats.setdefault(mut_name,
                                  {'applications': 0.0, 'new_traces': 0.0})
         current_mutation_stats['applications'] += int(new_application)
         current_mutation_stats['new_traces'] += int(new_trace_found)
