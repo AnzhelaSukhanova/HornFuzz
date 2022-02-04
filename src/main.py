@@ -66,16 +66,17 @@ def check_satis(instance: Instance, is_seed: bool = False, get_stats: bool = Tru
     ctx = instance.chc.ctx
     solver = SolverFor('HORN', ctx=ctx)
     solver.set('engine', 'spacer')
-    if instance.params:
-        solver.set(*instance.params)
 
-    message = instance.check(solver, is_seed, get_stats)
     group = instance.get_group()
     if not is_seed:
         if group[0].satis == unknown:
             group[0].check(solver, True, get_stats)
         satis = group[0].satis
-    else:
+
+    if instance.params:
+        solver.set(*instance.params)
+    message = instance.check(solver, is_seed, get_stats)
+    if is_seed:
         satis = instance.satis
 
     if get_stats and (heuristic_flags['transitions'] or
@@ -86,8 +87,11 @@ def check_satis(instance: Instance, is_seed: bool = False, get_stats: bool = Tru
 
 def sort_queue():
     """Sort the queue by statistics."""
-
     global queue
+
+    if heuristic_flags['default']:
+        return
+
     length = len(heuristics)
     for i in range(length):
         heur = heuristics[i]
@@ -423,17 +427,13 @@ def fuzz(files: set):
                              'heuristics': heuristics,
                              'mutations': mutations,
                              'options': options}))
-    stats_limit = 0
     if with_weights:
         runs_before_weight_update = MUT_WEIGHT_UPDATE_RUNS
 
     while queue:
         assert len(queue) == seed_number - counter['error']
 
-        if not heuristic_flags['default'] and not stats_limit:
-            sort_queue()
-            queue_len = len(queue)
-            stats_limit = random.randint(queue_len // 5, queue_len)
+        sort_queue()
 
         instance = queue.pop(0)
         counter['runs'] += 1
@@ -448,8 +448,6 @@ def fuzz(files: set):
                 if runs_before_weight_update <= 0:
                     update_mutation_weights()
                     runs_before_weight_update = MUT_WEIGHT_UPDATE_RUNS
-
-            stats_limit -= 1
 
             i = 0
             problems_num = 0
@@ -514,9 +512,8 @@ def fuzz(files: set):
                         else:
                             found_problem = False
                         group.push(mut_instance)
-                        if not heuristic_flags['default'] and \
-                                len(instance_groups) > 1:
-                            stats_limit = group.check_stats(stats_limit)
+                        if not heuristic_flags['default']:
+                            group.check_stats()
 
                         if found_problem:
                             log_run_info('oracle_bug',

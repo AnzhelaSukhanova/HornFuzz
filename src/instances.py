@@ -64,7 +64,7 @@ class InstanceGroup(object):
             seed.restore(ctx=ctx, is_seed=True)
         self.start_dump_ind = 0
 
-    def check_stats(self, stats_limit: int) -> int:
+    def check_stats(self):
         """
         Increase the counter if the current trace is the same as the previous
         one. Reset the number of steps before sorting instances if their
@@ -85,7 +85,6 @@ class InstanceGroup(object):
             if choice:
                 self.roll_back(ctx=self[0].chc.ctx)
                 return 0
-        return stats_limit
 
     def restore(self, id: int, mutations, ctx: Context):
         seed = parse_smt2_file(self.filename, ctx=ctx)
@@ -110,6 +109,27 @@ class InstanceGroup(object):
             self.start_dump_ind = length - 1
         for i in range(length - 1, start_ind - 1, -1):
             self[i].reset_chc()
+
+
+class MutType(object):
+
+    def __init__(self, name, group_id, weight=0.1, default_value=None):
+        self.name = name
+        '''
+        0 -- ID, REMOVE_EXPR
+        1 -- custom mutations
+        2 -- solving parameters
+        3 -- simplifications
+        '''
+        self.group_id = group_id
+        self.weight = weight
+        self.default_value = default_value
+
+    def is_solving_param(self):
+        return self.group_id == 2
+
+    def is_simplification(self):
+        return self.group_id == 3
 
 
 class Instance(object):
@@ -147,6 +167,12 @@ class Instance(object):
         chc_len = len(self.chc)
         group.same_stats_limit = 5 * chc_len
         self.info = ClauseInfo(chc_len)
+
+    def add_param(self, mut_type: MutType):
+        mut_name = mut_type.name
+        param = mut_name.lower()
+        value = not mut_type.default_value
+        self.params += [param, value]
 
     def process_seed_info(self, info: dict):
         self.satis = CheckSatResult(info['satis'])
@@ -298,27 +324,6 @@ class Instance(object):
         current_mutation_stats['new_traces'] += int(new_trace_found)
 
 
-class MutType(object):
-
-    def __init__(self, name, group_id, weight=0.1, default_value=None):
-        self.name = name
-        '''
-        0 -- ID
-        1 -- custom mutations
-        2 -- solving parameters
-        3 -- simplifications
-        '''
-        self.group_id = group_id
-        self.weight = weight
-        self.default_value = default_value
-
-    def is_solving_param(self):
-        return self.group_id == 2
-
-    def is_simplification(self):
-        return self.group_id == 3
-
-
 class MutTypeEncoder(json.JSONEncoder):
 
     def default(self, obj):
@@ -327,7 +332,8 @@ class MutTypeEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
-mut_types = {'ID': MutType('ID', 0)}
+mut_types = {'ID': MutType('ID', 0),
+             'REMOVE_EXPR': MutType('REMOVE_EXPR', 0)}
 mut_stats = {}
 with_weights = True
 mut_group_flags = {0: False, 1: False, 2: False, 3: False}
@@ -588,9 +594,7 @@ class Mutation(object):
 
         if self.type.is_solving_param():
             new_instance.set_chc(instance.chc)
-            param = mut_name.lower()
-            value = not self.type.default_value
-            new_instance.params += [param, value]
+            new_instance.add_param(self.type)
             return timeout, changed
 
         st_time = time.perf_counter()
@@ -704,7 +708,7 @@ class Mutation(object):
                     mut_name = random.choice(types_to_choose)
                 except IndexError:
                     mut_name = 'ID'
-
+            # mut_name = 'XFORM.ARRAY_BLAST'
             self.type = mut_types[mut_name]
 
         if mut_name in type_kind_corr and self.kind is None:
@@ -867,7 +871,8 @@ class Mutation(object):
 
         for j, clause in enumerate(chc_system):
             if j == clause_ind:
-                mut_system.push(mut_clause)
+                if mut_clause is not None:
+                    mut_system.push(mut_clause)
             else:
                 mut_system.push(chc_system[j])
         return mut_system
@@ -876,14 +881,15 @@ class Mutation(object):
         """Transform nth expression of the specific kind in dfs-order."""
         global trans_n
 
-        expr_kind = self.kind
-        if not len(expr.children()) and self.type.name != 'REMOVE_EXPR':
+        if not expr.children() and self.type.name != 'REMOVE_EXPR':
             return expr
+        expr_kind = self.kind
 
         if expr_kind is None or \
                 is_app_of(expr, expr_kind) or \
                 check_ast_kind(expr, expr_kind):
-            if trans_n == 0:
+            trans_n -= 1
+            if trans_n == -1:
                 mut_expr = None
                 mut_name = self.type.name
                 children = expr.children()
@@ -914,7 +920,6 @@ class Mutation(object):
                 self.path = path
                 self.applied = True
                 return mut_expr
-            trans_n -= 1
 
         mut_children = []
         for i, child in enumerate(expr.children()):
@@ -925,10 +930,8 @@ class Mutation(object):
                     mut_children.append(mut_child)
             else:
                 mut_children.append(child)
-        if mut_children:
-            return update_expr(expr, mut_children)
-        else:
-            return expr
+
+        return update_expr(expr, mut_children)
 
     def get_chain(self, in_log_format=False):
         """Return the full mutation chain."""
@@ -981,17 +984,22 @@ class Mutation(object):
         """Restore mutations by log or chain."""
         if type(mut_entry) == dict:
             for field in mut_entry:
-                setattr(self, field, mut_entry[field])
+                if field == 'type':
+                    mut_name = mut_entry[field]
+                    self.type = mut_types[mut_name]
+                else:
+                    setattr(self, field, mut_entry[field])
 
         elif type(mut_entry) == str and mut_entry != 'nan':
             mut_info = re.findall(r"[\w]+|[0-9]+", mut_entry)
-            self.type = mut_info[0]
+            mut_name = mut_info[0]
+            self.type = mut_types[mut_name]
 
-            if self.type == 'ADD_INEQ':
+            if mut_name == 'ADD_INEQ':
                 self.kind = int(mut_info[1])
                 self.path = [int(mut_info[2])]
                 self.trans_num = int(mut_info[3])
-            elif self.type in type_kind_corr:
+            elif mut_name in type_kind_corr:
                 self.path = [int(mut_info[1])]
                 self.trans_num = int(mut_info[2])
         else:

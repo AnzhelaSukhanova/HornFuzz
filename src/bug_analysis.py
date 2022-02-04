@@ -15,7 +15,7 @@ def is_same_res(instance: Instance, result: bool = False, message: str = None) -
     """
 
     try:
-        same_res = result == check_satis(instance, get_stats=False)
+        same_res = result == check_satis(instance, get_stats=False)[0]
         if message:
             same_res = False
     except AssertionError as err:
@@ -32,42 +32,40 @@ def reduce_instance(seed: Instance, bug_instance: Instance,
 
     for i, clause in enumerate(instance.chc):
         print('Clause:', i)
-        fst_child = clause.children()[0] if clause.children() else None
-        if is_quantifier(clause):
-            expr_set = {clause.body()}
-        elif is_not(clause) and fst_child.is_exists():
-            expr_set = {fst_child.body()}
-        else:
-            expr_set = {clause}
-        trans_number = 1
+        expr_queue = [clause]
+        trans_number = -1
 
-        while len(expr_set):
-            cur_expr = expr_set.pop()
-            children = cur_expr.children()
-            for j, child in enumerate(children):
-                trans_number += 1
-                mutation = Mutation()
-                mutation.type = 'REMOVE_EXPR'
-                mutation.trans_num = trans_number
-                mutation.path = [i]
-                mutation.kind_ind = -1
+        while len(expr_queue):
+            cur_expr = expr_queue.pop()
 
-                try:
-                    instance.set_chc(mutation.transform(instance))
-                except Exception as err:
-                    print(repr(err))
-                    instance.set_chc(bug_instance.chc)
-                    expr_set.add(child)
-                    continue
+            trans_number += 1
+            mutation = Mutation()
+            mutation.type = mut_types['REMOVE_EXPR']
+            mutation.trans_num = trans_number
+            mutation.path = [i]
+            mutation.kind_ind = -1
 
-                is_eq = equivalence_check(seed.chc, instance.chc)
-                if is_same_res(instance, message=message) and is_eq:
-                    bug_instance.set_chc(instance.chc)
-                    print('Reduced:', trans_number)
-                else:
-                    instance.set_chc(bug_instance.chc)
-                    expr_set.add(child)
-                    # print('Cannot be reduced:', trans_number)
+            try:
+                reduced_chc = mutation.transform(instance)
+                instance.set_chc(reduced_chc)
+            except Exception:
+                print(traceback.format_exc())
+                instance.set_chc(bug_instance.chc)
+                for child in cur_expr.children():
+                    expr_queue.append(child)
+                continue
+
+            is_eq = equivalence_check(seed.chc,
+                                      instance.chc,
+                                      ctx=current_ctx)
+            if is_same_res(instance, message=message) and is_eq:
+                bug_instance.set_chc(instance.chc)
+                print('Reduced:', trans_number)
+            else:
+                instance.set_chc(bug_instance.chc)
+                for child in cur_expr.children():
+                    expr_queue.append(child)
+                # print('Cannot be reduced:', trans_number)
     return bug_instance
 
 
@@ -165,6 +163,12 @@ def reduce(reduce_chain: bool = False):
             group.restore(i, {}, ctx=current_ctx)
             mut_system = parse_smt2_file(filename, ctx=current_ctx)
             mut_instance = Instance(i, mut_system)
+            for entry in mutations:
+                type_name = entry["type"]
+                type = mut_types[type_name]
+                if type.is_solving_param():
+                    mut_instance.add_param(type)
+
             assert is_same_res(mut_instance, message=message), \
                 'Incorrect mutant-restoration'
 

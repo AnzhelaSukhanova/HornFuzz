@@ -220,6 +220,8 @@ Z3_APP_BUILDERS = mk_app_builders()
 
 def update_expr(expr, children, vars: list = None):
     """Return the expression with new children."""
+    if not children:
+        return None
 
     if not is_quantifier(expr):
         decl = expr.decl()
@@ -241,6 +243,7 @@ def update_expr(expr, children, vars: list = None):
                         Z3_OP_GE, Z3_OP_GT, Z3_OP_LE, Z3_OP_LT,
                         Z3_OP_MOD, Z3_OP_DIV, Z3_OP_EQ, Z3_OP_POWER,
                         Z3_OP_SELECT}:
+                assert len(ast_children) > 1
                 upd_expr = mk_function(ctx_ref, ast_children[0],
                                        ast_children[1])
 
@@ -249,6 +252,7 @@ def update_expr(expr, children, vars: list = None):
                 upd_expr = mk_function(ctx_ref, ast_children[0])
 
             elif kind in {Z3_OP_ITE, Z3_OP_STORE}:
+                assert len(ast_children) > 2
                 upd_expr = mk_function(ctx_ref, ast_children[0], ast_children[1], ast_children[2])
 
             else:
@@ -258,9 +262,8 @@ def update_expr(expr, children, vars: list = None):
             upd_expr = to_expr_ref(upd_expr, ctx)
 
         except Exception:
-            print(traceback.format_exc())
             print('Expression kind:', kind)
-            return expr
+            raise
     else:
         if vars is None:
             vars, _ = get_vars_and_body(expr)
