@@ -145,7 +145,7 @@ class Instance(object):
         self.satis = unknown
         self.trace_stats = TraceStats()
         self.sort_key = 0
-        self.params = ['validate', True]
+        self.params = {'validate': True}
 
         group = self.get_group()
         if not group.instances:
@@ -172,7 +172,7 @@ class Instance(object):
         mut_name = mut_type.name
         param = mut_name.lower()
         value = not mut_type.default_value
-        self.params += [param, value]
+        self.params[param] = value
 
     def process_seed_info(self, info: dict):
         self.satis = CheckSatResult(info['satis'])
@@ -583,6 +583,7 @@ class Mutation(object):
         """Mutate instances."""
         timeout = False
         changed = True
+        new_instance.params = instance.params
 
         self.next_mutation(instance)
         mut_name = self.type.name
@@ -679,6 +680,8 @@ class Mutation(object):
                                   'XFORM.QUANTIFY_ARRAYS',
                                   'XFORM.TRANSFORM_ARRAYS'} and \
                         not group.has_array:
+                    continue
+                elif mut_name in instance.params:
                     continue
                 elif mut_name not in type_kind_corr:
                     types_to_choose.add(mut_name)
@@ -852,7 +855,8 @@ class Mutation(object):
             i = self.path[0]
 
         clause = chc_system[i]
-        self.path = [i]
+        if not self.path:
+            self.path = [i]
         return i, clause
 
     def transform(self, instance: Instance) -> AstVector:
@@ -884,6 +888,7 @@ class Mutation(object):
         if not expr.children() and self.type.name != 'REMOVE_EXPR':
             return expr
         expr_kind = self.kind
+        depth = len(path)
 
         if expr_kind is None or \
                 is_app_of(expr, expr_kind) or \
@@ -917,14 +922,16 @@ class Mutation(object):
                     mut_expr = update_expr(expr, children, vars)
                 else:
                     pass
-                self.path = path
+                if len(self.path) < depth:
+                    self.path = path
                 self.applied = True
                 return mut_expr
 
         mut_children = []
         for i, child in enumerate(expr.children()):
             new_path = path + [i]
-            if trans_n >= 0:
+            if (trans_n >= 0 and len(self.path) <= depth) or \
+                    self.path[depth] == i:
                 mut_child = self.transform_nth(child, new_path)
                 if mut_child is not None:
                     mut_children.append(mut_child)

@@ -19,6 +19,7 @@ import z3_api_mods
 
 faulthandler.enable()
 enable_trace('spacer')
+enable_trace('dl_rule_transf')
 
 heuristics = []
 heuristic_flags = defaultdict(bool)
@@ -73,11 +74,14 @@ def check_satis(instance: Instance, is_seed: bool = False, get_stats: bool = Tru
             group[0].check(solver, True, get_stats)
         satis = group[0].satis
 
-    if instance.params:
-        solver.set(*instance.params)
+    for param in instance.params:
+        value = instance.params[param]
+        solver.set(param, value)
+
     message = instance.check(solver, is_seed, get_stats)
     if is_seed:
         satis = instance.satis
+    print(satis, instance.satis)
 
     if get_stats and (heuristic_flags['transitions'] or
                       heuristic_flags['states']):
