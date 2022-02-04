@@ -81,7 +81,6 @@ def check_satis(instance: Instance, is_seed: bool = False, get_stats: bool = Tru
     message = instance.check(solver, is_seed, get_stats)
     if is_seed:
         satis = instance.satis
-    print(satis, instance.satis)
 
     if get_stats and (heuristic_flags['transitions'] or
                       heuristic_flags['states']):
