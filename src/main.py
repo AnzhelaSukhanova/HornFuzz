@@ -19,7 +19,6 @@ import z3_api_mods
 
 faulthandler.enable()
 enable_trace('spacer')
-enable_trace('dl_rule_transf')
 
 heuristics = []
 heuristic_flags = defaultdict(bool)
@@ -533,6 +532,7 @@ def fuzz(files: set):
                     print_general_info(solve_time,
                                        mut_time,
                                        trace_changed)
+
 
                 else:
                     exc_type = instance.mutation.type

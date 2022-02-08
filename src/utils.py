@@ -243,7 +243,7 @@ def update_expr(expr, children, vars: list = None):
                         Z3_OP_GE, Z3_OP_GT, Z3_OP_LE, Z3_OP_LT,
                         Z3_OP_MOD, Z3_OP_DIV, Z3_OP_EQ, Z3_OP_POWER,
                         Z3_OP_SELECT}:
-                assert len(ast_children) > 1
+                assert len(ast_children) > 1, 'Not enough subexpressions'
                 upd_expr = mk_function(ctx_ref, ast_children[0],
                                        ast_children[1])
 
@@ -252,7 +252,7 @@ def update_expr(expr, children, vars: list = None):
                 upd_expr = mk_function(ctx_ref, ast_children[0])
 
             elif kind in {Z3_OP_ITE, Z3_OP_STORE}:
-                assert len(ast_children) > 2
+                assert len(ast_children) > 2, 'Not enough subexpressions'
                 upd_expr = mk_function(ctx_ref, ast_children[0], ast_children[1], ast_children[2])
 
             else:

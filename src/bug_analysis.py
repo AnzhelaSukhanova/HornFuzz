@@ -39,6 +39,7 @@ def reduce_instance(seed: Instance, bug_instance: Instance,
             cur_expr = expr_queue.pop()
 
             trans_number += 1
+            print(trans_number)
             mutation = Mutation()
             mutation.type = mut_types['REMOVE_EXPR']
             mutation.trans_num = trans_number
@@ -48,8 +49,9 @@ def reduce_instance(seed: Instance, bug_instance: Instance,
             try:
                 reduced_chc = mutation.transform(instance)
                 instance.set_chc(reduced_chc)
-            except Exception:
-                print(traceback.format_exc())
+            except Exception as err:
+                print(repr(err))
+                # print(traceback.format_exc())
                 instance.set_chc(bug_instance.chc)
                 for child in cur_expr.children():
                     expr_queue.append(child)
@@ -183,7 +185,7 @@ def reduce(reduce_chain: bool = False):
                     os.mkdir(dir_path)
         try:
             reduced_instance = reduce_instance(group[0], mut_instance, message)
-            reduced_instance.dump('output/reduced', seed_name, 0)
+            reduced_instance.dump('output/reduced', seed_name)
         except Exception:
             print(traceback.format_exc())
 

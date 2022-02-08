@@ -930,15 +930,17 @@ class Mutation(object):
         mut_children = []
         for i, child in enumerate(expr.children()):
             new_path = path + [i]
-            if (trans_n >= 0 and len(self.path) <= depth) or \
-                    self.path[depth] == i:
+            if trans_n >= 0 and \
+                    (len(self.path) == 1 or self.path[depth] == i):
                 mut_child = self.transform_nth(child, new_path)
                 if mut_child is not None:
                     mut_children.append(mut_child)
             else:
                 mut_children.append(child)
-
-        return update_expr(expr, mut_children)
+        if not expr.children() or trans_n >= 0:
+            return expr
+        else:
+            return update_expr(expr, mut_children)
 
     def get_chain(self, in_log_format=False):
         """Return the full mutation chain."""
