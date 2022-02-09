@@ -22,7 +22,7 @@ info_kinds = {Z3_OP_AND: '(declare-fun and *)',
               Z3_OP_GE: '(declare-fun >= *)',
               Z3_OP_LT: '(declare-fun < *)',
               Z3_OP_GT: '(declare-fun > *)',
-              Z3_OP_UNINTERPRETED: 'uninterpreted-function',
+              Z3_OP_UNINTERPRETED: 'uninterpreted-functions',
               None: None}
 
 
@@ -300,7 +300,7 @@ def count_expr(chc, kinds: list, is_unique=False):
         decl = info_kinds[kind]
         if decl in stats:
             if kind == Z3_OP_UNINTERPRETED and not is_unique:
-                kind += "-occurrences"
+                decl = decl[:-1] + "-occurrences"
             expr_num[kind] = stats[decl]
 
     return expr_num
@@ -340,12 +340,26 @@ def remove_clauses(chc_system: AstVector, ind) -> AstVector:
     return new_system
 
 
+def get_predicates(chc) -> set:
+    pred_set = set()
+    length = len(chc) if isinstance(chc, AstVector) else 1
+    for i in range(length):
+        expr = chc[i] if isinstance(chc, AstVector) else chc
+        expr_set = {expr} if not is_var(expr) and not is_const(expr) else {}
+        while len(expr_set):
+            cur_expr = expr_set.pop()
+            if is_app_of(cur_expr, Z3_OP_UNINTERPRETED):
+                pred_set.add(cur_expr.decl())
+                break
+            for child in cur_expr.children():
+                expr_set.add(child)
+    return pred_set
+
+
 def take_pred_from_clause(clause: AstVector, with_term=False):
-    _, uninter_pred = count_expr(clause,
-                                 [Z3_OP_UNINTERPRETED],
-                                 is_unique=True)
+    uninter_pred = get_predicates(clause)
     assert uninter_pred, "Uninterpreted predicate not found" + clause.sexpr()
-    upred = random.sample(uninter_pred[0], 1)[0]
+    upred = random.sample(uninter_pred, 1)[0]
 
     vars = []
     for i in range(upred.arity()):

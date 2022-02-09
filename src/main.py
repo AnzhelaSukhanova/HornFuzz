@@ -123,7 +123,8 @@ def sort_queue():
 
 def update_mutation_weights():
     instances.update_mutation_weights()
-    logging.info(json.dumps({'update_mutation_weights': instances.mut_types},
+    logging.info(json.dumps({'update_mutation_weights':
+                                 instances.get_mut_weights_dict()},
                             cls=MutTypeEncoder))
 
 

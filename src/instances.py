@@ -252,6 +252,11 @@ class Instance(object):
         info = self.info
         info.expr_num = count_expr(self.chc, info_kinds)
 
+        info_len = len(info.clause_expr_num[Z3_OP_UNINTERPRETED])
+        if info_len < len(self.chc):
+            for kind in info_kinds:
+                info.clause_expr_num[kind].resize(len(self.chc))
+
         for i, clause in enumerate(self.chc):
             expr_num = count_expr(clause, info_kinds)
             for kind in info_kinds:
@@ -337,6 +342,13 @@ mut_types = {'ID': MutType('ID', 0),
 mut_stats = {}
 with_weights = True
 mut_group_flags = {0: False, 1: False, 2: False, 3: False}
+
+
+def get_mut_weights_dict():
+    mut_weight_dict = dict()
+    for mut_name in mut_types:
+        mut_weight_dict[mut_name] = mut_types[mut_name].weight
+    return mut_weight_dict
 
 
 def init_mut_types(options: list = None, mutations: list = None):
@@ -711,7 +723,6 @@ class Mutation(object):
                     mut_name = random.choice(types_to_choose)
                 except IndexError:
                     mut_name = 'ID'
-            # mut_name = 'XFORM.ARRAY_BLAST'
             self.type = mut_types[mut_name]
 
         if mut_name in type_kind_corr and self.kind is None:

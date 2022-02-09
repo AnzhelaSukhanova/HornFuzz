@@ -24,22 +24,24 @@ def is_same_res(instance: Instance, result: bool = False, message: str = None) -
 
 
 def reduce_instance(seed: Instance, bug_instance: Instance,
-                    message: str = None) -> Instance:
+                    message: str = None) -> tuple[Instance, bool]:
     """Reduce the chc-system causing the problem."""
 
     print('Instance reducing')
     instance = deepcopy(bug_instance)
+    is_reduced = False
 
     for i, clause in enumerate(instance.chc):
         print('Clause:', i)
         expr_queue = [clause]
         trans_number = -1
+        expr_number = -1
 
         while len(expr_queue):
             cur_expr = expr_queue.pop()
 
             trans_number += 1
-            print(trans_number)
+            expr_number += 1
             mutation = Mutation()
             mutation.type = mut_types['REMOVE_EXPR']
             mutation.trans_num = trans_number
@@ -62,13 +64,15 @@ def reduce_instance(seed: Instance, bug_instance: Instance,
                                       ctx=current_ctx)
             if is_same_res(instance, message=message) and is_eq:
                 bug_instance.set_chc(instance.chc)
-                print('Reduced:', trans_number)
+                print('Reduced:', expr_number)
+                trans_number -= 1
+                is_reduced = True
             else:
                 instance.set_chc(bug_instance.chc)
                 for child in cur_expr.children():
                     expr_queue.append(child)
                 # print('Cannot be reduced:', trans_number)
-    return bug_instance
+    return bug_instance, is_reduced
 
 
 def reduce_mut_chain(instance: Instance, message: str = None) -> Instance:
@@ -184,8 +188,12 @@ def reduce(reduce_chain: bool = False):
                 if not os.path.exists(dir_path):
                     os.mkdir(dir_path)
         try:
-            reduced_instance = reduce_instance(group[0], mut_instance, message)
-            reduced_instance.dump('output/reduced', seed_name)
+            is_reduced = True
+            while is_reduced:
+                mut_instance, is_reduced = \
+                    reduce_instance(group[0], mut_instance, message)
+                mut_instance.dump('output/reduced', seed_name, clear=False)
+
         except Exception:
             print(traceback.format_exc())
 
