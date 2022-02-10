@@ -15,7 +15,7 @@ def is_same_res(instance: Instance, result: bool = False, message: str = None) -
     """
 
     try:
-        same_res = result == check_satis(instance, get_stats=False)
+        same_res = result == check_satis(instance, get_stats=False)[0]
         if message:
             same_res = False
     except AssertionError as err:
@@ -24,51 +24,55 @@ def is_same_res(instance: Instance, result: bool = False, message: str = None) -
 
 
 def reduce_instance(seed: Instance, bug_instance: Instance,
-                    message: str = None) -> Instance:
+                    message: str = None) -> tuple[Instance, bool]:
     """Reduce the chc-system causing the problem."""
 
     print('Instance reducing')
     instance = deepcopy(bug_instance)
+    is_reduced = False
 
     for i, clause in enumerate(instance.chc):
         print('Clause:', i)
-        fst_child = clause.children()[0] if clause.children() else None
-        if is_quantifier(clause):
-            expr_set = {clause.body()}
-        elif is_not(clause) and fst_child.is_exists():
-            expr_set = {fst_child.body()}
-        else:
-            expr_set = {clause}
-        trans_number = 1
+        expr_queue = [clause]
+        trans_number = -1
+        expr_number = -1
 
-        while len(expr_set):
-            cur_expr = expr_set.pop()
-            children = cur_expr.children()
-            for j, child in enumerate(children):
-                trans_number += 1
-                mutation = Mutation()
-                mutation.type = 'REMOVE_EXPR'
-                mutation.trans_num = trans_number
-                mutation.path = [i]
-                mutation.kind_ind = -1
+        while len(expr_queue):
+            cur_expr = expr_queue.pop()
 
-                try:
-                    instance.set_chc(mutation.transform(instance))
-                except Exception as err:
-                    print(repr(err))
-                    instance.set_chc(bug_instance.chc)
-                    expr_set.add(child)
-                    continue
+            trans_number += 1
+            expr_number += 1
+            mutation = Mutation()
+            mutation.type = mut_types['REMOVE_EXPR']
+            mutation.trans_num = trans_number
+            mutation.path = [i]
+            mutation.kind_ind = -1
 
-                is_eq = equivalence_check(seed.chc, instance.chc)
-                if is_same_res(instance, message=message) and is_eq:
-                    bug_instance.set_chc(instance.chc)
-                    print('Reduced:', trans_number)
-                else:
-                    instance.set_chc(bug_instance.chc)
-                    expr_set.add(child)
-                    # print('Cannot be reduced:', trans_number)
-    return bug_instance
+            try:
+                reduced_chc = mutation.transform(instance)
+                instance.set_chc(reduced_chc)
+            except Exception as err:
+                print(repr(err))
+                # print(traceback.format_exc())
+                instance.set_chc(bug_instance.chc)
+                for child in cur_expr.children():
+                    expr_queue.append(child)
+                continue
+
+            is_eq = equivalence_check(seed.chc,
+                                      instance.chc,
+                                      ctx=current_ctx)
+            if is_same_res(instance, message=message) and is_eq:
+                bug_instance.set_chc(instance.chc)
+                print('Reduced:', expr_number)
+                trans_number -= 1
+                is_reduced = True
+            else:
+                instance.set_chc(bug_instance.chc)
+                for child in cur_expr.children():
+                    expr_queue.append(child)
+                # print('Cannot be reduced:', trans_number)
+    return bug_instance, is_reduced
 
 
 def reduce_mut_chain(instance: Instance, message: str = None) -> Instance:
@@ -165,6 +169,12 @@ def reduce(reduce_chain: bool = False):
             group.restore(i, {}, ctx=current_ctx)
             mut_system = parse_smt2_file(filename, ctx=current_ctx)
             mut_instance = Instance(i, mut_system)
+            for entry in mutations:
+                type_name = entry["type"]
+                type = mut_types[type_name]
+                if type.is_solving_param():
+                    mut_instance.add_param(type)
+
             assert is_same_res(mut_instance, message=message), \
                 'Incorrect mutant-restoration'
 
@@ -178,8 +188,12 @@ def reduce(reduce_chain: bool = False):
                 if not os.path.exists(dir_path):
                     os.mkdir(dir_path)
         try:
-            reduced_instance = reduce_instance(group[0], mut_instance, message)
-            reduced_instance.dump('output/reduced', seed_name, 0)
+            is_reduced = True
+            while is_reduced:
+                mut_instance, is_reduced = \
+                    reduce_instance(group[0], mut_instance, message)
+                mut_instance.dump('output/reduced', seed_name, clear=False)
+
         except Exception:
             print(traceback.format_exc())
 
@@ -213,20 +227,6 @@ def redo_mutations(filename: str):
         assert False, 'Bug not found'
 
 
-def equivalence_check(seed: AstVector, mutant: AstVector) -> bool:
-    solver = Solver(ctx=current_ctx)
-
-    for i, clause in enumerate(seed):
-        solver.reset()
-        mut_clause = mutant[i]
-        expr = Xor(clause, mut_clause, ctx=current_ctx)
-        solver.add(expr)
-        result = solver.check()
-        if result != unsat:
-            return False
-    return True
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('bug_file',
@@ -248,7 +248,7 @@ def main():
     else:
         seed = parse_smt2_file(argv.seed_file, ctx=current_ctx)
         mutant = parse_smt2_file(argv.bug_file, ctx=current_ctx)
-        if equivalence_check(seed, mutant):
+        if equivalence_check(seed, mutant, current_ctx):
             print('Equivalent')
         else:
             assert False, 'The mutant is not equivalent to its seed'

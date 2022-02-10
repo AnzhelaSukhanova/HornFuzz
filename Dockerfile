@@ -16,15 +16,10 @@ RUN pacman -Syy \
  && 1 | pacman --noconfirm -S sbt
                        
 # download and edit Z3-sourses
-RUN git clone https://github.com/Z3Prover/z3.git \
+RUN git clone https://github.com/AnzhelaSukhanova/z3.git \
  && cd z3 \
  && python scripts/mk_make.py --python \
- && sed -i -e 's, -D_MP_INTERNAL, -D_TRACE -D_MP_INTERNAL,g' build/config.mk \ 
- && sed -i -e 's,<< "-* \[" << TAG << "\] ",,g' src/util/trace.h \
- && sed -i -e 's, -*\\n,\\n,g' src/util/trace.h \
- && sed -i -e 's,CODE; TRACEEND; ,,g' src/util/trace.h \
- && sed -i -e ':a;N;$!ba;s,#ifdef _*EMSCRIPTEN_*\n#define NO\_Z3\_DEBUGGER\n#endif,#define NO\_Z3\_DEBUGGER,g' src/util/debug.h \
- && sed -i -e 's, exit(ERR_UNREACHABLE);,,g' src/util/debug.h
+ && sed -i -e 's, -D_MP_INTERNAL, -D_TRACE -D_MP_INTERNAL,g' build/config.mk
  
 # install Z3
 RUN cd z3/build && make -j$(nproc) && make install

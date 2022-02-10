@@ -1,4 +1,5 @@
 import hashlib
+import json
 import random
 import traceback
 from collections import defaultdict
@@ -8,15 +9,21 @@ from typing import List
 
 import numpy as np
 from scipy.sparse import dok_matrix
-from z3 import *
+from from_z3 import *
 
 TRACE_FILE = '.z3-trace'
 
 trace_states = defaultdict(int)
 trace_offset = 0
-info_kinds = [Z3_OP_AND, Z3_OP_OR, Z3_QUANTIFIER_AST,
-              Z3_OP_LE, Z3_OP_GE, Z3_OP_LT, Z3_OP_GT,
-              Z3_OP_UNINTERPRETED, None]
+info_kinds = {Z3_OP_AND: '(declare-fun and *)',
+              Z3_OP_OR: '(declare-fun or *)',
+              Z3_QUANTIFIER_AST: 'quantifiers',
+              Z3_OP_LE: '(declare-fun <= *)',
+              Z3_OP_GE: '(declare-fun >= *)',
+              Z3_OP_LT: '(declare-fun < *)',
+              Z3_OP_GT: '(declare-fun > *)',
+              Z3_OP_UNINTERPRETED: 'uninterpreted-functions',
+              None: None}
 
 
 class State(object):
@@ -50,9 +57,10 @@ class State(object):
 class ClauseInfo(object):
 
     def __init__(self, number: int):
-        self.expr_exists = defaultdict(bool)
-        self.is_expr_in_clause = np.zeros((len(info_kinds), number),
-                                          dtype=bool)
+        self.expr_num = defaultdict(int)
+        self.clause_expr_num = defaultdict(object)
+        for kind in info_kinds:
+            self.clause_expr_num[kind] = np.zeros(number, dtype=int)
 
 
 class StatsType(Enum):
@@ -193,88 +201,109 @@ class TraceStats(object):
         return weights
 
 
-def get_bound_vars(expr) -> list:
-    """Return bound variables."""
+def mk_app_builders():
+    builders = {}
+    OP_PREFIX = 'Z3_OP_'
+    for c in dir(z3consts):
+        if not c.startswith(OP_PREFIX):
+            continue
+        kind_name = str(c).removeprefix('Z3_OP_').lower()
+        kind_value = getattr(z3consts, c)
+        mk_function = getattr(z3core, f'Z3_mk_{kind_name}', None)
+        if mk_function is not None:
+            builders[kind_value] = mk_function
+    return builders
 
-    vars = []
-    if is_not(expr):
-        expr = expr.children()[0]
-    if is_quantifier(expr):
-        for i in range(expr.num_vars()):
-            name = expr.var_name(i)
-            sort = expr.var_sort(i)
-            var = Const(name, sort)
-            vars.append(var)
-    return vars
+
+Z3_APP_BUILDERS = mk_app_builders()
 
 
 def update_expr(expr, children, vars: list = None):
     """Return the expression with new children."""
+    if not children:
+        return None
 
     if not is_quantifier(expr):
-        if expr.decl().arity() != len(children):
-            return expr
         decl = expr.decl()
-        upd_expr = decl.__call__(children)
+        kind = decl.kind()
+        mk_function = Z3_APP_BUILDERS.get(kind)
+        if mk_function is None:
+            return expr
+
+        ctx = expr.ctx
+        ctx_ref = ctx.ref()
+        cast_children = []
+        for child in children:
+            cast_children.append(coerce_exprs(child, ctx))
+        ast_children = to_ast_list(cast_children)
+
+        try:
+            if kind in {Z3_OP_IMPLIES, Z3_OP_XOR, Z3_OP_ARRAY_EXT,
+                        Z3_OP_SET_DIFFERENCE, Z3_OP_SET_SUBSET,
+                        Z3_OP_GE, Z3_OP_GT, Z3_OP_LE, Z3_OP_LT,
+                        Z3_OP_MOD, Z3_OP_DIV, Z3_OP_EQ, Z3_OP_POWER,
+                        Z3_OP_SELECT}:
+                assert len(ast_children) > 1, 'Not enough subexpressions'
+                upd_expr = mk_function(ctx_ref, ast_children[0],
+                                       ast_children[1])
+
+            elif kind in {Z3_OP_NOT, Z3_OP_TO_REAL, Z3_OP_TO_INT,
+                          Z3_OP_IS_INT, Z3_OP_FPA_ABS, Z3_OP_FPA_ABS}:
+                upd_expr = mk_function(ctx_ref, ast_children[0])
+
+            elif kind in {Z3_OP_ITE, Z3_OP_STORE}:
+                assert len(ast_children) > 2, 'Not enough subexpressions'
+                upd_expr = mk_function(ctx_ref, ast_children[0], ast_children[1], ast_children[2])
+
+            else:
+                arity = len(children)
+                upd_expr = mk_function(ctx_ref, arity, ast_children)
+
+            upd_expr = to_expr_ref(upd_expr, ctx)
+
+        except Exception:
+            print('Expression kind:', kind)
+            raise
     else:
         if vars is None:
-            vars = get_bound_vars(expr)
-        if expr.is_forall():
-            upd_expr = ForAll(vars, children[0])
-        else:
-            upd_expr = Exists(vars, children[0])
+            vars, _ = get_vars_and_body(expr)
+        try:
+            if expr.is_forall():
+                upd_expr = ForAll(vars, children[0])
+            else:
+                upd_expr = Exists(vars, children[0])
+        except Exception:
+            print(expr)
+            raise
     return upd_expr
 
 
-def expr_exists(instance, kinds: list) -> defaultdict:
-    """Return if there is a subexpression of the specific kind."""
-
-    expr_ex = defaultdict(bool)
-    ind = list(range(len(kinds)))
-    length = len(instance) if isinstance(instance, AstVector) else 1
-    for i in range(length):
-        expr = instance[i] if isinstance(instance, AstVector) else instance
-        expr_set = {expr} if not is_var(expr) and not is_const(expr) else {}
-        while len(expr_set) and ind:
-            cur_expr = expr_set.pop()
-            for j in ind:
-                if check_ast_kind(cur_expr, kinds[j]) or \
-                        is_app_of(cur_expr, kinds[j]):
-                    expr_ex[j] = True
-                    ind.remove(j)
-                    break
-            if ind:
-                for child in cur_expr.children():
-                    expr_set.add(child)
-    return expr_ex
-
-
-def count_expr(instance, kinds: list, is_unique=False):
+def count_expr(chc, kinds: list, is_unique=False):
     """Return the number of subexpressions of the specific kind."""
 
-    unique_expr = defaultdict(set)
+    assert chc is not None, "Empty chc-system"
     expr_num = defaultdict(int)
-    length = len(instance) if isinstance(instance, AstVector) else 1
-    for i in range(length):
-        expr = instance[i] if isinstance(instance, AstVector) else instance
-        expr_set = {expr} if not is_var(expr) and not is_const(expr) else {}
-        while len(expr_set):
-            cur_expr = expr_set.pop()
-            for j in range(len(kinds)):
-                if check_ast_kind(cur_expr, kinds[j]) or \
-                        is_app_of(cur_expr, kinds[j]):
-                    if is_unique:
-                        expr_num[j] += 1
-                        unique_expr[j].add(cur_expr.decl())
-                    else:
-                        expr_num[j] += 1
-                    break
-            for child in cur_expr.children():
-                expr_set.add(child)
-    if is_unique:
-        return expr_num, unique_expr
-    else:
-        return expr_num
+
+    goal = Goal(ctx=chc.ctx)
+    goal.append(chc)
+    tactic = Tactic('collect-statistics', ctx=chc.ctx)
+    tactic.apply(goal, 'to_file', True)
+
+    try:
+        with open(".collect_stats.json") as file:
+            stats = json.load(file)
+    except Exception:
+        print(traceback.format_exc())
+        exit(0)
+
+    for kind in kinds:
+        decl = info_kinds[kind]
+        if decl in stats:
+            if kind == Z3_OP_UNINTERPRETED and not is_unique:
+                decl = decl[:-1] + "-occurrences"
+            expr_num[kind] = stats[decl]
+
+    return expr_num
 
 
 def check_ast_kind(expr, kind) -> bool:
@@ -311,11 +340,27 @@ def remove_clauses(chc_system: AstVector, ind) -> AstVector:
     return new_system
 
 
+def get_predicates(chc) -> set:
+    pred_set = set()
+    length = len(chc) if isinstance(chc, AstVector) else 1
+    for i in range(length):
+        expr = chc[i] if isinstance(chc, AstVector) else chc
+        expr_set = {expr} if not is_var(expr) and not is_const(expr) else {}
+        while len(expr_set):
+            cur_expr = expr_set.pop()
+            if is_app_of(cur_expr, Z3_OP_UNINTERPRETED):
+                pred_set.add(cur_expr.decl())
+                break
+            for child in cur_expr.children():
+                expr_set.add(child)
+    return pred_set
+
+
 def take_pred_from_clause(clause: AstVector, with_term=False):
-    _, uninter_pred = count_expr(clause,
-                                 [Z3_OP_UNINTERPRETED],
-                                 is_unique=True)
-    upred = random.sample(uninter_pred[0], 1)[0]
+    uninter_pred = get_predicates(clause)
+    assert uninter_pred, "Uninterpreted predicate not found" + clause.sexpr()
+    upred = random.sample(uninter_pred, 1)[0]
+
     vars = []
     for i in range(upred.arity()):
         sort = upred.domain(i)
@@ -324,4 +369,92 @@ def take_pred_from_clause(clause: AstVector, with_term=False):
     if with_term:
         return upred_value, vars, upred
     else:
-        return upred_value , vars
+        return upred_value, vars
+
+
+def equivalence_check(seed: AstVector, mutant: AstVector, ctx: Context) -> bool:
+    solver = Solver(ctx=ctx)
+
+    for i, clause in enumerate(seed):
+        solver.reset()
+        mut_clause = mutant[i]
+        expr = Xor(clause, mut_clause, ctx=ctx)
+        solver.add(expr)
+        result = solver.check()
+
+        if result != unsat:
+            return False
+    return True
+
+
+def get_vars_and_body(clause):
+    def get_vars(expr):
+        vars = []
+        for i in range(expr.num_vars()):
+            name = expr.var_name(i)
+            sort = expr.var_sort(i)
+            var = Const(name, sort)
+            vars.append(var)
+        return vars
+
+    expr = clause
+    vars = []
+    child = clause.children()[0] if clause.children() else None
+    expr = remove_dup_not(expr)
+
+    while is_quantifier(expr) or is_quantifier(child):
+        if is_quantifier(expr):
+            vars += get_vars(expr)
+            expr = expr.body()
+
+        elif is_not(expr):
+            vars += get_vars(child)
+            expr = Not(child.body(), ctx=clause.ctx)
+        else:
+            break
+        child = expr.children()[0] if expr.children() else None
+        expr = remove_dup_not(expr)
+
+    return vars, expr
+
+
+def remove_dup_not(expr):
+    if not expr.children():
+        return expr
+    child = expr.children()[0]
+
+    while is_not(expr) and is_not(child):
+        expr = child.children()[0]
+        if not expr.children():
+            break
+        child = expr.children()[0]
+    return expr
+
+
+def get_chc_body(clause):
+    _, expr = get_vars_and_body(clause)
+    child = expr.children()[0] if expr.children() else None
+    body = expr
+
+    if is_implies(expr):
+        body = expr.children()[0]
+    elif is_or(expr) or (is_not(expr) and is_and(child)):
+        body_expr = []
+        expr = child if is_not(expr) else expr
+        for subexpr in expr.children():
+            if not is_not(subexpr):
+                # it is not necessary to take the negation of
+                # and-subexpressions, since we are counting the
+                # number of predicates
+                body_expr.append(subexpr)
+        body = Or(body_expr, clause.ctx)
+    elif (is_not(expr) and is_or(child)) or is_true(expr):
+        pass
+    elif (is_not(expr) and child.decl().kind() == Z3_OP_UNINTERPRETED) or \
+            expr.decl().kind() == Z3_OP_UNINTERPRETED:
+        body = None
+    else:
+        assert False, 'Can\'t find body of the expression: ' + \
+                      str(clause)
+
+    return body
