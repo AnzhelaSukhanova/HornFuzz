@@ -196,7 +196,7 @@ class Instance(object):
                     return
 
     def check(self, solver: Solver, is_seed: bool = False,
-              get_stats: bool = True):
+              get_stats: bool = True, ctx: Context = None):
         """Check the satisfiability of the instance."""
         solver.reset()
         self.trace_stats.reset_trace_offset()
@@ -204,6 +204,9 @@ class Instance(object):
             solver.set('timeout', SEED_SOLVE_TIME_LIMIT_MS)
         else:
             solver.set('timeout', MUT_SOLVE_TIME_LIMIT_MS)
+
+        if self.chc is None:
+            self.restore(ctx=ctx)
         solver.add(self.chc)
 
         file = open('.model_exception', 'w+')
@@ -880,9 +883,10 @@ class Mutation(object):
         trans_n = deepcopy(self.trans_num)
 
         mut_clause = self.transform_nth(clause, [clause_ind])
-        assert self.applied, 'Mutation ' + \
-                             self.type.name + \
-                             ' wasn\'t applied'
+        if not self.applied:
+            assert False, 'Mutation ' + \
+                          self.type.name + \
+                          ' wasn\'t applied'
 
         for j, clause in enumerate(chc_system):
             if j == clause_ind:
@@ -942,7 +946,7 @@ class Mutation(object):
         for i, child in enumerate(expr.children()):
             new_path = path + [i]
             if trans_n >= 0 and \
-                    (len(self.path) == 1 or self.path[depth] == i):
+                    (len(self.path) <= depth or self.path[depth] == i):
                 mut_child = self.transform_nth(child, new_path)
                 if mut_child is not None:
                     mut_children.append(mut_child)

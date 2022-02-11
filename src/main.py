@@ -69,9 +69,11 @@ def check_satis(instance: Instance, is_seed: bool = False, get_stats: bool = Tru
 
     group = instance.get_group()
     if not is_seed:
-        if group[0].satis == unknown:
-            group[0].check(solver, True, get_stats)
-        satis = group[0].satis
+        seed = group[0]
+        if seed.satis == unknown:
+            ctx = instance.chc.ctx
+            seed.check(solver, True, get_stats, ctx)
+        satis = seed.satis
 
     for param in instance.params:
         value = instance.params[param]
