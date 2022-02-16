@@ -497,15 +497,8 @@ def fuzz(files: set):
                     mut_instance.update_mutation_stats(new_trace_found=trace_changed)
 
                     if not res or message:
-                        print(not res)
-                        print(message)
-                        print(mut_instance)
-                        print(mut_instance.satis)
-                        print(mut_instance.params)
-                        print(mut_instance.mutation.get_chain())
                         handle_bug(instance, mut_instance, message)
                         problems_num += 1
-                        exit()
 
                     elif timeout:
                         counter['timeout'] += 1

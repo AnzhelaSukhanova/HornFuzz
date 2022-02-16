@@ -397,8 +397,7 @@ def init_mut_types(options: list = None, mutations: list = None):
             mut_types[name] = MutType(name, 1)
 
     if mut_group_flags[2]:
-        for name in {'SPACER.GPDR',
-                     'SPACER.P3.SHARE_INVARIANTS',
+        for name in {'SPACER.P3.SHARE_INVARIANTS',
                      'SPACER.P3.SHARE_LEMMAS',
                      'SPACER.PUSH_POB',
                      'SPACER.USE_LIM_NUM_GEN',
@@ -427,7 +426,6 @@ def init_mut_types(options: list = None, mutations: list = None):
         for name in {'SPACER.CTP',
                      'SPACER.ELIM_AUX',
                      'SPACER.EQ_PROP',
-                     'SPACER.GPDR.BFS',
                      'SPACER.GROUND_POBS',
                      'SPACER.KEEP_PROXY',
                      'SPACER.MBQI',
