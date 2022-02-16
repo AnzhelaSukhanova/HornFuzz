@@ -1,10 +1,10 @@
 import argparse
+import instances
 
 from main import check_satis
 from instances import *
 from seeds import get_filenames
 
-current_ctx = Context()
 sys.setrecursionlimit(1000)
 
 
@@ -60,8 +60,7 @@ def reduce_instance(seed: Instance, bug_instance: Instance,
                 continue
 
             is_eq = equivalence_check(seed.chc,
-                                      instance.chc,
-                                      ctx=current_ctx)
+                                      instance.chc)
             if is_same_res(instance, message=message) and is_eq:
                 bug_instance.set_chc(instance.chc)
                 print('Reduced:', expr_number)
@@ -160,13 +159,13 @@ def reduce(reduce_chain: bool = False):
         group = InstanceGroup(i, seed_name)
 
         if reduce_chain:
-            group.restore(i, mutations, ctx=current_ctx)
+            group.restore(i, mutations)
             mut_instance = group[-1]
             assert is_same_res(mut_instance, message=message), \
                 'Incorrect mutant-restoration'
             mut_instance = reduce_mut_chain(mut_instance, message)
         else:
-            group.restore(i, {}, ctx=current_ctx)
+            group.restore(i, {})
             mut_system = parse_smt2_file(filename, ctx=current_ctx)
             mut_instance = Instance(i, mut_system)
             for entry in mutations:
@@ -204,9 +203,15 @@ def get_bug_info(filename: str):
         message = file.readline()
         message = message[2:] if message[0] == ';' else None
 
-    mutations = json.loads(mut_line)
-    filename = '/'.join(filename.split('/')[2:])
-    seed_name = '_'.join(filename.split('_')[:-1]) + '.smt2'
+    mutations = json.loads(mut_line) \
+        if mut_line[2] == '[' \
+        else mut_line.split('->')
+    seed_chunks = filename.split('_')
+    if len(seed_chunks) > 1:
+        filename = '/'.join(filename.split('/')[2:])
+        seed_name = '_'.join(filename.split('_')[:-1]) + '.smt2'
+    else:
+        seed_name = filename
 
     return mutations, message, seed_name
 
@@ -216,7 +221,7 @@ def redo_mutations(filename: str):
     mutations, message, seed_name = get_bug_info(filename)
     id = 0
     group = InstanceGroup(id, seed_name)
-    group.restore(id, mutations, ctx=current_ctx)
+    group.restore(id, mutations)
     instance = group.pop()
     if is_same_res(instance, message=message):
         instance.dump('output/bugs',
@@ -238,6 +243,7 @@ def main():
     parser.add_argument('-reduce_chain', action='store_true')
     parser.add_argument('-reproduce', action='store_true')
     argv = parser.parse_args()
+    instances.set_ctx(Context())
 
     init_mut_types([])
     if not argv.seed_file:
@@ -248,7 +254,7 @@ def main():
     else:
         seed = parse_smt2_file(argv.seed_file, ctx=current_ctx)
         mutant = parse_smt2_file(argv.bug_file, ctx=current_ctx)
-        if equivalence_check(seed, mutant, current_ctx):
+        if equivalence_check(seed, mutant):
             print('Equivalent')
         else:
             assert False, 'The mutant is not equivalent to its seed'

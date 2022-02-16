@@ -1,5 +1,6 @@
 import time
 import re
+import utils
 from utils import *
 
 MUT_APPLY_TIME_LIMIT = 10
@@ -11,6 +12,13 @@ ONE_INST_MUT_LIMIT = 1000
 trans_n = 0
 unique_traces = set()
 instance_groups = defaultdict()
+current_ctx = None
+
+
+def set_ctx(ctx):
+    global current_ctx
+    current_ctx = ctx
+    utils.set_ctx(ctx)
 
 
 class InstanceGroup(object):
@@ -24,7 +32,6 @@ class InstanceGroup(object):
         self.is_linear = True
         self.upred_num = 0
         self.has_array = False
-        self.start_dump_ind = 0
 
     def __getitem__(self, index: int):
         index = index % len(self.instances)
@@ -56,13 +63,12 @@ class InstanceGroup(object):
         length = len(self.instances)
         return self.instances.pop(length - 1)
 
-    def roll_back(self, ctx: Context):
+    def roll_back(self):
         """Roll back the group to the seed."""
         seed = self[0]
+        self.reset(1)
         self.instances = {0: seed}
-        if not seed.chc:
-            seed.restore(ctx=ctx, is_seed=True)
-        self.start_dump_ind = 0
+        seed.get_chc(is_seed=True)
 
     def check_stats(self):
         """
@@ -83,11 +89,11 @@ class InstanceGroup(object):
             choice = np.random.choice([False, True], 1,
                                       p=[probability, 1 - probability])
             if choice:
-                self.roll_back(ctx=self[0].chc.ctx)
+                self.roll_back()
                 return 0
 
-    def restore(self, id: int, mutations, ctx: Context):
-        seed = parse_smt2_file(self.filename, ctx=ctx)
+    def restore(self, id: int, mutations):
+        seed = parse_smt2_file(self.filename, ctx=current_ctx)
         instance = Instance(id, seed)
         self.push(instance)
 
@@ -105,15 +111,15 @@ class InstanceGroup(object):
     def reset(self, start_ind: int = None):
         length = len(self.instances)
         if start_ind is None:
-            start_ind = self.start_dump_ind
-            self.start_dump_ind = length - 1
+            start_ind = 0
         for i in range(length - 1, start_ind - 1, -1):
             self[i].reset_chc()
 
 
 class MutType(object):
 
-    def __init__(self, name, group_id, weight=0.1, default_value=None):
+    def __init__(self, name, group_id, weight=0.1,
+                 default_value=None, upper_limit=None):
         self.name = name
         '''
         0 -- ID, REMOVE_EXPR
@@ -124,6 +130,7 @@ class MutType(object):
         self.group_id = group_id
         self.weight = weight
         self.default_value = default_value
+        self.upper_limit = upper_limit
 
     def is_solving_param(self):
         return self.group_id == 2
@@ -168,11 +175,22 @@ class Instance(object):
         group.same_stats_limit = 5 * chc_len
         self.info = ClauseInfo(chc_len)
 
+    def get_chc(self, is_seed: bool):
+        if self.chc is None:
+            self.restore(is_seed=is_seed)
+        return self.chc
+
     def add_param(self, mut_type: MutType):
         mut_name = mut_type.name
         param = mut_name.lower()
-        value = not mut_type.default_value
-        self.params[param] = value
+        upper_limit = mut_type.upper_limit
+        if upper_limit is None:
+            value = self.params[param] \
+                if param in self.params \
+                else mut_type.default_value
+            self.params[param] = not value
+        else:
+            self.params[param] = random.randint(0, upper_limit + 1)
 
     def process_seed_info(self, info: dict):
         self.satis = CheckSatResult(info['satis'])
@@ -196,7 +214,7 @@ class Instance(object):
                     return
 
     def check(self, solver: Solver, is_seed: bool = False,
-              get_stats: bool = True, ctx: Context = None):
+              get_stats: bool = True):
         """Check the satisfiability of the instance."""
         solver.reset()
         self.trace_stats.reset_trace_offset()
@@ -205,9 +223,8 @@ class Instance(object):
         else:
             solver.set('timeout', MUT_SOLVE_TIME_LIMIT_MS)
 
-        if self.chc is None:
-            self.restore(ctx=ctx)
-        solver.add(self.chc)
+        chc_system = self.get_chc(is_seed)
+        solver.add(chc_system)
 
         file = open('.model_exception', 'w+')
         file.close()
@@ -291,12 +308,12 @@ class Instance(object):
                                      [Z3_OP_UNINTERPRETED],
                                      is_unique=True)[0]
 
-    def restore(self, ctx: Context, is_seed: bool = False):
+    def restore(self, is_seed: bool = False):
         """Restore the instance from output/last_mutants/."""
         group = self.get_group()
         filename = group.filename if is_seed else \
             'output/last_mutants/' + group.filename
-        self.set_chc(z3.parse_smt2_file(filename, ctx=ctx))
+        self.set_chc(z3.parse_smt2_file(filename, ctx=current_ctx))
         assert len(self.chc) > 0, "Empty chc-system"
 
     def dump(self, dir: str, filename: str, message: str = None,
@@ -380,7 +397,19 @@ def init_mut_types(options: list = None, mutations: list = None):
             mut_types[name] = MutType(name, 1)
 
     if mut_group_flags[2]:
-        for name in {'XFORM.ARRAY_BLAST',
+        for name in {'SPACER.GPDR',
+                     'SPACER.P3.SHARE_INVARIANTS',
+                     'SPACER.P3.SHARE_LEMMAS',
+                     'SPACER.PUSH_POB',
+                     'SPACER.USE_LIM_NUM_GEN',
+                     'SPACER.RESET_POB_QUEUE',
+                     'SPACER.SIMPLIFY_LEMMAS_POST',
+                     'SPACER.SIMPLIFY_LEMMAS_PRE',
+                     'SPACER.SIMPLIFY_POB',
+                     'SPACER.USE_BG_INVS',
+                     'SPACER.USE_EUF_GEN',
+                     'SPACER.USE_LEMMA_AS_CTI',
+                     'XFORM.ARRAY_BLAST',
                      'XFORM.ARRAY_BLAST_FULL',
                      'XFORM.COALESCE_RULES',
                      'XFORM.ELIM_TERM_ITE',
@@ -389,17 +418,44 @@ def init_mut_types(options: list = None, mutations: list = None):
                      'XFORM.INSTANTIATE_ARRAYS',
                      'XFORM.INSTANTIATE_ARRAYS.ENFORCE',
                      'XFORM.INSTANTIATE_QUANTIFIERS',
+                     'XFORM.MAGIC',
+                     'XFORM.SCALE',
                      'XFORM.QUANTIFY_ARRAYS',
                      'XFORM.TRANSFORM_ARRAYS'}:
             mut_types[name] = MutType(name, 2, default_value=False)
 
-        for name in {'XFORM.COI',
+        for name in {'SPACER.CTP',
+                     'SPACER.ELIM_AUX',
+                     'SPACER.EQ_PROP',
+                     'SPACER.GPDR.BFS',
+                     'SPACER.GROUND_POBS',
+                     'SPACER.KEEP_PROXY',
+                     'SPACER.MBQI',
+                     'SPACER.PROPAGATE',
+                     'SPACER.REACH_DNF',
+                     'SPACER.USE_ARRAY_EQ_GENERALIZER',
+                     'SPACER.USE_DERIVATIONS',
+                     'SPACER.USE_INC_CLAUSE',
+                     'SPACER.USE_INDUCTIVE_GENERALIZER',
+                     'XFORM.COI',
                      'XFORM.COMPRESS_UNBOUND',
                      'XFORM.INLINE_EAGER',
                      'XFORM.INLINE_LINEAR',
                      'XFORM.SLICE',
                      'XFORM.TAIL_SIMPLIFIER_PVE'}:
             mut_types[name] = MutType(name, 2, default_value=True)
+
+        mut_types['SPACER.ORDER_CHILDREN'] = \
+            MutType('SPACER.ORDER_CHILDREN',
+                    2,
+                    default_value=0,
+                    upper_limit=2)
+
+        mut_types['SPACER.RANDOM_SEED'] = \
+            MutType('SPACER.RANDOM_SEED',
+                    2,
+                    default_value=0,
+                    upper_limit=sys.maxsize)
 
     if mut_group_flags[3]:
         name = 'EMPTY_SIMPLIFY'
@@ -736,7 +792,7 @@ class Mutation(object):
 
     def simplify_by_one(self, chc_system: AstVector) -> AstVector:
         """Simplify instance with arith_ineq_lhs, arith_lhs and eq2ineq."""
-        mut_system = AstVector(ctx=chc_system.ctx)
+        mut_system = AstVector(ctx=current_ctx)
 
         mut_name = self.type.name.lower()
         params = [mut_name, True]
@@ -747,7 +803,7 @@ class Mutation(object):
         ind = range(0, len(chc_system)) if not self.path[0] else {self.path[0]}
         for i in range(len(chc_system)):
             if i in ind:
-                cur_clause = AstVector(ctx=chc_system.ctx)
+                cur_clause = AstVector(ctx=current_ctx)
                 cur_clause.push(chc_system[i])
                 rewritten_clause = self.empty_simplify(cur_clause)[0]
 
@@ -764,7 +820,7 @@ class Mutation(object):
         return mut_system
 
     def empty_simplify(self, chc_system: AstVector) -> AstVector:
-        mut_system = AstVector(ctx=chc_system.ctx)
+        mut_system = AstVector(ctx=current_ctx)
 
         for i in range(len(chc_system)):
             clause = simplify(chc_system[i],
@@ -787,9 +843,8 @@ class Mutation(object):
 
         body_files = os.listdir('false_formulas')
         filename = 'false_formulas/' + random.choice(body_files)
-        ctx = instance.chc.ctx
-        body = parse_smt2_file(filename, ctx=ctx)[0]
-        implication = Implies(body, head, ctx=ctx)
+        body = parse_smt2_file(filename, ctx=current_ctx)[0]
+        implication = Implies(body, head, ctx=current_ctx)
         rule = ForAll(vars, implication) if vars else implication
         mut_system.push(rule)
         return mut_system
@@ -799,23 +854,23 @@ class Mutation(object):
         _, clause = self.get_clause_info(instance)
         head, head_vars = take_pred_from_clause(clause)
         body_upred, body_vars = take_pred_from_clause(clause)
-        ctx = instance.chc.ctx
 
         bv_size = math.floor(math.log2(len(body_vars) + 1))
         bv_size = max(bv_size, 1)
-        bv = FreshConst(BitVecSort(bv_size, ctx=ctx), prefix='bv')
+        bv = FreshConst(BitVecSort(bv_size, ctx=current_ctx), prefix='bv')
         body_vars.append(bv)
         body = body_upred
         for i, var in enumerate(body_vars):
-            body = Not(body, ctx=ctx)
-            expr = Not(bv + i >= 0, ctx=ctx)
-            body = Not(Or(body, expr), ctx=ctx)
+            body = Not(body, ctx=current_ctx)
+            expr = Not(bv + i >= 0, ctx=current_ctx)
+            body = Not(Or(body, expr), ctx=current_ctx)
             if len(body_vars) == 1:
-                expr = Not(bv + 1 >= 0, ctx=ctx)
-                body = Not(Or(body, expr), ctx=ctx)
-            body = Not(ForAll([var], Not(body, ctx=ctx)), ctx=ctx)
+                expr = Not(bv + 1 >= 0, ctx=current_ctx)
+                body = Not(Or(body, expr), ctx=current_ctx)
+            body = Not(ForAll([var], Not(body, ctx=current_ctx)),
+                       ctx=current_ctx)
 
-        implication = Implies(body, head, ctx=ctx)
+        implication = Implies(body, head, ctx=current_ctx)
         rule = ForAll(head_vars, implication) if head_vars else implication
         mut_system.push(rule)
         return mut_system
@@ -824,17 +879,16 @@ class Mutation(object):
         mut_system = deepcopy(instance.chc)
         _, clause = self.get_clause_info(instance)
         head_upred, head_vars, upred = take_pred_from_clause(clause, with_term=True)
-        ctx = instance.chc.ctx
 
         body_vars = head_vars
         pred_vars_num = len(body_vars)
         num = random.randint(1, 10)
-        var = Int('v' + str(0), ctx=ctx)
+        var = Int('v' + str(0), ctx=current_ctx)
         body_vars.append(var)
         vars = [var]
         and_exprs = []
         for i in range(1, num + 1):
-            var = FreshConst(IntSort(ctx=ctx), prefix='v')
+            var = FreshConst(IntSort(ctx=current_ctx), prefix='v')
             vars.append(var)
             body_vars.append(var)
             shuffle_vars(body_vars)
@@ -849,7 +903,7 @@ class Mutation(object):
         and_exprs.append(And(head_upred, expr))
         body = And(and_exprs)
         body = Exists(vars, body)
-        implication = Implies(body, head_upred, ctx=ctx)
+        implication = Implies(body, head_upred, ctx=current_ctx)
         rule = ForAll(head_vars, implication) if head_vars else implication
 
         mut_system.push(rule)
@@ -877,7 +931,7 @@ class Mutation(object):
         """Transform an expression of the specific kind."""
         global trans_n
         chc_system = instance.chc
-        mut_system = AstVector(ctx=chc_system.ctx)
+        mut_system = AstVector(ctx=current_ctx)
 
         clause_ind, clause = self.get_clause_info(instance)
         trans_n = deepcopy(self.trans_num)
@@ -1015,7 +1069,7 @@ class Mutation(object):
                     setattr(self, field, mut_entry[field])
 
         elif type(mut_entry) == str and mut_entry != 'nan':
-            mut_info = re.findall(r"[\w]+|[0-9]+", mut_entry)
+            mut_info = re.findall(r"[\w.]+|[0-9]", mut_entry)
             mut_name = mut_info[0]
             self.type = mut_types[mut_name]
 

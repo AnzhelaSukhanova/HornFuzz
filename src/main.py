@@ -63,16 +63,14 @@ def calc_sort_key(heuristic: str, stats, weights=None) -> int:
 def check_satis(instance: Instance, is_seed: bool = False, get_stats: bool = True):
     global general_stats
 
-    ctx = instance.chc.ctx
-    solver = SolverFor('HORN', ctx=ctx)
+    solver = SolverFor('HORN',
+                       ctx=instances.current_ctx)
     solver.set('engine', 'spacer')
 
-    group = instance.get_group()
     if not is_seed:
-        seed = group[0]
+        seed = instance.get_group()[0]
         if seed.satis == unknown:
-            ctx = instance.chc.ctx
-            seed.check(solver, True, get_stats, ctx)
+            seed.check(solver, True, get_stats)
         satis = seed.satis
 
     for param in instance.params:
@@ -187,7 +185,6 @@ def log_run_info(status: str, message: str = None,
                 log['mut_chain'] = chain
                 if status in {'bug', 'wrong_model',
                               'mutant_unknown', 'error'}:
-                    log['prev_chc'] = instance.chc.sexpr()
                     log['satis'] = str(mut_instance.satis)
 
     logging.info(json.dumps({'run_info': log}))
@@ -244,21 +241,20 @@ def analyze_check_exception(instance: Instance, err: Exception,
         elif status == 'timeout_before_check':
             group[0].dump('output/last_mutants',
                           group.filename)
-        group.reset()
 
         if status != 'error':
-            group.roll_back(ctx=current_ctx)
+            group.roll_back()
 
 
-def mk_seed_instance(ctx: Context, idx: int, seed_file_name: str,
-                     parse: bool = False) -> Optional[Instance]:
+def mk_seed_instance(idx: int, seed_file_name: str, parse: bool = False) -> \
+        Optional[Instance]:
     group = InstanceGroup(idx, seed_file_name)
     instance = Instance(idx)
     try:
         if parse:
             parse_ctx = Context()
             seed = parse_smt2_file(seed_file_name, ctx=parse_ctx)
-            seed = seed.translate(ctx)
+            seed = seed.translate(current_ctx)
             if not seed:
                 return None
             instance.set_chc(seed)
@@ -278,13 +274,13 @@ def mk_seed_instance(ctx: Context, idx: int, seed_file_name: str,
         return None
 
 
-def known_seeds_processor(ctx: Context, files: set, base_idx: int, seed_info_index):
+def known_seeds_processor(files: set, base_idx: int, seed_info_index):
     def process_seed(i, seed, seed_info):
         global general_stats, counter
 
         if 'error' in seed_info:
             return None
-        instance = mk_seed_instance(ctx, i, seed)
+        instance = mk_seed_instance(i, seed)
         if instance is None:
             return None
         counter['runs'] += 1
@@ -305,13 +301,12 @@ def known_seeds_processor(ctx: Context, files: set, base_idx: int, seed_info_ind
     return (it for it in processed_seeds if it is not None)
 
 
-def new_seeds_processor(ctx: Context, files: set, base_idx: int,
-                        seed_info_index):
+def new_seeds_processor(files: set, base_idx: int, seed_info_index):
     global counter
 
     seed_info = {}
     for i, seed in enumerate(files, start=base_idx):
-        instance = mk_seed_instance(ctx, i, seed, parse=True)
+        instance = mk_seed_instance(i, seed, parse=True)
         if instance is None:
             seed_info[seed] = {'error': 'error at instance creation'}
             continue
@@ -347,11 +342,12 @@ def run_seeds(files: set):
     global queue, seed_number, current_ctx
 
     current_ctx = Context()
+    instances.set_ctx(current_ctx)
     seed_info_index = build_seed_info_index()
     known_seed_files = files & set(seed_info_index.keys())
     other_seed_files = files - known_seed_files
-    known_seeds = known_seeds_processor(current_ctx, known_seed_files, 0, seed_info_index)
-    other_seeds = new_seeds_processor(current_ctx, other_seed_files, len(known_seed_files), seed_info_index)
+    known_seeds = known_seeds_processor(known_seed_files, 0, seed_info_index)
+    other_seeds = new_seeds_processor(other_seed_files, len(known_seed_files), seed_info_index)
 
     for i, (instance, solve_time) in enumerate(itertools.chain(known_seeds, other_seeds)):
         queue.append(instance)
@@ -444,10 +440,13 @@ def fuzz(files: set):
         counter['runs'] += 1
         group = instance.get_group()
         try:
+            instances.set_ctx(None)
             ensure_current_context_is_deletable()
             current_ctx = Context()
+            instances.set_ctx(current_ctx)
+
             is_seed = len(group.instances) == 1
-            instance.restore(ctx=current_ctx, is_seed=is_seed)
+            instance.restore(is_seed=is_seed)
 
             if with_weights:
                 if runs_before_weight_update <= 0:
@@ -490,6 +489,7 @@ def fuzz(files: set):
                             i = ONE_INST_MUT_LIMIT
                         print_general_info(mut_time)
                         instance = group[0]
+                        mut_instance.reset_chc()
                         continue
 
                     trace_changed = (instance.trace_stats.hash !=
@@ -497,8 +497,15 @@ def fuzz(files: set):
                     mut_instance.update_mutation_stats(new_trace_found=trace_changed)
 
                     if not res or message:
+                        print(not res)
+                        print(message)
+                        print(mut_instance)
+                        print(mut_instance.satis)
+                        print(mut_instance.params)
+                        print(mut_instance.mutation.get_chain())
                         handle_bug(instance, mut_instance, message)
                         problems_num += 1
+                        exit()
 
                     elif timeout:
                         counter['timeout'] += 1
@@ -506,7 +513,7 @@ def fuzz(files: set):
                                      instance=instance,
                                      mut_instance=mut_instance)
                         problems_num += 1
-                        group.roll_back(ctx=current_ctx)
+                        group.roll_back()
                         instance = group[0]
 
                         mut_instance.reset_chc()
@@ -535,7 +542,6 @@ def fuzz(files: set):
                     print_general_info(solve_time,
                                        mut_time,
                                        trace_changed)
-
 
                 else:
                     exc_type = instance.mutation.type
