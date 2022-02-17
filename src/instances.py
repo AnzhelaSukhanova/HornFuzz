@@ -421,7 +421,7 @@ def init_mut_types(options: list = None, mutations: list = None):
     if mut_group_flags[2]:
         for name in {'SPACER.P3.SHARE_INVARIANTS',
                      'SPACER.P3.SHARE_LEMMAS',
-                     'SPACER.PUSH_POB',
+                     # 'SPACER.PUSH_POB', -- takes a long time
                      'SPACER.USE_LIM_NUM_GEN',
                      'SPACER.RESET_POB_QUEUE',
                      'SPACER.SIMPLIFY_LEMMAS_POST',
@@ -438,8 +438,8 @@ def init_mut_types(options: list = None, mutations: list = None):
                      'XFORM.INSTANTIATE_ARRAYS',
                      'XFORM.INSTANTIATE_ARRAYS.ENFORCE',
                      'XFORM.INSTANTIATE_QUANTIFIERS',
-                     'XFORM.MAGIC',
-                     'XFORM.SCALE',
+                     # 'XFORM.MAGIC', -- often causes unknown
+                     # 'XFORM.SCALE', -- often causes unknown
                      'XFORM.QUANTIFY_ARRAYS',
                      'XFORM.TRANSFORM_ARRAYS'}:
             mut_types[name] = MutType(name, 2, default_value=False)
@@ -744,9 +744,9 @@ class Mutation(object):
                             if not mult_kinds['ADD_INEQ']:
                                 types_to_choose.add('ADD_INEQ')
                             mult_kinds['ADD_INEQ'].append(kind)
-                        # elif kind == type_kind_corr['ADD_LIN_RULE']:
-                        #     types_to_choose.add('ADD_LIN_RULE')
-                        #     types_to_choose.add('ADD_NONLIN_RULE')
+                        elif kind == type_kind_corr['ADD_LIN_RULE']:
+                            types_to_choose.add('ADD_LIN_RULE')
+                            types_to_choose.add('ADD_NONLIN_RULE')
                         else:
                             pass
 

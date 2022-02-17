@@ -460,7 +460,7 @@ def fuzz(files: set):
                 i += 1
                 if with_weights:
                     runs_before_weight_update -= 1
-
+                    
                 mut_instance = Instance(instance.group_id)
                 mut = mut_instance.mutation
                 if mut_types_exc:
