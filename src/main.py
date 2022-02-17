@@ -77,14 +77,14 @@ def check_satis(instance: Instance, is_seed: bool = False, get_stats: bool = Tru
         value = instance.params[param]
         solver.set(param, value)
 
-    message = instance.check(solver, is_seed, get_stats)
+    instance.check(solver, is_seed, get_stats)
     if is_seed:
         satis = instance.satis
 
     if get_stats and (heuristic_flags['transitions'] or
                       heuristic_flags['states']):
         general_stats += instance.trace_stats
-    return instance.satis == satis, message
+    return instance.satis == satis
 
 
 def sort_queue():
@@ -313,9 +313,9 @@ def new_seeds_processor(files: set, base_idx: int, seed_info_index):
         counter['runs'] += 1
         try:
             st_time = time.perf_counter()
-            _, message = check_satis(instance, is_seed=True)
-            if message:
-                handle_bug(instance, message=message)
+            check_satis(instance, is_seed=True)
+            if not instance.check_model():
+                handle_bug(instance, wrong_model=True)
             solve_time = time.perf_counter() - st_time
             seed_info[seed] = {
                 'satis': instance.satis.r,
@@ -360,13 +360,12 @@ def run_seeds(files: set):
 
 
 def handle_bug(instance: Instance, mut_instance: Instance = None,
-               message: str = None):
+               wrong_model: bool = False):
     global counter
 
     counter['bug'] += 1
-    status = 'bug' if not message else 'wrong_model'
+    status = 'bug' if not wrong_model else 'wrong_model'
     log_run_info(status,
-                 message,
                  instance=instance,
                  mut_instance=mut_instance)
 
@@ -374,12 +373,10 @@ def handle_bug(instance: Instance, mut_instance: Instance = None,
     if mut_instance:
         mut_instance.dump('output/bugs',
                           group.filename,
-                          message=message,
                           to_name=mut_instance.id)
     else:
         instance.dump('output/bugs',
                       group.filename,
-                      message=message,
                       to_name=0)
         group.reset()
 
@@ -477,7 +474,7 @@ def fuzz(files: set):
                     mut_types_exc = set()
                     try:
                         st_time = time.perf_counter()
-                        res, message = check_satis(mut_instance)
+                        res = check_satis(mut_instance)
                         solve_time = time.perf_counter() - st_time
                     except AssertionError as err:
                         analyze_check_exception(instance,
@@ -496,8 +493,9 @@ def fuzz(files: set):
                                      mut_instance.trace_stats.hash)
                     mut_instance.update_mutation_stats(new_trace_found=trace_changed)
 
-                    if not res or message:
-                        handle_bug(instance, mut_instance, message)
+                    wrong_model = not mut_instance.check_model()
+                    if not res or wrong_model:
+                        handle_bug(instance, mut_instance, wrong_model)
                         problems_num += 1
 
                     elif timeout:

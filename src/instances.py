@@ -21,6 +21,12 @@ def set_ctx(ctx):
     utils.set_ctx(ctx)
 
 
+class Family(Enum):
+    UNKNOWN = 0
+    ARITH = 1
+    ARRAY = 2
+
+
 class InstanceGroup(object):
 
     def __init__(self, id: int, filename: str):
@@ -31,7 +37,7 @@ class InstanceGroup(object):
         self.same_stats_limit = 0
         self.is_linear = True
         self.upred_num = 0
-        self.has_array = False
+        self.family = Family.UNKNOWN
 
     def __getitem__(self, index: int):
         index = index % len(self.instances)
@@ -115,6 +121,20 @@ class InstanceGroup(object):
         for i in range(length - 1, start_ind - 1, -1):
             self[i].reset_chc()
 
+    def find_family(self, chc):
+        assert chc is not None, "Empty chc-system"
+
+        length = len(chc) if isinstance(chc, AstVector) else 1
+        for i in range(length):
+            clause = chc[i] if isinstance(chc, AstVector) else chc
+            vars, _ = get_vars_and_body(clause)
+            for var in vars:
+                if is_arith(var):
+                    self.family = Family.ARITH
+                elif is_array(var):
+                    self.family = Family.ARRAY
+                    return
+
 
 class MutType(object):
 
@@ -152,7 +172,8 @@ class Instance(object):
         self.satis = unknown
         self.trace_stats = TraceStats()
         self.sort_key = 0
-        self.params = {'validate': True}
+        self.params = {}
+        self.model = None
 
         group = self.get_group()
         if not group.instances:
@@ -169,7 +190,8 @@ class Instance(object):
         group = self.get_group()
         if group.upred_num == 0:
             self.find_pred_info()
-            self.analyze_vars()
+            if group.family == Family.UNKNOWN:
+                group.find_family(chc)
 
         chc_len = len(self.chc)
         group.same_stats_limit = 5 * chc_len
@@ -200,18 +222,7 @@ class Instance(object):
 
     def reset_chc(self):
         self.chc = None
-
-    def analyze_vars(self):
-        group = self.get_group()
-
-        if group.has_array:
-            return
-        for i, clause in enumerate(self.chc):
-            vars, _ = get_vars_and_body(clause)
-            for var in vars:
-                if is_array(var):
-                    group.has_array = True
-                    return
+        self.model = None
 
     def check(self, solver: Solver, is_seed: bool = False,
               get_stats: bool = True):
@@ -226,24 +237,29 @@ class Instance(object):
         chc_system = self.get_chc(is_seed)
         solver.add(chc_system)
 
-        file = open('.model_exception', 'w+')
-        file.close()
-
         self.satis = solver.check()
-
-        file = open('.model_exception', 'r')
-        message = ''.join(file.readlines())
-        file.close()
+        if self.satis == sat:
+            self.model = solver.model()
 
         if get_stats:
             self.trace_stats.read_from_trace(is_seed)
             self.update_traces_info()
 
-        if not message:
-            assert self.satis != unknown, solver.reason_unknown()
-        else:
-            message, _ = message.split("model:")
-        return message
+        assert self.satis != unknown, solver.reason_unknown()
+
+    def check_model(self):
+        if self.model is None:
+            return True if self.satis != sat else False
+        elif self.satis != sat:
+            return False
+
+        solver = Solver(ctx=current_ctx)
+        for clause in self.chc:
+            inter_clause = self.model.eval(clause)
+            solver.add(inter_clause)
+        res = solver.check()
+
+        return True if res == sat else False
 
     def update_traces_info(self):
         unique_traces.add(self.trace_stats.hash)
@@ -392,7 +408,6 @@ def init_mut_types(options: list = None, mutations: list = None):
                      'MIX_BOUND_VARS',
                      'ADD_INEQ',
                      'ADD_LIN_RULE',
-                     'ADD_BV_RULE',
                      'ADD_NONLIN_RULE'}:
             mut_types[name] = MutType(name, 1)
 
@@ -408,7 +423,6 @@ def init_mut_types(options: list = None, mutations: list = None):
                      'SPACER.USE_BG_INVS',
                      'SPACER.USE_EUF_GEN',
                      'SPACER.USE_LEMMA_AS_CTI',
-                     'XFORM.ARRAY_BLAST',
                      'XFORM.ARRAY_BLAST_FULL',
                      'XFORM.COALESCE_RULES',
                      'XFORM.ELIM_TERM_ITE',
@@ -671,9 +685,6 @@ class Mutation(object):
         if mut_name == 'ADD_LIN_RULE':
             new_instance.set_chc(self.add_lin_rule(instance))
 
-        elif mut_name == 'ADD_BV_RULE':
-            new_instance.set_chc(self.add_bv_rule(instance))
-
         elif mut_name == 'ADD_NONLIN_RULE':
             new_instance.set_chc(self.add_nonlin_rule(instance))
 
@@ -728,7 +739,6 @@ class Mutation(object):
                             mult_kinds['ADD_INEQ'].append(kind)
                         elif kind == type_kind_corr['ADD_LIN_RULE']:
                             types_to_choose.add('ADD_LIN_RULE')
-                            types_to_choose.add('ADD_BV_RULE')
                             types_to_choose.add('ADD_NONLIN_RULE')
                         else:
                             pass
@@ -748,7 +758,7 @@ class Mutation(object):
                                   'XFORM.INSTANTIATE_ARRAYS.ENFORCE',
                                   'XFORM.QUANTIFY_ARRAYS',
                                   'XFORM.TRANSFORM_ARRAYS'} and \
-                        not group.has_array:
+                        group.family != Family.ARRAY:
                     continue
                 elif mut_name in instance.params:
                     continue
@@ -841,36 +851,15 @@ class Mutation(object):
 
         body_files = os.listdir('false_formulas')
         filename = 'false_formulas/' + random.choice(body_files)
+        print(filename)
         body = parse_smt2_file(filename, ctx=current_ctx)[0]
         implication = Implies(body, head, ctx=current_ctx)
         rule = ForAll(vars, implication) if vars else implication
         mut_system.push(rule)
-        return mut_system
 
-    def add_bv_rule(self, instance: Instance) -> AstVector:
-        mut_system = deepcopy(instance.chc)
-        _, clause = self.get_clause_info(instance)
-        head, head_vars = take_pred_from_clause(clause)
-        body_upred, body_vars = take_pred_from_clause(clause)
+        group = instance.get_group()
+        group.find_family(rule)
 
-        bv_size = math.floor(math.log2(len(body_vars) + 1))
-        bv_size = max(bv_size, 1)
-        bv = FreshConst(BitVecSort(bv_size, ctx=current_ctx), prefix='bv')
-        body_vars.append(bv)
-        body = body_upred
-        for i, var in enumerate(body_vars):
-            body = Not(body, ctx=current_ctx)
-            expr = Not(bv + i >= 0, ctx=current_ctx)
-            body = Not(Or(body, expr), ctx=current_ctx)
-            if len(body_vars) == 1:
-                expr = Not(bv + 1 >= 0, ctx=current_ctx)
-                body = Not(Or(body, expr), ctx=current_ctx)
-            body = Not(ForAll([var], Not(body, ctx=current_ctx)),
-                       ctx=current_ctx)
-
-        implication = Implies(body, head, ctx=current_ctx)
-        rule = ForAll(head_vars, implication) if head_vars else implication
-        mut_system.push(rule)
         return mut_system
 
     def add_nonlin_rule(self, instance: Instance) -> AstVector:
@@ -905,6 +894,9 @@ class Mutation(object):
         rule = ForAll(head_vars, implication) if head_vars else implication
 
         mut_system.push(rule)
+        group = instance.get_group()
+        group.find_family(rule)
+
         return mut_system
 
     def get_clause_info(self, instance: Instance) -> (int, AstVector):
