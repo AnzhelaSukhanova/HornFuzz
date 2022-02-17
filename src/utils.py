@@ -295,12 +295,8 @@ def count_expr(chc, kinds: list, is_unique=False):
     tactic = Tactic('collect-statistics', ctx=current_ctx)
     tactic.apply(goal, 'to_file', True)
 
-    try:
-        with open(".collect_stats.json") as file:
-            stats = json.load(file)
-    except Exception:
-        print(traceback.format_exc())
-        exit(0)
+    with open(".collect_stats.json") as file:
+        stats = json.load(file)
 
     for kind in kinds:
         decl = info_kinds[kind]

@@ -6,6 +6,8 @@ from utils import *
 MUT_APPLY_TIME_LIMIT = 10
 SEED_SOLVE_TIME_LIMIT_MS = int(2 * 1e3)
 MUT_SOLVE_TIME_LIMIT_MS = int(1e5)
+
+MODEL_CHECK_TIME_LIMIT = 100
 INSTANCE_ID = 0
 ONE_INST_MUT_LIMIT = 1000
 
@@ -247,17 +249,22 @@ class Instance(object):
 
         assert self.satis != unknown, solver.reason_unknown()
 
-    def check_model(self):
+    def check_model(self) -> bool:
         if self.model is None:
             return True if self.satis != sat else False
         elif self.satis != sat:
             return False
 
         solver = Solver(ctx=current_ctx)
+        solver.set('timeout', MODEL_CHECK_TIME_LIMIT)
         for clause in self.chc:
             inter_clause = self.model.eval(clause)
             solver.add(inter_clause)
         res = solver.check()
+
+        if res == unknown and solver.reason_unknown() == 'timeout':
+            print('Model validation timeout')
+            return True
 
         return True if res == sat else False
 
@@ -737,9 +744,9 @@ class Mutation(object):
                             if not mult_kinds['ADD_INEQ']:
                                 types_to_choose.add('ADD_INEQ')
                             mult_kinds['ADD_INEQ'].append(kind)
-                        elif kind == type_kind_corr['ADD_LIN_RULE']:
-                            types_to_choose.add('ADD_LIN_RULE')
-                            types_to_choose.add('ADD_NONLIN_RULE')
+                        # elif kind == type_kind_corr['ADD_LIN_RULE']:
+                        #     types_to_choose.add('ADD_LIN_RULE')
+                        #     types_to_choose.add('ADD_NONLIN_RULE')
                         else:
                             pass
 
@@ -851,7 +858,6 @@ class Mutation(object):
 
         body_files = os.listdir('false_formulas')
         filename = 'false_formulas/' + random.choice(body_files)
-        print(filename)
         body = parse_smt2_file(filename, ctx=current_ctx)[0]
         implication = Implies(body, head, ctx=current_ctx)
         rule = ForAll(vars, implication) if vars else implication
