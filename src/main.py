@@ -370,7 +370,7 @@ def handle_bug(instance: Instance, mut_instance: Instance = None,
     model_state = mut_instance.model_state \
         if mut_instance \
         else instance.model_state
-    status = 'bug' if model_state else 'wrong_model'
+    status = 'bug' if model_state == sat else 'wrong_model'
     log_run_info(status,
                  message=message,
                  instance=instance,
