@@ -176,6 +176,7 @@ class Instance(object):
         self.sort_key = 0
         self.params = {}
         self.model = None
+        self.model_state = unknown
 
         group = self.get_group()
         if not group.instances:
@@ -249,7 +250,7 @@ class Instance(object):
 
         assert self.satis != unknown, solver.reason_unknown()
 
-    def check_model(self) -> bool:
+    def check_model(self):
         if self.model is None:
             return True if self.satis != sat else False
         elif self.satis != sat:
@@ -260,13 +261,11 @@ class Instance(object):
         for clause in self.chc:
             inter_clause = self.model.eval(clause)
             solver.add(inter_clause)
-        res = solver.check()
+        self.model_state = solver.check()
 
-        if res == unknown and solver.reason_unknown() == 'timeout':
-            print('Model validation timeout')
-            return True
-
-        return True if res == sat else False
+        if self.model_state == unknown:
+            return solver.reason_unknown()
+        return None
 
     def update_traces_info(self):
         unique_traces.add(self.trace_stats.hash)
@@ -433,7 +432,7 @@ def init_mut_types(options: list = None, mutations: list = None):
                      'XFORM.ARRAY_BLAST_FULL',
                      'XFORM.COALESCE_RULES',
                      'XFORM.ELIM_TERM_ITE',
-                     'XFORM.FIX_UNBOUND_VARS',
+                     # 'XFORM.FIX_UNBOUND_VARS', -- often causes unknown
                      'XFORM.INLINE_LINEAR_BRANCH',
                      'XFORM.INSTANTIATE_ARRAYS',
                      'XFORM.INSTANTIATE_ARRAYS.ENFORCE',
@@ -759,7 +758,6 @@ class Mutation(object):
                                   'EXPAND_SELECT_STORE',
                                   'EXPAND_STORE_EQ',
                                   'SORT_STORE',
-                                  'XFORM.ARRAY_BLAST',
                                   'XFORM.ARRAY_BLAST_FULL',
                                   'XFORM.INSTANTIATE_ARRAYS',
                                   'XFORM.INSTANTIATE_ARRAYS.ENFORCE',

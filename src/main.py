@@ -186,6 +186,7 @@ def log_run_info(status: str, message: str = None,
                 if status in {'bug', 'wrong_model',
                               'mutant_unknown', 'error'}:
                     log['satis'] = str(mut_instance.satis)
+                    log['model_state'] = str(mut_instance.model_state)
 
     logging.info(json.dumps({'run_info': log}))
 
@@ -314,8 +315,10 @@ def new_seeds_processor(files: set, base_idx: int, seed_info_index):
         try:
             st_time = time.perf_counter()
             check_satis(instance, is_seed=True)
-            if not instance.check_model():
-                handle_bug(instance, wrong_model=True)
+            message = instance.check_model()
+            if instance.model_state != sat:
+                handle_bug(instance,
+                           message=message)
             solve_time = time.perf_counter() - st_time
             seed_info[seed] = {
                 'satis': instance.satis.r,
@@ -360,12 +363,16 @@ def run_seeds(files: set):
 
 
 def handle_bug(instance: Instance, mut_instance: Instance = None,
-               wrong_model: bool = False):
+               message: str = None):
     global counter
 
     counter['bug'] += 1
-    status = 'bug' if not wrong_model else 'wrong_model'
+    model_state = mut_instance.model_state \
+        if mut_instance \
+        else instance.model_state
+    status = 'bug' if model_state else 'wrong_model'
     log_run_info(status,
+                 message=message,
                  instance=instance,
                  mut_instance=mut_instance)
 
@@ -460,7 +467,7 @@ def fuzz(files: set):
                 i += 1
                 if with_weights:
                     runs_before_weight_update -= 1
-                    
+
                 mut_instance = Instance(instance.group_id)
                 mut = mut_instance.mutation
                 if mut_types_exc:
@@ -493,9 +500,8 @@ def fuzz(files: set):
                                      mut_instance.trace_stats.hash)
                     mut_instance.update_mutation_stats(new_trace_found=trace_changed)
 
-                    wrong_model = not mut_instance.check_model()
-                    if not res or wrong_model:
-                        handle_bug(instance, mut_instance, wrong_model)
+                    if not res:
+                        handle_bug(instance, mut_instance)
                         problems_num += 1
 
                     elif timeout:
@@ -510,25 +516,33 @@ def fuzz(files: set):
                         mut_instance.reset_chc()
 
                     else:
-                        if with_oracles:
-                            found_problem, states = compare_satis(mut_instance)
+                        message = mut_instance.check_model()
+                        if mut_instance.model_state != sat and message != 'timeout':
+                            handle_bug(instance, mut_instance, message)
+                            problems_num += 1
                         else:
-                            found_problem = False
-                        group.push(mut_instance)
-                        if not heuristic_flags['default']:
-                            group.check_stats()
+                            if message == 'timeout':
+                                print('Model validation timeout')
 
-                        if found_problem:
-                            log_run_info('oracle_bug',
-                                         message=str(states),
-                                         instance=instance,
-                                         mut_instance=mut_instance)
-                            counter['conflict'] += 1
-                        else:
-                            log_run_info('pass',
-                                         instance=instance,
-                                         mut_instance=mut_instance)
-                        instance = mut_instance
+                            if with_oracles:
+                                found_problem, states = compare_satis(mut_instance)
+                            else:
+                                found_problem = False
+                            group.push(mut_instance)
+                            if not heuristic_flags['default']:
+                                group.check_stats()
+
+                            if found_problem:
+                                log_run_info('oracle_bug',
+                                             message=str(states),
+                                             instance=instance,
+                                             mut_instance=mut_instance)
+                                counter['conflict'] += 1
+                            else:
+                                log_run_info('pass',
+                                             instance=instance,
+                                             mut_instance=mut_instance)
+                            instance = mut_instance
 
                     print_general_info(solve_time,
                                        mut_time,
