@@ -175,7 +175,7 @@ def log_run_info(status: str, message: str = None,
                 chain = instance.mutation.get_chain()
                 log['mut_chain'] = chain
             else:
-                log['satis'] = str(instance.satis)
+                log['satis'] = instance.satis.r
 
         else:
             mutant_info = mut_instance.get_log()
@@ -185,8 +185,10 @@ def log_run_info(status: str, message: str = None,
                 log['mut_chain'] = chain
                 if status in {'bug', 'wrong_model',
                               'mutant_unknown', 'error'}:
-                    log['satis'] = str(mut_instance.satis)
-                    log['model_state'] = str(mut_instance.model_state)
+                    log['satis'] = mut_instance.satis.r
+                    if status == 'wrong_model':
+                        log['model_state'] = mut_instance.model_info[0].r
+                        log['bug_clause'] = str(mut_instance.model_info[1])
 
     logging.info(json.dumps({'run_info': log}))
 
@@ -316,7 +318,7 @@ def new_seeds_processor(files: set, base_idx: int, seed_info_index):
             st_time = time.perf_counter()
             check_satis(instance, is_seed=True)
             message = instance.check_model()
-            if instance.model_state != sat:
+            if instance.model_info[0] != sat:
                 handle_bug(instance,
                            message=message)
             solve_time = time.perf_counter() - st_time
@@ -367,9 +369,9 @@ def handle_bug(instance: Instance, mut_instance: Instance = None,
     global counter
 
     counter['bug'] += 1
-    model_state = mut_instance.model_state \
+    model_state = mut_instance.model_info[0] \
         if mut_instance \
-        else instance.model_state
+        else instance.model_info[0]
     status = 'bug' if model_state == sat else 'wrong_model'
     log_run_info(status,
                  message=message,
@@ -403,7 +405,7 @@ def compare_satis(instance: Instance, is_seed: bool = False):
     for name in oracles_names:
         state = oracles.solve(name, filename)
         states[name] = state
-        if state != str(instance.satis) and state in {'sat', 'unsat'}:
+        if state != instance.satis.r and state in {'sat', 'unsat'}:
             found_problem = True
     return found_problem, states
 
@@ -517,7 +519,7 @@ def fuzz(files: set):
 
                     else:
                         message = mut_instance.check_model()
-                        if mut_instance.model_state != sat and message != 'timeout':
+                        if mut_instance.model_info[0] != sat and message != 'timeout':
                             handle_bug(instance, mut_instance, message)
                             problems_num += 1
                         else:

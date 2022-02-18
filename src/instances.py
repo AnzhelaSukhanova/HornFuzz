@@ -176,7 +176,7 @@ class Instance(object):
         self.sort_key = 0
         self.params = {}
         self.model = None
-        self.model_state = unknown
+        self.model_info = (sat, 0)
 
         group = self.get_group()
         if not group.instances:
@@ -251,19 +251,21 @@ class Instance(object):
         assert self.satis != unknown, solver.reason_unknown()
 
     def check_model(self):
-        if self.model is None:
-            return True if self.satis != sat else False
-        elif self.satis != sat:
-            return False
+        if self.satis != sat:
+            return None
+        assert self.model is not None, "Empty model"
 
         solver = Solver(ctx=current_ctx)
         solver.set('timeout', MODEL_CHECK_TIME_LIMIT)
-        for clause in self.chc:
+        for i, clause in enumerate(self.chc):
             inter_clause = self.model.eval(clause)
             solver.add(inter_clause)
-        self.model_state = solver.check()
+            model_state = solver.check()
+            if model_state != sat:
+                self.model_info = (model_state, i)
+                break
 
-        if self.model_state == unknown:
+        if self.model_info[0] == unknown:
             return solver.reason_unknown()
         return None
 
