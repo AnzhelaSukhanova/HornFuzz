@@ -643,7 +643,7 @@ def create_output_dirs():
 
     if not os.path.exists('output'):
         os.mkdir('output')
-    for dir in {'output/last_mutants', 'output/ctx',
+    for dir in {'output/last_mutants', 'output/decl',
                 'output/bugs', 'output/unknown'}:
         if not os.path.exists(dir):
             os.mkdir(dir)

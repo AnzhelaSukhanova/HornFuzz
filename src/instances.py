@@ -54,17 +54,17 @@ class InstanceGroup(object):
         length = len(self.instances)
         self.instances[length] = instance
         if length == 0:
-            self.dump_ctx()
+            self.dump_declarations()
 
-    def dump_ctx(self):
-        filename = 'output/ctx/' + self.filename
+    def dump_declarations(self):
+        filename = 'output/decl/' + self.filename
         with open(self.filename, 'r') as seed_file:
             file = seed_file.read()
             formula = re.sub(r"\(set-info.*\"\)", "",
                              file, flags=re.DOTALL)
-            ctx = formula.split('(assert')[0]
-            with open(filename, 'w') as ctx_file:
-                ctx_file.write(ctx)
+            declarations = formula.split('(assert')[0]
+            with open(filename, 'w') as decl_file:
+                decl_file.write(declarations)
 
     def pop(self):
         """Take an instance from the group."""
@@ -341,11 +341,12 @@ class Instance(object):
         assert len(self.chc) > 0, "Empty chc-system"
 
     def dump(self, dir: str, filename: str, message: str = None,
-             to_name=None, clear: bool = True):
+             declarations: str = None, to_name=None, clear: bool = True):
         """Dump the instance to the specified directory."""
-        ctx_path = 'output/ctx/' + filename
-        with open(ctx_path, 'r') as ctx_file:
-            ctx = ctx_file.read()
+        if not declarations:
+            decl_path = 'output/decl/' + filename
+            with open(decl_path, 'r') as decl_file:
+                declarations = decl_file.read()
         cur_path = dir + '/' + filename
         if to_name:
             cur_path = cur_path[:-5] + '_' + str(to_name) + '.smt2'
@@ -354,7 +355,7 @@ class Instance(object):
             file.write('; ' + json.dumps(mut_info) + '\n')
             if message:
                 file.write('; ' + message + '\n')
-            file.write(ctx)
+            file.write(declarations)
             for clause in self.chc:
                 file.write('(assert ' + clause.sexpr() + ')\n')
             file.write('(check-sat)\n(exit)\n\n')
@@ -682,6 +683,8 @@ class Mutation(object):
         if mut_name == 'ID':
             assert False, 'No mutation can be applied'
 
+        if instance.chc is None:
+            print(mut_name)
         assert instance.chc is not None, "Empty chc-system"
 
         if self.type.is_solving_param():
