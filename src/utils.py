@@ -352,7 +352,7 @@ def get_predicates(chc) -> set:
             cur_expr = expr_set.pop()
             if is_app_of(cur_expr, Z3_OP_UNINTERPRETED):
                 pred_set.add(cur_expr.decl())
-                break
+                continue
             for child in cur_expr.children():
                 expr_set.add(child)
     return pred_set
