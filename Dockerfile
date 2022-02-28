@@ -25,7 +25,7 @@ RUN git clone https://github.com/dvvrd/spacer-benchmarks.git --depth 1 \
  
 # prepare seeds
 RUN mv sv-benchmarks/clauses sv-benchmarks-clauses \
- && rm -rf sv-benchmarks sv-benchmarks-clauses/QALIA sv-benchmarks-clauses/BOOL\
+ && rm -rf sv-benchmarks sv-benchmarks-clauses/QALIA sv-benchmarks-clauses/BOOL sv-benchmarks-clauses/ALIA/liquid-haskell \
  && rm -rf chc-comp21-benchmarks/LRA-TS chc-comp21-benchmarks/ADT-Nonlin \
  && gzip -d -r chc-comp21-benchmarks
 
@@ -36,7 +36,7 @@ RUN pip install -r requirements.txt
 # download and edit Z3-sourses
 RUN git clone https://github.com/AnzhelaSukhanova/z3.git \
  && cd z3 \
- && git checkout 9e3bfc1 \
+ && git checkout c2a524c \
  && python scripts/mk_make.py --python \
  && sed -i -e 's, -D_MP_INTERNAL, -D_TRACE -D_MP_INTERNAL,g' build/config.mk
  

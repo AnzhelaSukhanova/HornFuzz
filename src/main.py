@@ -70,7 +70,7 @@ def check_satis(instance: Instance, is_seed: bool = False, get_stats: bool = Tru
     if not is_seed:
         seed = instance.get_group()[0]
         if seed.satis == unknown:
-            seed.check(solver, True, get_stats)
+            seed.check(solver, is_seed=True, get_stats=get_stats)
         satis = seed.satis
 
     for param in instance.params:
