@@ -21,8 +21,6 @@ def is_same_res(instance: Instance, result: bool = False, message: str = None) -
             print(instance.model_info)
             same_res = True
         instance.model_info = (sat, 0)
-        if message:
-            same_res = False
     except AssertionError as err:
         same_res = repr(err) == message
     return same_res
@@ -158,7 +156,7 @@ def reduce_simplify(instance: Instance, mut_type: str, message: str = None) -> I
 
 def reduce_declarations(instance: Instance):
     def get_pred_name(decl: str):
-        name = decl.split(' ', 1)[0]
+        name = decl.split(' ', 1)[0].rstrip()
         return name[1:-1] if name[0] == '|' else name
 
     group = instance.get_group()
@@ -242,13 +240,16 @@ def get_bug_info(filename: str):
         message = message[2:] if message[0] == ';' else None
 
     if mut_line:
-        mutations = json.loads(mut_line) \
-            if mut_line[0] == '[' \
-            else mut_line.split('->')
+        if mut_line[0] == '[':
+            mutations = json.loads(mut_line)
+        else:
+            mutations = mut_line.split('->')
+            if len(mutations) == 1:
+                mutations = []
     else:
         mutations = []
-    seed_chunks = filename.split('_')
-    if re.match(r'[0-9]+.smt2', seed_chunks[-1]):
+
+    if filename.startswith('out'):
         filename = '/'.join(filename.split('/')[2:])
         seed_name = '_'.join(filename.split('_')[:-1]) + '.smt2'
     else:
