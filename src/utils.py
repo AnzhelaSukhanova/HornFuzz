@@ -25,6 +25,13 @@ info_kinds = {Z3_OP_AND: '(declare-fun and *)',
               Z3_OP_UNINTERPRETED: 'uninterpreted-functions',
               None: None}
 
+current_ctx = None
+
+
+def set_ctx(ctx):
+    global current_ctx
+    current_ctx = ctx
+
 
 class State(object):
 
@@ -230,11 +237,10 @@ def update_expr(expr, children, vars: list = None):
         if mk_function is None:
             return expr
 
-        ctx = expr.ctx
-        ctx_ref = ctx.ref()
+        ctx_ref = current_ctx.ref()
         cast_children = []
         for child in children:
-            cast_children.append(coerce_exprs(child, ctx))
+            cast_children.append(coerce_exprs(child, current_ctx))
         ast_children = to_ast_list(cast_children)
 
         try:
@@ -259,7 +265,7 @@ def update_expr(expr, children, vars: list = None):
                 arity = len(children)
                 upd_expr = mk_function(ctx_ref, arity, ast_children)
 
-            upd_expr = to_expr_ref(upd_expr, ctx)
+            upd_expr = to_expr_ref(upd_expr, current_ctx)
 
         except Exception:
             print('Expression kind:', kind)
@@ -284,17 +290,13 @@ def count_expr(chc, kinds: list, is_unique=False):
     assert chc is not None, "Empty chc-system"
     expr_num = defaultdict(int)
 
-    goal = Goal(ctx=chc.ctx)
+    goal = Goal(ctx=current_ctx)
     goal.append(chc)
-    tactic = Tactic('collect-statistics', ctx=chc.ctx)
+    tactic = Tactic('collect-statistics', ctx=current_ctx)
     tactic.apply(goal, 'to_file', True)
 
-    try:
-        with open(".collect_stats.json") as file:
-            stats = json.load(file)
-    except Exception:
-        print(traceback.format_exc())
-        exit(0)
+    with open(".collect_stats.json") as file:
+        stats = json.load(file)
 
     for kind in kinds:
         decl = info_kinds[kind]
@@ -307,7 +309,7 @@ def count_expr(chc, kinds: list, is_unique=False):
 
 
 def check_ast_kind(expr, kind) -> bool:
-    ctx_ref = expr.ctx.ref()
+    ctx_ref = current_ctx.ref()
     ast = expr.as_ast()
     return Z3_get_ast_kind(ctx_ref, ast) == kind
 
@@ -333,7 +335,7 @@ def shuffle_vars(vars):
 
 def remove_clauses(chc_system: AstVector, ind) -> AstVector:
     """Remove the clauses from the chc-system at the given indices."""
-    new_system = AstVector(ctx=chc_system.ctx)
+    new_system = AstVector(ctx=current_ctx)
     for i, clause in enumerate(chc_system):
         if i not in ind:
             new_system.push(clause)
@@ -350,7 +352,7 @@ def get_predicates(chc) -> set:
             cur_expr = expr_set.pop()
             if is_app_of(cur_expr, Z3_OP_UNINTERPRETED):
                 pred_set.add(cur_expr.decl())
-                break
+                continue
             for child in cur_expr.children():
                 expr_set.add(child)
     return pred_set
@@ -372,13 +374,13 @@ def take_pred_from_clause(clause: AstVector, with_term=False):
         return upred_value, vars
 
 
-def equivalence_check(seed: AstVector, mutant: AstVector, ctx: Context) -> bool:
-    solver = Solver(ctx=ctx)
+def equivalence_check(seed: AstVector, mutant: AstVector) -> bool:
+    solver = Solver(ctx=current_ctx)
 
     for i, clause in enumerate(seed):
         solver.reset()
         mut_clause = mutant[i]
-        expr = Xor(clause, mut_clause, ctx=ctx)
+        expr = Xor(clause, mut_clause, ctx=current_ctx)
         solver.add(expr)
         result = solver.check()
 
@@ -409,7 +411,7 @@ def get_vars_and_body(clause):
 
         elif is_not(expr):
             vars += get_vars(child)
-            expr = Not(child.body(), ctx=clause.ctx)
+            expr = Not(child.body(), ctx=current_ctx)
         else:
             break
         child = expr.children()[0] if expr.children() else None
@@ -447,7 +449,7 @@ def get_chc_body(clause):
                 # and-subexpressions, since we are counting the
                 # number of predicates
                 body_expr.append(subexpr)
-        body = Or(body_expr, clause.ctx)
+        body = Or(body_expr, current_ctx)
     elif (is_not(expr) and is_or(child)) or is_true(expr):
         pass
     elif (is_not(expr) and child.decl().kind() == Z3_OP_UNINTERPRETED) or \

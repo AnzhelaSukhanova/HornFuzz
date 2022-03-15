@@ -1,4 +1,4 @@
-# Fuzzing of Spacer
+# Spacer fuzzer
 Fuzzer of the CHC-solver Spacer.
 
 ## Install
