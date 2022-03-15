@@ -40,7 +40,7 @@ RUN cd z3/build && make -j$(nproc) && make install
 
 # download storm-sourses
 RUN git clone https://github.com/AnzhelaSukhanova/storm.git \
- && cd storm && git checkout 0b04bcb
+ && cd storm && git checkout 57cec57
 
 # install storm
 RUN cd storm && python setup.py install
