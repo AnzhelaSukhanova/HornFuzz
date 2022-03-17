@@ -19,6 +19,7 @@ import z3_api_mods
 
 faulthandler.enable()
 enable_trace('spacer')
+enable_trace('dl_rule_transf')
 
 heuristics = []
 heuristic_flags = defaultdict(bool)

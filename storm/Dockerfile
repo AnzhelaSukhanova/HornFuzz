@@ -31,7 +31,7 @@ RUN mv -t benchmarks LIA NIA ALIA
 # download and edit Z3-sourses
 RUN git clone https://github.com/AnzhelaSukhanova/z3.git \
  && cd z3 \
- && git checkout 99e4985 \
+ && git checkout 9427d43 \
  && python scripts/mk_make.py --python \
  && sed -i -e 's, -D_MP_INTERNAL, -D_TRACE -D_MP_INTERNAL,g' build/config.mk
  
@@ -40,7 +40,7 @@ RUN cd z3/build && make -j$(nproc) && make install
 
 # download storm-sourses
 RUN git clone https://github.com/AnzhelaSukhanova/storm.git \
- && cd storm && git checkout 57cec57
+ && cd storm && git checkout 69e56de
 
 # install storm
 RUN cd storm && python setup.py install
