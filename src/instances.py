@@ -145,7 +145,7 @@ class MutType(object):
         self.name = name
         '''
         0 -- ID, REMOVE_EXPR
-        1 -- custom mutations
+        1 -- own mutations
         2 -- solving parameters
         3 -- simplifications
         '''
@@ -290,7 +290,7 @@ class Instance(object):
         Get information about the number of subexpressions of kind
         from info_kinds in the system and clauses.
         """
-        if self.chc is None or not mut_group_flags[1]:
+        if self.chc is None or mut_groups[0] != 1:
             return
 
         info = self.info
@@ -305,13 +305,13 @@ class Instance(object):
             expr_num = count_expr(clause, info_kinds)
             for kind in info_kinds:
                 info.clause_expr_num[kind][i] = expr_num[kind]
-                
+
     def find_pred_info(self):
         """
         Find whether the chc-system is linear, the number of
         uninterpreted predicates and their set.
         """
-        if not mut_group_flags[1] and not with_difficulty_heur:
+        if mut_groups[0] != 1 and not with_difficulty_heur:
             return
         group = self.get_group()
         chc_system = self.chc
@@ -386,7 +386,7 @@ mut_types = {'ID': MutType('ID', 0),
              'REMOVE_EXPR': MutType('REMOVE_EXPR', 0)}
 mut_stats = {}
 with_weights = True
-mut_group_flags = {0: False, 1: False, 2: False, 3: False}
+mut_groups = []
 
 
 def get_mut_weights_dict():
@@ -397,19 +397,13 @@ def get_mut_weights_dict():
 
 
 def init_mut_types(options: list = None, mutations: list = None):
-    global mut_types, with_weights, mut_group_flags
+    global mut_types, with_weights, mut_groups
 
     if 'without_mutation_weights' in options:
         with_weights = False
 
-    if not mutations or 'custom' in mutations:
-        mut_group_flags[1] = True
-    if not mutations or 'solving_parameters' in mutations:
-        mut_group_flags[2] = True
-    if not mutations or 'simplifications' in mutations:
-        mut_group_flags[3] = True
-
-    if mut_group_flags[1]:
+    if not mutations or 'own' in mutations:
+        mut_groups.append(1)
         for name in {'SWAP_AND',
                      'DUP_AND',
                      'BREAK_AND',
@@ -420,7 +414,8 @@ def init_mut_types(options: list = None, mutations: list = None):
                      'ADD_NONLIN_RULE'}:
             mut_types[name] = MutType(name, 1)
 
-    if mut_group_flags[2]:
+    if not mutations or 'solving_parameters' in mutations:
+        mut_groups.append(2)
         for name in {'SPACER.P3.SHARE_INVARIANTS',
                      'SPACER.P3.SHARE_LEMMAS',
                      # 'SPACER.PUSH_POB', -- takes a long time
@@ -478,7 +473,8 @@ def init_mut_types(options: list = None, mutations: list = None):
                     default_value=0,
                     upper_limit=sys.maxsize)
 
-    if mut_group_flags[3]:
+    if not mutations or 'simplifications' in mutations:
+        mut_groups.append(3)
         name = 'EMPTY_SIMPLIFY'
         mut_types[name] = MutType(name, 3)
         """
@@ -729,11 +725,12 @@ class Mutation(object):
         group = instance.get_group()
         instance.find_system_info()
 
+        mut_group = random.choice(mut_groups)
         mut_name = self.type.name
 
         if mut_name == 'ID' or \
                 (mut_name in type_kind_corr and self.kind is None):
-            if mut_group_flags[1]:
+            if mut_group == 1:
                 for kind in info_kinds:
                     if info.expr_num[kind] > 0:
                         if kind == type_kind_corr['SWAP_AND']:
@@ -757,7 +754,7 @@ class Mutation(object):
         if mut_name == 'ID':
             for mut_name in mut_types:
                 group_id = mut_types[mut_name].group_id
-                if not mut_group_flags[group_id]:
+                if mut_group != group_id:
                     continue
                 elif mut_name in {'BLAST_SELECT_STORE',
                                   'EXPAND_SELECT_STORE',

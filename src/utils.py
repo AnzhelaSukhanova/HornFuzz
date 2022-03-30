@@ -208,21 +208,14 @@ class TraceStats(object):
         return weights
 
 
-def mk_app_builders():
-    builders = {}
-    OP_PREFIX = 'Z3_OP_'
-    for c in dir(z3consts):
-        if not c.startswith(OP_PREFIX):
-            continue
-        kind_name = str(c).removeprefix('Z3_OP_').lower()
-        kind_value = getattr(z3consts, c)
-        mk_function = getattr(z3core, f'Z3_mk_{kind_name}', None)
-        if mk_function is not None:
-            builders[kind_value] = mk_function
-    return builders
+def update_term(ctx, term, args):
+    args_num = len(args)
+    cast_args = []
+    for child in args:
+        cast_args.append(coerce_exprs(child, current_ctx))
+    ast_args = to_ast_list(cast_args)
 
-
-Z3_APP_BUILDERS = mk_app_builders()
+    return to_expr_ref(Z3_update_term(ctx.ref(), term.as_ast(), args_num, ast_args), ctx)
 
 
 def update_expr(expr, children, vars: list = None):
@@ -231,45 +224,7 @@ def update_expr(expr, children, vars: list = None):
         return None
 
     if not is_quantifier(expr):
-        decl = expr.decl()
-        kind = decl.kind()
-        mk_function = Z3_APP_BUILDERS.get(kind)
-        if mk_function is None:
-            return expr
-
-        ctx_ref = current_ctx.ref()
-        cast_children = []
-        for child in children:
-            cast_children.append(coerce_exprs(child, current_ctx))
-        ast_children = to_ast_list(cast_children)
-
-        try:
-            if kind in {Z3_OP_IMPLIES, Z3_OP_XOR, Z3_OP_ARRAY_EXT,
-                        Z3_OP_SET_DIFFERENCE, Z3_OP_SET_SUBSET,
-                        Z3_OP_GE, Z3_OP_GT, Z3_OP_LE, Z3_OP_LT,
-                        Z3_OP_MOD, Z3_OP_DIV, Z3_OP_EQ, Z3_OP_POWER,
-                        Z3_OP_SELECT}:
-                assert len(ast_children) > 1, 'Not enough subexpressions'
-                upd_expr = mk_function(ctx_ref, ast_children[0],
-                                       ast_children[1])
-
-            elif kind in {Z3_OP_NOT, Z3_OP_TO_REAL, Z3_OP_TO_INT,
-                          Z3_OP_IS_INT, Z3_OP_FPA_ABS, Z3_OP_FPA_ABS}:
-                upd_expr = mk_function(ctx_ref, ast_children[0])
-
-            elif kind in {Z3_OP_ITE, Z3_OP_STORE}:
-                assert len(ast_children) > 2, 'Not enough subexpressions'
-                upd_expr = mk_function(ctx_ref, ast_children[0], ast_children[1], ast_children[2])
-
-            else:
-                arity = len(children)
-                upd_expr = mk_function(ctx_ref, arity, ast_children)
-
-            upd_expr = to_expr_ref(upd_expr, current_ctx)
-
-        except Exception:
-            print('Expression kind:', kind)
-            raise
+        upd_expr = update_term(current_ctx, expr, children)
     else:
         if vars is None:
             vars, _ = get_vars_and_body(expr)

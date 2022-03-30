@@ -19,9 +19,13 @@ Add `-heuristics <priority1> <priority2> ...` (or `-heur`) to change default ins
 * chc-difficulty (`difficulty`).  
 
 You can add `-options <option1> <option2> ...` (or `-opt`) to:  
-* use only Z3 rewritings as mutations (`only_simplify`);  
 * choose mutations equally likely (`without_mutation_weights`);  
 * use Eldarica (`with_oracles`).  
+
+To choose mutation groups add `-mutations <group1> <group2> ...` (or `-mut`). Available mutation groups:  
+* `own`;  
+* `simplifications`;  
+* `solving_parameters`.  
 
 ## Seeds
 Download benchmarks from

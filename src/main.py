@@ -597,7 +597,7 @@ def main():
     parser.add_argument('-mutations', '-mut',
                         nargs='*',
                         choices=['simplifications', 'solving_parameters',
-                                 'custom'],
+                                 'own'],
                         default=[])
     parser.add_argument('-options', '-opt',
                         nargs='*',
