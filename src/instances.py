@@ -951,9 +951,9 @@ class Mutation(object):
         """Transform nth expression of the specific kind in dfs-order."""
         expr_kind = self.kind
         if expr_kind is Z3_QUANTIFIER_AST:
-            expr = Z3_find_term(current_ctx, clause, Z3_OP_TRUE, self.trans_num, True)
+            expr = find_term(clause, Z3_OP_TRUE, self.trans_num, True)
         else:
-            expr = Z3_find_term(current_ctx, clause, expr_kind, self.trans_num, False)
+            expr = find_term(clause, expr_kind, self.trans_num, False)
         mut_expr = None
         mut_name = self.type.name
         children = expr.children()
@@ -983,12 +983,11 @@ class Mutation(object):
             pass
 
         if expr_kind is Z3_QUANTIFIER_AST:
-            mut_clause = Z3_set_term(current_ctx, clause, Z3_OP_TRUE, self.trans_num, mut_expr)
+            mut_clause = set_term(clause, Z3_OP_TRUE, self.trans_num, True, mut_expr)
         else:
-            mut_clause = Z3_set_term(current_ctx, clause, expr_kind, self.trans_num, mut_expr)
+            mut_clause = set_term(clause, expr_kind, self.trans_num, False, mut_expr)
         self.applied = True
         return mut_clause
-        
 
     def get_chain(self, in_log_format=False):
         """Return the full mutation chain."""

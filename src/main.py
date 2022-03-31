@@ -524,8 +524,7 @@ def fuzz(files: set):
                             handle_bug(instance, mut_instance, message)
                             problems_num += 1
                         else:
-                            if message == 'timeout':
-                                print('Model validation timeout')
+                            status = 'model_timeout' if message == 'timeout' else 'pass'
 
                             if with_oracles:
                                 found_problem, states = compare_satis(mut_instance)
@@ -542,7 +541,7 @@ def fuzz(files: set):
                                              mut_instance=mut_instance)
                                 counter['conflict'] += 1
                             else:
-                                log_run_info('pass',
+                                log_run_info(status,
                                              instance=instance,
                                              mut_instance=mut_instance)
                             instance = mut_instance

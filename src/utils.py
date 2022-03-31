@@ -208,14 +208,23 @@ class TraceStats(object):
         return weights
 
 
-def update_term(ctx, term, args):
-    args_num = len(args)
-    cast_args = []
-    for child in args:
-        cast_args.append(coerce_exprs(child, current_ctx))
-    ast_args = to_ast_list(cast_args)
+def find_term(clause: QuantifierRef, term_kind, trans_num: int, is_quantifier: bool):
+    return to_expr_ref(Z3_find_term(current_ctx.ref(),
+                                    clause.as_ast(),
+                                    term_kind,
+                                    trans_num,
+                                    is_quantifier),
+                       current_ctx)
 
-    return to_expr_ref(Z3_update_term(ctx.ref(), term.as_ast(), args_num, ast_args), ctx)
+
+def set_term(clause: QuantifierRef, term_kind, trans_num: int, is_quantifier: bool, new_term):
+    return to_expr_ref(Z3_find_term(current_ctx.ref(),
+                                    clause.as_ast(),
+                                    term_kind,
+                                    trans_num,
+                                    is_quantifier,
+                                    new_term.as_ast()),
+                       current_ctx)
 
 
 def update_quantifier(expr, children, vars: list = None):
