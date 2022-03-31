@@ -218,24 +218,18 @@ def update_term(ctx, term, args):
     return to_expr_ref(Z3_update_term(ctx.ref(), term.as_ast(), args_num, ast_args), ctx)
 
 
-def update_expr(expr, children, vars: list = None):
+def update_quantifier(expr, children, vars: list = None):
     """Return the expression with new children."""
-    if not children:
-        return None
-
-    if not is_quantifier(expr):
-        upd_expr = update_term(current_ctx, expr, children)
-    else:
-        if vars is None:
-            vars, _ = get_vars_and_body(expr)
-        try:
-            if expr.is_forall():
-                upd_expr = ForAll(vars, children[0])
-            else:
-                upd_expr = Exists(vars, children[0])
-        except Exception:
-            print(expr)
-            raise
+    if vars is None:
+        vars, _ = get_vars_and_body(expr)
+    try:
+        if expr.is_forall():
+            upd_expr = ForAll(vars, children[0])
+        else:
+            upd_expr = Exists(vars, children[0])
+    except Exception:
+        print(expr)
+        raise
     return upd_expr
 
 

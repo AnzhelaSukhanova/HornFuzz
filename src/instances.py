@@ -11,7 +11,6 @@ MODEL_CHECK_TIME_LIMIT = 100
 INSTANCE_ID = 0
 ONE_INST_MUT_LIMIT = 1000
 
-trans_n = 0
 unique_traces = set()
 instance_groups = defaultdict()
 current_ctx = None
@@ -627,7 +626,6 @@ type_kind_corr = {'SWAP_AND': Z3_OP_AND, 'DUP_AND': Z3_OP_AND,
                   'MIX_BOUND_VARS': Z3_QUANTIFIER_AST,
                   'ADD_INEQ': {Z3_OP_LE, Z3_OP_GE, Z3_OP_LT, Z3_OP_GT},
                   'ADD_LIN_RULE': Z3_OP_UNINTERPRETED,
-                  'ADD_BV_RULE': Z3_OP_UNINTERPRETED,
                   'ADD_NONLIN_RULE': Z3_OP_UNINTERPRETED}
 
 default_simplify_options = {'algebraic_number_evaluator', 'bit2bool',
@@ -653,7 +651,7 @@ class Mutation(object):
     def __init__(self, prev_mutation=None):
         self.type = mut_types['ID']
         self.number = prev_mutation.number + 1 if prev_mutation else 0
-        self.path = [None]
+        self.clause_i = None
         self.kind = None
         self.prev_mutation = prev_mutation
         self.applied = False
@@ -663,7 +661,7 @@ class Mutation(object):
 
     def clear(self):
         self.type = mut_types['ID']
-        self.path.clear()
+        self.clause_i = None
         self.number = 0
         self.prev_mutation = None
 
@@ -713,6 +711,11 @@ class Mutation(object):
             changed = False
 
         return timeout, changed
+
+    def set_remove_mutation(self, trans_num):
+        self.type = mut_types['REMOVE_EXPR']
+        self.trans_num = trans_num
+        self.kind = Z3_OP_TRUE
 
     def next_mutation(self, instance: Instance):
         """
@@ -815,7 +818,7 @@ class Mutation(object):
             if key != mut_name:
                 params += [key, False]
 
-        ind = range(0, len(chc_system)) if not self.path[0] else {self.path[0]}
+        ind = range(0, len(chc_system)) if not self.clause_i else {self.clause_i}
         for i in range(len(chc_system)):
             if i in ind:
                 cur_clause = AstVector(ctx=current_ctx)
@@ -909,103 +912,83 @@ class Mutation(object):
         info = instance.info
         chc_system = instance.chc
 
-        if self.trans_num is None and self.path[0] is None:
+        if self.trans_num is None and self.clause_i is None:
             ind = np.where(info.clause_expr_num[self.kind] > 0)[0]
             i = int(random.choice(ind))
             expr_num = info.clause_expr_num[self.kind][i]
             self.trans_num = random.randint(0, expr_num - 1) \
                 if expr_num > 1 else 0
         else:
-            i = self.path[0]
+            i = self.clause_i
 
         clause = chc_system[i]
-        if not self.path:
-            self.path = [i]
+        if not self.clause_i:
+            self.clause_i = i
         return i, clause
 
     def transform(self, instance: Instance) -> AstVector:
         """Transform an expression of the specific kind."""
-        global trans_n
         chc_system = instance.chc
         mut_system = AstVector(ctx=current_ctx)
 
-        clause_ind, clause = self.get_clause_info(instance)
-        trans_n = deepcopy(self.trans_num)
+        clause_i, clause = self.get_clause_info(instance)
 
-        mut_clause = self.transform_nth(clause, [clause_ind])
+        mut_clause = self.transform_nth(clause)
         if not self.applied:
             assert False, 'Mutation ' + \
                           self.type.name + \
                           ' wasn\'t applied'
 
         for j, clause in enumerate(chc_system):
-            if j == clause_ind:
+            if j == clause_i:
                 if mut_clause is not None:
                     mut_system.push(mut_clause)
             else:
                 mut_system.push(chc_system[j])
         return mut_system
 
-    def transform_nth(self, expr, path: list):
+    def transform_nth(self, clause):
         """Transform nth expression of the specific kind in dfs-order."""
-        global trans_n
-
-        if not expr.children() and self.type.name != 'REMOVE_EXPR':
-            return expr
         expr_kind = self.kind
-        depth = len(path)
-
-        if expr_kind is None or \
-                is_app_of(expr, expr_kind) or \
-                check_ast_kind(expr, expr_kind):
-            trans_n -= 1
-            if trans_n == -1:
-                mut_expr = None
-                mut_name = self.type.name
-                children = expr.children()
-
-                if mut_name in {'SWAP_AND', 'SWAP_OR'}:
-                    children = children[1:] + children[:1]
-                elif mut_name == 'DUP_AND':
-                    child = children[0]
-                    children.append(child)
-                elif mut_name == 'BREAK_AND':
-                    children = mut_break(children)
-                elif mut_name == 'ADD_INEQ':
-                    new_ineq = create_add_ineq(children, expr_kind)
-                    mut_expr = And([expr, new_ineq])
-                else:
-                    pass
-
-                if expr_kind == Z3_OP_AND:
-                    mut_expr = And(children)
-                elif expr_kind == Z3_OP_OR:
-                    mut_expr = Or(children)
-                elif expr_kind == Z3_QUANTIFIER_AST:
-                    vars, _ = get_vars_and_body(expr)
-                    shuffle_vars(vars)
-                    mut_expr = update_expr(expr, children, vars)
-                else:
-                    pass
-                if len(self.path) < depth:
-                    self.path = path
-                self.applied = True
-                return mut_expr
-
-        mut_children = []
-        for i, child in enumerate(expr.children()):
-            new_path = path + [i]
-            if trans_n >= 0 and \
-                    (len(self.path) <= depth or self.path[depth] == i):
-                mut_child = self.transform_nth(child, new_path)
-                if mut_child is not None:
-                    mut_children.append(mut_child)
-            else:
-                mut_children.append(child)
-        if not expr.children() or trans_n >= 0:
-            return expr
+        if expr_kind is Z3_QUANTIFIER_AST:
+            expr = Z3_find_term(current_ctx, clause, Z3_OP_TRUE, self.trans_num, True)
         else:
-            return update_expr(expr, mut_children)
+            expr = Z3_find_term(current_ctx, clause, expr_kind, self.trans_num, False)
+        mut_expr = None
+        mut_name = self.type.name
+        children = expr.children()
+
+        if mut_name in {'SWAP_AND', 'SWAP_OR'}:
+            children = children[1:] + children[:1]
+        elif mut_name == 'DUP_AND':
+            child = children[0]
+            children.append(child)
+        elif mut_name == 'BREAK_AND':
+            children = mut_break(children)
+        elif mut_name == 'ADD_INEQ':
+            new_ineq = create_add_ineq(children, expr_kind)
+            mut_expr = And([expr, new_ineq])
+        else:
+            pass
+
+        if expr_kind == Z3_OP_AND:
+            mut_expr = And(children)
+        elif expr_kind == Z3_OP_OR:
+            mut_expr = Or(children)
+        elif expr_kind == Z3_QUANTIFIER_AST:
+            vars, _ = get_vars_and_body(expr)
+            shuffle_vars(vars)
+            mut_expr = update_quantifier(expr, children, vars)
+        else:
+            pass
+
+        if expr_kind is Z3_QUANTIFIER_AST:
+            mut_clause = Z3_set_term(current_ctx, clause, Z3_OP_TRUE, self.trans_num, mut_expr)
+        else:
+            mut_clause = Z3_set_term(current_ctx, clause, expr_kind, self.trans_num, mut_expr)
+        self.applied = True
+        return mut_clause
+        
 
     def get_chain(self, in_log_format=False):
         """Return the full mutation chain."""
@@ -1031,24 +1014,24 @@ class Mutation(object):
         if mut_name == 'ADD_INEQ':
             return mut_name + '(' + \
                    str(self.kind) + ', ' + \
-                   str(self.path[0]) + ', ' + \
+                   str(self.clause_i) + ', ' + \
                    str(self.trans_num) + ')'
 
         elif mut_name in type_kind_corr:
             return mut_name + '(' + \
-                   str(self.path[0]) + ', ' + \
+                   str(self.clause_i) + ', ' + \
                    str(self.trans_num) + ')'
 
         else:
             return mut_name
 
     def debug_print(self, chc_system: AstVector, mut_system: AstVector):
-        print(chc_system[self.path[0]], '\n->\n', mut_system[self.path[0]])
+        print(chc_system[self.clause_i], '\n->\n', mut_system[self.clause_i])
 
     def get_log(self) -> dict:
         """Create a log entry with information about the mutation."""
         log = {'type': self.type.name,
-               'path': self.path,
+               'clause_i': self.clause_i,
                'kind': self.kind,
                'trans_num': self.trans_num,
                }
@@ -1071,10 +1054,10 @@ class Mutation(object):
 
             if mut_name == 'ADD_INEQ':
                 self.kind = int(mut_info[1])
-                self.path = [int(mut_info[2])]
+                self.clause_i = int(mut_info[2])
                 self.trans_num = int(mut_info[3])
             elif mut_name in type_kind_corr:
-                self.path = [int(mut_info[1])]
+                self.clause_i = int(mut_info[1])
                 self.trans_num = int(mut_info[2])
         else:
             assert False, 'Incorrect mutation entry'
