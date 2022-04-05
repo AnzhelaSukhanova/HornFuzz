@@ -12,6 +12,7 @@ from scipy.sparse import dok_matrix
 from from_z3 import *
 
 TRACE_FILE = '.z3-trace'
+PATH_DEPTH_LIMIT = 50
 
 trace_states = defaultdict(int)
 trace_offset = 0
@@ -208,22 +209,26 @@ class TraceStats(object):
         return weights
 
 
-def find_term(clause: QuantifierRef, term_kind, trans_num: int, is_quantifier: bool):
-    return to_expr_ref(Z3_find_term(current_ctx.ref(),
-                                    clause.as_ast(),
-                                    term_kind,
-                                    trans_num,
-                                    is_quantifier),
-                       current_ctx)
-
-
-def set_term(clause: QuantifierRef, term_kind, trans_num: int, is_quantifier: bool, new_term):
-    return to_expr_ref(Z3_find_term(current_ctx.ref(),
+def find_term(clause: QuantifierRef, term_kind: int, trans_num: int, is_quantifier: bool):
+    path = (ctypes.c_int*PATH_DEPTH_LIMIT)()
+    term = to_expr_ref(Z3_find_term(current_ctx.ref(),
                                     clause.as_ast(),
                                     term_kind,
                                     trans_num,
                                     is_quantifier,
-                                    new_term.as_ast()),
+                                    PATH_DEPTH_LIMIT,
+                                    path),
+                       current_ctx)
+    return term, path
+
+
+def set_term(clause: QuantifierRef, new_term, path):
+    return to_expr_ref(Z3_set_term(current_ctx.ref(),
+                                   clause.as_ast(),
+                                   new_term.as_ast(),
+                                   0,
+                                   PATH_DEPTH_LIMIT,
+                                   path),
                        current_ctx)
 
 
@@ -408,13 +413,22 @@ def get_chc_body(clause):
                 # number of predicates
                 body_expr.append(subexpr)
         body = Or(body_expr, current_ctx)
-    elif (is_not(expr) and is_or(child)) or is_true(expr):
-        pass
     elif (is_not(expr) and child.decl().kind() == Z3_OP_UNINTERPRETED) or \
             expr.decl().kind() == Z3_OP_UNINTERPRETED:
         body = None
     else:
-        assert False, 'Can\'t find body of the expression: ' + \
-                      str(clause)
+        pass
 
     return body
+
+
+def reverse_dict(initial_dict: dict):
+    new_dict = defaultdict(set)
+    for key in initial_dict:
+        value = initial_dict[key]
+        if isinstance(value, int):
+            new_dict[value].add(key)
+        else:
+            for v in value:
+                new_dict[v].add(key)
+    return new_dict

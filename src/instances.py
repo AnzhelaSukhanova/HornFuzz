@@ -621,16 +621,21 @@ def init_mut_types(options: list = None, mutations: list = None):
         mut_types[name] = MutType(name, 3)
 
 
-type_kind_corr = {'SWAP_AND': Z3_OP_AND, 'DUP_AND': Z3_OP_AND,
-                  'BREAK_AND': Z3_OP_AND, 'SWAP_OR': Z3_OP_OR,
-                  'MIX_BOUND_VARS': Z3_QUANTIFIER_AST,
-                  'ADD_INEQ': {Z3_OP_LE, Z3_OP_GE, Z3_OP_LT, Z3_OP_GT},
-                  'ADD_LIN_RULE': Z3_OP_UNINTERPRETED,
-                  'ADD_NONLIN_RULE': Z3_OP_UNINTERPRETED}
+own_mutations = {'SWAP_AND': Z3_OP_AND, 'DUP_AND': Z3_OP_AND,
+                        'BREAK_AND': Z3_OP_AND, 'SWAP_OR': Z3_OP_OR,
+                        'MIX_BOUND_VARS': Z3_QUANTIFIER_AST,
+                        'ADD_INEQ': {Z3_OP_LE, Z3_OP_GE, Z3_OP_LT, Z3_OP_GT},
+                        'ADD_LIN_RULE': Z3_OP_UNINTERPRETED,
+                        'ADD_NONLIN_RULE': Z3_OP_UNINTERPRETED}
 
 default_simplify_options = {'algebraic_number_evaluator', 'bit2bool',
                             'elim_ite', 'elim_sign_ext', 'flat', 'hi_div0',
                             'ignore_patterns_on_ground_qbody', 'push_to_real'}
+
+array_mutations = {'BLAST_SELECT_STORE', 'EXPAND_SELECT_STORE',
+                   'EXPAND_STORE_EQ', 'SORT_STORE', 'XFORM.ARRAY_BLAST_FULL',
+                   'XFORM.INSTANTIATE_ARRAYS', 'XFORM.INSTANTIATE_ARRAYS.ENFORCE',
+                   'XFORM.QUANTIFY_ARRAYS', 'XFORM.TRANSFORM_ARRAYS'}
 
 
 def update_mutation_weights():
@@ -696,7 +701,7 @@ class Mutation(object):
         elif mut_name == 'EMPTY_SIMPLIFY':
             new_instance.set_chc(self.empty_simplify(instance.chc))
 
-        elif mut_name in type_kind_corr:
+        elif mut_name in own_mutations:
             new_instance.set_chc(self.transform(instance))
 
         else:
@@ -732,47 +737,24 @@ class Mutation(object):
         mut_name = self.type.name
 
         if mut_name == 'ID' or \
-                (mut_name in type_kind_corr and self.kind is None):
+                (mut_name in own_mutations and self.kind is None):
             if mut_group == 1:
+                search_kind_dict = reverse_dict(own_mutations)
                 for kind in info_kinds:
                     if info.expr_num[kind] > 0:
-                        if kind == type_kind_corr['SWAP_AND']:
-                            types_to_choose.update({'SWAP_AND',
-                                                    'DUP_AND',
-                                                    'BREAK_AND'})
-                        elif kind == type_kind_corr['SWAP_OR']:
-                            types_to_choose.add('SWAP_OR')
-                        elif kind == type_kind_corr['MIX_BOUND_VARS']:
-                            types_to_choose.add('MIX_BOUND_VARS')
-                        elif kind in type_kind_corr['ADD_INEQ']:
-                            if not mult_kinds['ADD_INEQ']:
-                                types_to_choose.add('ADD_INEQ')
-                            mult_kinds['ADD_INEQ'].append(kind)
-                        elif kind == type_kind_corr['ADD_LIN_RULE']:
-                            types_to_choose.add('ADD_LIN_RULE')
-                            types_to_choose.add('ADD_NONLIN_RULE')
-                        else:
-                            pass
+                        types_to_choose.update(search_kind_dict[kind])
 
         if mut_name == 'ID':
             for mut_name in mut_types:
                 group_id = mut_types[mut_name].group_id
                 if mut_group != group_id:
                     continue
-                elif mut_name in {'BLAST_SELECT_STORE',
-                                  'EXPAND_SELECT_STORE',
-                                  'EXPAND_STORE_EQ',
-                                  'SORT_STORE',
-                                  'XFORM.ARRAY_BLAST_FULL',
-                                  'XFORM.INSTANTIATE_ARRAYS',
-                                  'XFORM.INSTANTIATE_ARRAYS.ENFORCE',
-                                  'XFORM.QUANTIFY_ARRAYS',
-                                  'XFORM.TRANSFORM_ARRAYS'} and \
+                elif mut_name in array_mutations and \
                         group.family != Family.ARRAY:
                     continue
                 elif mut_name in instance.params:
                     continue
-                elif mut_name not in type_kind_corr:
+                elif mut_name not in own_mutations:
                     types_to_choose.add(mut_name)
                 else:
                     pass
@@ -802,11 +784,11 @@ class Mutation(object):
                     mut_name = 'ID'
             self.type = mut_types[mut_name]
 
-        if mut_name in type_kind_corr and self.kind is None:
+        if mut_name in own_mutations and self.kind is None:
             if mut_name == 'ADD_INEQ':
                 self.kind = random.choices(mult_kinds[mut_name])[0]
             else:
-                self.kind = type_kind_corr[mut_name]
+                self.kind = own_mutations[mut_name]
 
     def simplify_by_one(self, chc_system: AstVector) -> AstVector:
         """Simplify instance with arith_ineq_lhs, arith_lhs and eq2ineq."""
@@ -950,10 +932,11 @@ class Mutation(object):
     def transform_nth(self, clause):
         """Transform nth expression of the specific kind in dfs-order."""
         expr_kind = self.kind
+        print(self.type.name)
         if expr_kind is Z3_QUANTIFIER_AST:
-            expr = find_term(clause, Z3_OP_TRUE, self.trans_num, True)
+            expr, path = find_term(clause, Z3_OP_TRUE, self.trans_num, True)
         else:
-            expr = find_term(clause, expr_kind, self.trans_num, False)
+            expr, path = find_term(clause, expr_kind, self.trans_num, False)
         mut_expr = None
         mut_name = self.type.name
         children = expr.children()
@@ -982,10 +965,9 @@ class Mutation(object):
         else:
             pass
 
-        if expr_kind is Z3_QUANTIFIER_AST:
-            mut_clause = set_term(clause, Z3_OP_TRUE, self.trans_num, True, mut_expr)
-        else:
-            mut_clause = set_term(clause, expr_kind, self.trans_num, False, mut_expr)
+        mut_clause = set_term(clause, mut_expr, path)
+        print(mut_clause)
+        exit()
         self.applied = True
         return mut_clause
 
@@ -1016,7 +998,7 @@ class Mutation(object):
                    str(self.clause_i) + ', ' + \
                    str(self.trans_num) + ')'
 
-        elif mut_name in type_kind_corr:
+        elif mut_name in own_mutations:
             return mut_name + '(' + \
                    str(self.clause_i) + ', ' + \
                    str(self.trans_num) + ')'
@@ -1055,7 +1037,7 @@ class Mutation(object):
                 self.kind = int(mut_info[1])
                 self.clause_i = int(mut_info[2])
                 self.trans_num = int(mut_info[3])
-            elif mut_name in type_kind_corr:
+            elif mut_name in own_mutations:
                 self.clause_i = int(mut_info[1])
                 self.trans_num = int(mut_info[2])
         else:
