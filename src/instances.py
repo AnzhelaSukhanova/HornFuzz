@@ -966,8 +966,6 @@ class Mutation(object):
             pass
 
         mut_clause = set_term(clause, mut_expr, path)
-        print(mut_clause)
-        exit()
         self.applied = True
         return mut_clause
 
