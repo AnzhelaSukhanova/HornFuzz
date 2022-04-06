@@ -209,8 +209,9 @@ class TraceStats(object):
 
 
 def find_term(clause: QuantifierRef, term_kind: int, trans_num: int, is_removing: bool, is_quantifier: bool):
-    path = (ctypes.c_int)()
-    term = to_expr_ref(Z3_find_term(current_ctx.ref(),
+    ctx_ref = current_ctx.ref()
+    path = ctypes.c_ulonglong(Z3_mk_int_vector(ctx_ref))
+    term = to_expr_ref(Z3_find_term(ctx_ref,
                                     clause.as_ast(),
                                     term_kind,
                                     trans_num,
@@ -222,12 +223,14 @@ def find_term(clause: QuantifierRef, term_kind: int, trans_num: int, is_removing
 
 
 def set_term(clause: QuantifierRef, new_term, path):
-    return to_expr_ref(Z3_set_term(current_ctx.ref(),
-                                   clause.as_ast(),
-                                   new_term.as_ast(),
-                                   0,
-                                   path),
-                       current_ctx)
+    result = to_expr_ref(Z3_set_term(current_ctx.ref(),
+                                     clause.as_ast(),
+                                     new_term.as_ast(),
+                                     0,
+                                     path),
+                         current_ctx)
+    Z3_free_int_vector(current_ctx.ref(), path)
+    return result
 
 
 def update_quantifier(expr, children, vars: list = None):
