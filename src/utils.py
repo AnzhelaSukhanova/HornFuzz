@@ -12,7 +12,6 @@ from scipy.sparse import dok_matrix
 from from_z3 import *
 
 TRACE_FILE = '.z3-trace'
-PATH_DEPTH_LIMIT = 50
 
 trace_states = defaultdict(int)
 trace_offset = 0
@@ -209,14 +208,14 @@ class TraceStats(object):
         return weights
 
 
-def find_term(clause: QuantifierRef, term_kind: int, trans_num: int, is_quantifier: bool):
-    path = (ctypes.c_int*PATH_DEPTH_LIMIT)()
+def find_term(clause: QuantifierRef, term_kind: int, trans_num: int, is_removing: bool, is_quantifier: bool):
+    path = (ctypes.c_int)()
     term = to_expr_ref(Z3_find_term(current_ctx.ref(),
                                     clause.as_ast(),
                                     term_kind,
                                     trans_num,
+                                    is_removing,
                                     is_quantifier,
-                                    PATH_DEPTH_LIMIT,
                                     path),
                        current_ctx)
     return term, path
@@ -227,7 +226,6 @@ def set_term(clause: QuantifierRef, new_term, path):
                                    clause.as_ast(),
                                    new_term.as_ast(),
                                    0,
-                                   PATH_DEPTH_LIMIT,
                                    path),
                        current_ctx)
 

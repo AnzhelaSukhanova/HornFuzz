@@ -137,27 +137,31 @@ class InstanceGroup(object):
                     return
 
 
+class MutTypeGroup(Enum):
+    AUXILIARY = 0
+    OWN = 1
+    PARAMETERS = 2
+    SIMPLIFICATIONS = 3
+
+
 class MutType(object):
 
-    def __init__(self, name, group_id, weight=0.1,
+    def __init__(self, name, group: MutTypeGroup, weight=0.1,
                  default_value=None, upper_limit=None):
         self.name = name
-        '''
-        0 -- ID, REMOVE_EXPR
-        1 -- own mutations
-        2 -- solving parameters
-        3 -- simplifications
-        '''
-        self.group_id = group_id
+        self.group = group
         self.weight = weight
         self.default_value = default_value
         self.upper_limit = upper_limit
 
     def is_solving_param(self):
-        return self.group_id == 2
+        return self.group == MutTypeGroup.PARAMETERS
 
     def is_simplification(self):
-        return self.group_id == 3
+        return self.group == MutTypeGroup.SIMPLIFICATIONS
+
+    def is_remove(self):
+        return self.name == 'REMOVE'
 
 
 class Instance(object):
@@ -289,7 +293,7 @@ class Instance(object):
         Get information about the number of subexpressions of kind
         from info_kinds in the system and clauses.
         """
-        if self.chc is None or mut_groups[0] != 1:
+        if self.chc is None or mut_groups[0] != MutTypeGroup.OWN:
             return
 
         info = self.info
@@ -310,7 +314,7 @@ class Instance(object):
         Find whether the chc-system is linear, the number of
         uninterpreted predicates and their set.
         """
-        if mut_groups[0] != 1 and not with_difficulty_heur:
+        if mut_groups[0] != MutTypeGroup.OWN and not with_difficulty_heur:
             return
         group = self.get_group()
         chc_system = self.chc
@@ -381,8 +385,8 @@ class MutTypeEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
-mut_types = {'ID': MutType('ID', 0),
-             'REMOVE_EXPR': MutType('REMOVE_EXPR', 0)}
+mut_types = {'ID': MutType('ID', MutTypeGroup.AUXILIARY),
+             'REMOVE_EXPR': MutType('REMOVE_EXPR', MutTypeGroup.AUXILIARY)}
 mut_stats = {}
 with_weights = True
 mut_groups = []
@@ -402,7 +406,7 @@ def init_mut_types(options: list = None, mutations: list = None):
         with_weights = False
 
     if not mutations or 'own' in mutations:
-        mut_groups.append(1)
+        mut_groups.append(MutTypeGroup.OWN)
         for name in {'SWAP_AND',
                      'DUP_AND',
                      'BREAK_AND',
@@ -411,10 +415,10 @@ def init_mut_types(options: list = None, mutations: list = None):
                      'ADD_INEQ',
                      'ADD_LIN_RULE',
                      'ADD_NONLIN_RULE'}:
-            mut_types[name] = MutType(name, 1)
+            mut_types[name] = MutType(name, MutTypeGroup.OWN)
 
     if not mutations or 'solving_parameters' in mutations:
-        mut_groups.append(2)
+        mut_groups.append(MutTypeGroup.PARAMETERS)
         for name in {'SPACER.P3.SHARE_INVARIANTS',
                      'SPACER.P3.SHARE_LEMMAS',
                      # 'SPACER.PUSH_POB', -- takes a long time
@@ -438,7 +442,7 @@ def init_mut_types(options: list = None, mutations: list = None):
                      # 'XFORM.SCALE', -- often causes unknown
                      'XFORM.QUANTIFY_ARRAYS',
                      'XFORM.TRANSFORM_ARRAYS'}:
-            mut_types[name] = MutType(name, 2, default_value=False)
+            mut_types[name] = MutType(name, MutTypeGroup.PARAMETERS, default_value=False)
 
         for name in {'SPACER.CTP',
                      'SPACER.ELIM_AUX',
@@ -458,167 +462,167 @@ def init_mut_types(options: list = None, mutations: list = None):
                      'XFORM.INLINE_LINEAR',
                      'XFORM.SLICE',
                      'XFORM.TAIL_SIMPLIFIER_PVE'}:
-            mut_types[name] = MutType(name, 2, default_value=True)
+            mut_types[name] = MutType(name, MutTypeGroup.PARAMETERS, default_value=True)
 
         mut_types['SPACER.ORDER_CHILDREN'] = \
             MutType('SPACER.ORDER_CHILDREN',
-                    2,
+                    MutTypeGroup.PARAMETERS,
                     default_value=0,
                     upper_limit=2)
 
         mut_types['SPACER.RANDOM_SEED'] = \
             MutType('SPACER.RANDOM_SEED',
-                    2,
+                    MutTypeGroup.PARAMETERS,
                     default_value=0,
                     upper_limit=sys.maxsize)
 
     if not mutations or 'simplifications' in mutations:
-        mut_groups.append(3)
+        mut_groups.append(MutTypeGroup.SIMPLIFICATIONS)
         name = 'EMPTY_SIMPLIFY'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Rewrite inequalities so that right-hand-side is a constant."""
         name = 'ARITH_INEQ_LHS'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         All monomials are moved to the left-hand-side, 
         and the right-hand-side is just a constant."""
         name = 'ARITH_LHS'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Expand a distinct predicate into a quadratic number of disequalities."""
         name = 'BLAST_DISTINCT'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Eagerly replace all (select (store ..) ..) term 
         by an if-then-else term."""
         name = 'BLAST_SELECT_STORE'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Conjunctions are rewritten using negation and disjunctions."""
         name = 'ELIM_AND'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Replace (rem x y) with (ite (>= y 0) (mod x y) (- (mod x y)))."""
         name = 'ELIM_REM'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Eliminate to_real from arithmetic predicates 
         that contain only integers."""
         name = 'ELIM_TO_REAL'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Expand equalities into two inequalities."""
         name = 'EQ2INEQ'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Expand (^ t k) into (* t ... t) if  1 < k <= max_degree."""
         name = 'EXPAND_POWER'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Expand select over ite expressions."""
         name = 'EXPAND_SELECT_ITE'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Conservatively replace a (select (store ...) ...) term 
         by an if-then-else term."""
         name = 'EXPAND_SELECT_STORE'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Reduce (store ...) = (store ...) with a common base into selects."""
         name = 'EXPAND_STORE_EQ'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Replace (tan x) with (/ (sin x) (cos x))."""
         name = 'EXPAND_TAN'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Use gcd rounding on integer arithmetic atoms."""
         name = 'GCD_ROUNDING'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Hoist shared summands under ite expressions."""
         name = 'HOIST_ITE'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Hoist multiplication over summation 
         to minimize number of multiplications."""
         name = 'HOIST_MUL'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Extra ite simplifications, these additional simplifications 
         may reduce size locally but increase globally."""
         name = 'ITE_EXTRA_RULES'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Perform local (i.e. cheap) context simplifications."""
         name = 'LOCAL_CTX'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Replace multiplication by a power of two into a concatenation."""
         name = 'MUL2CONCAT'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Collpase (* t ... t) into (^ t k), 
         it is ignored if expand_power is true."""
         name = 'MUL_TO_POWER'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Pull if-then-else terms when cheap."""
         name = 'PULL_CHEAP_ITE'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Push if-then-else over arithmetic terms."""
         name = 'PUSH_ITE_ARITH'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Rewrite patterns."""
         name = 'REWRITE_PATTERNS'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Put polynomials in sum-of-monomials form."""
         name = 'SOM'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Sort nested stores when the indices are known to be different."""
         name = 'SORT_STORE'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Sort the arguments of + application."""
         name = 'SORT_SUMS'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Split equalities of the form (= (concat t1 t2) t3)."""
         name = 'SPLIT_CONCAT_EQ'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
 
         """
         Simplify/evaluate expressions containing 
         (algebraic) irrational numbers."""
         name = 'ALGEBRAIC_NUMBER_EVALUATOR'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Eliminate ite in favor of and/or."""
         name = 'ELIM_ITE'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Expand sign-ext operator using concat and extract."""
         name = 'ELIM_SIGN_EXT'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Create nary applications for and, or, +, *, 
         bvadd, bvmul, bvand, bvor, bvxor."""
         name = 'FLAT'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Ignores patterns on quantifiers that don't mention 
         their bound variables."""
         name = 'IGNORE_PATTERNS_ON_GROUND_QBODY'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
         """
         Distribute to_real over * and +."""
         name = 'PUSH_TO_REAL'
-        mut_types[name] = MutType(name, 3)
+        mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
 
 
 own_mutations = {'SWAP_AND': Z3_OP_AND, 'DUP_AND': Z3_OP_AND,
@@ -729,25 +733,26 @@ class Mutation(object):
         """
         mult_kinds = defaultdict(list)
         types_to_choose = set()
-        info = instance.info
         group = instance.get_group()
         instance.find_system_info()
+        info = instance.info
 
         mut_group = random.choice(mut_groups)
         mut_name = self.type.name
 
         if mut_name == 'ID' or \
                 (mut_name in own_mutations and self.kind is None):
-            if mut_group == 1:
+            if mut_group == MutTypeGroup.OWN:
                 search_kind_dict = reverse_dict(own_mutations)
                 for kind in info_kinds:
                     if info.expr_num[kind] > 0:
                         types_to_choose.update(search_kind_dict[kind])
+                        if kind in own_mutations['ADD_INEQ']:
+                            mult_kinds['ADD_INEQ'].append(kind)
 
         if mut_name == 'ID':
             for mut_name in mut_types:
-                group_id = mut_types[mut_name].group_id
-                if mut_group != group_id:
+                if mut_group != mut_types[mut_name].group:
                     continue
                 elif mut_name in array_mutations and \
                         group.family != Family.ARRAY:
@@ -771,17 +776,10 @@ class Mutation(object):
                     if reverse_weights:
                         weight = 1 - weight
                     weights.append(weight)
-                try:
-                    mut_name = random.choices(types_to_choose, weights)[0]
 
-                except IndexError:
-                    mut_name = 'ID'
-
+                mut_name = random.choices(types_to_choose, weights)[0] if types_to_choose else 'ID'
             else:
-                try:
-                    mut_name = random.choice(types_to_choose)
-                except IndexError:
-                    mut_name = 'ID'
+                mut_name = random.choice(types_to_choose) if types_to_choose else 'ID'
             self.type = mut_types[mut_name]
 
         if mut_name in own_mutations and self.kind is None:
@@ -934,9 +932,9 @@ class Mutation(object):
         expr_kind = self.kind
         print(self.type.name)
         if expr_kind is Z3_QUANTIFIER_AST:
-            expr, path = find_term(clause, Z3_OP_TRUE, self.trans_num, True)
+            expr, path = find_term(clause, Z3_OP_TRUE, self.trans_num, False, True)
         else:
-            expr, path = find_term(clause, expr_kind, self.trans_num, False)
+            expr, path = find_term(clause, expr_kind, self.trans_num, self.type.is_remove(), False)
         mut_expr = None
         mut_name = self.type.name
         children = expr.children()
