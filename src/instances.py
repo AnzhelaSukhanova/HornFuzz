@@ -930,7 +930,6 @@ class Mutation(object):
     def transform_nth(self, clause):
         """Transform nth expression of the specific kind in dfs-order."""
         expr_kind = self.kind
-        print(self.type.name)
         if expr_kind is Z3_QUANTIFIER_AST:
             expr, path = find_term(clause, Z3_OP_TRUE, self.trans_num, False, True)
         else:
