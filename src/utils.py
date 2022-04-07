@@ -226,7 +226,6 @@ def set_term(clause: QuantifierRef, new_term, path):
     result = to_expr_ref(Z3_set_term(current_ctx.ref(),
                                      clause.as_ast(),
                                      new_term.as_ast(),
-                                     0,
                                      path),
                          current_ctx)
     Z3_free_int_vector(current_ctx.ref(), path)
