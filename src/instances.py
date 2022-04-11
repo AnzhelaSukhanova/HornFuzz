@@ -840,6 +840,7 @@ class Mutation(object):
         head, vars = take_pred_from_clause(clause)
 
         body_files = os.listdir('false_formulas')
+        body_files.remove('README.md')
         filename = 'false_formulas/' + random.choice(body_files)
         body = parse_smt2_file(filename, ctx=current_ctx)[0]
         implication = Implies(body, head, ctx=current_ctx)
