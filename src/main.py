@@ -52,7 +52,7 @@ def calc_sort_key(heuristic: str, stats, weights=None) -> int:
         states_prob = stats.get_probability(StatsType.STATES)
         sort_key = sum(states_prob[state] * weights[state]
                        for state in stats.states_num)
-    elif heuristic == 'difficulty':
+    elif heuristic in {'difficulty', 'simplicity'}:
         is_nonlinear = not stats[0]
         upred_num = stats[1]
         sort_key = (is_nonlinear, upred_num)
@@ -118,7 +118,8 @@ def sort_queue():
                     instance.sort_key = calc_sort_key(heur,
                                                       (group.is_linear,
                                                        group.upred_num))
-            chunk.sort(key=lambda item: item.sort_key, reverse=True)
+            to_reverse = False if heur == 'simplicity' else True
+            chunk.sort(key=lambda item: item.sort_key, reverse=to_reverse)
             queue += chunk
 
 
@@ -589,7 +590,8 @@ def main():
                         help='directory with seeds or keyword \'all\'')
     parser.add_argument('-heuristics', '-heur',
                         nargs='*',
-                        choices=['transitions', 'states', 'difficulty'],
+                        choices=['transitions', 'states',
+                                 'difficulty', 'simplicity'],
                         default=['default'],
                         help='trace data which will be used to '
                              'select an instance for mutation')

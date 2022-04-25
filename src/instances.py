@@ -314,7 +314,7 @@ class Instance(object):
         Find whether the chc-system is linear, the number of
         uninterpreted predicates and their set.
         """
-        if mut_groups[0] != MutTypeGroup.OWN and not with_difficulty_heur:
+        if mut_groups[0] != MutTypeGroup.OWN and not with_formula_heur:
             return
         group = self.get_group()
         chc_system = self.chc
