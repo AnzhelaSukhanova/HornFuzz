@@ -480,6 +480,10 @@ def fuzz(files: set):
                 timeout, changed = mut.apply(instance, mut_instance)
                 mut_time = time.perf_counter() - mut_time
                 mut_instance.update_mutation_stats(new_application=True)
+                mut_instance.dump('output/mutants',
+                                  group.filename,
+                                  to_name=mut_instance.id,
+                                  clear=False)
 
                 if changed:
                     mut_types_exc = set()
@@ -646,7 +650,7 @@ def create_output_dirs():
     if not os.path.exists('output'):
         os.mkdir('output')
     for dir in {'output/last_mutants', 'output/decl',
-                'output/bugs', 'output/unknown'}:
+                'output/bugs', 'output/unknown', 'output/mutants'}:
         if not os.path.exists(dir):
             os.mkdir(dir)
         if dir != 'output':
