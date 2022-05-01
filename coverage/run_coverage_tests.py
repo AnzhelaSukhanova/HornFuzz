@@ -1,6 +1,7 @@
 BASE_DIR = '/tests'
 Z3_BINARY = '/z3/build/z3'
 QUERY_DIR = '/queries'
+TIMEOUT_S = 10
 
 import os
 from tqdm import tqdm
@@ -25,4 +26,4 @@ for i, query_file in enumerate(tqdm(all_smt2_queries)):
     actual_query = os.path.join(QUERY_DIR, query_file)
     with open(actual_query, 'w') as f:
         f.write(query)
-    os.system('{} {} > /dev/null 2>&1'.format(Z3_BINARY, actual_query))
+    os.system('{} -T:{} {} > /dev/null 2>&1'.format(Z3_BINARY, TIMEOUT_S, actual_query))
