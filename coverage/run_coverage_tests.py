@@ -25,4 +25,4 @@ for i, query_file in enumerate(tqdm(all_smt2_queries)):
     actual_query = os.path.join(QUERY_DIR, query_file)
     with open(actual_query, 'w') as f:
         f.write(query)
-    os.system('{} {}'.format(Z3_BINARY, actual_query))
+    os.system('{} {} > /dev/null 2>&1'.format(Z3_BINARY, actual_query))

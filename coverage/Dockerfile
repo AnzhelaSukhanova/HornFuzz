@@ -25,11 +25,11 @@ RUN cd z3 && CFLAGS=="--coverage" CXXFLAGS="--coverage" LDFLAGS="-lgcov" cmake -
 # Build Z3
 RUN cmake --build /z3/build --target install --config $BUILD_TYPE
 
+RUN apt-get install -y python3 python3-pip
 RUN pip install tqdm
 RUN mkdir /queries
-RUN mkdir /coverage/cov-details
 
 ADD run_coverage_tests.py .
 ADD gather_coverage.py .
 
-CMD python run_coverage_tests.py; python gather_coverage.py
+CMD /usr/bin/python3 run_coverage_tests.py; /usr/bin/python3 gather_coverage.py
