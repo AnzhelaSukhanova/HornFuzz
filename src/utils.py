@@ -78,12 +78,12 @@ class StatsType(Enum):
 
 
 stats_type = StatsType.DEFAULT
-with_difficulty_heur = False
+with_formula_heur = False
 
 
 def set_stats_type(heuristics: defaultdict):
     """Set the type of statistics based on heuristics."""
-    global stats_type, with_difficulty_heur
+    global stats_type, with_formula_heur
 
     if heuristics['transitions'] and heuristics['states']:
         stats_type = StatsType.ALL
@@ -92,8 +92,8 @@ def set_stats_type(heuristics: defaultdict):
     elif heuristics['states']:
         stats_type = StatsType.STATES
 
-    if heuristics['difficulty']:
-        with_difficulty_heur = True
+    if heuristics['difficulty'] or heuristics['simplicity']:
+        with_formula_heur = True
 
 
 class TraceStats(object):
@@ -208,79 +208,42 @@ class TraceStats(object):
         return weights
 
 
-def mk_app_builders():
-    builders = {}
-    OP_PREFIX = 'Z3_OP_'
-    for c in dir(z3consts):
-        if not c.startswith(OP_PREFIX):
-            continue
-        kind_name = str(c).removeprefix('Z3_OP_').lower()
-        kind_value = getattr(z3consts, c)
-        mk_function = getattr(z3core, f'Z3_mk_{kind_name}', None)
-        if mk_function is not None:
-            builders[kind_value] = mk_function
-    return builders
+def find_term(clause: QuantifierRef, term_kind: int, trans_num: int, is_removing: bool, is_quantifier: bool):
+    ctx_ref = current_ctx.ref()
+    path = ctypes.c_ulonglong(Z3_mk_int_vector(ctx_ref))
+    term = to_expr_ref(Z3_find_term(ctx_ref,
+                                    clause.as_ast(),
+                                    term_kind,
+                                    trans_num,
+                                    is_removing,
+                                    is_quantifier,
+                                    path),
+                       current_ctx)
+    return term, path
 
 
-Z3_APP_BUILDERS = mk_app_builders()
+def set_term(clause: QuantifierRef, new_term, path):
+    result = to_expr_ref(Z3_set_term(current_ctx.ref(),
+                                     clause.as_ast(),
+                                     new_term.as_ast(),
+                                     path),
+                         current_ctx)
+    Z3_free_int_vector(current_ctx.ref(), path)
+    return result
 
 
-def update_expr(expr, children, vars: list = None):
+def update_quantifier(expr, children, vars: list = None):
     """Return the expression with new children."""
-    if not children:
-        return None
-
-    if not is_quantifier(expr):
-        decl = expr.decl()
-        kind = decl.kind()
-        mk_function = Z3_APP_BUILDERS.get(kind)
-        if mk_function is None:
-            return expr
-
-        ctx_ref = current_ctx.ref()
-        cast_children = []
-        for child in children:
-            cast_children.append(coerce_exprs(child, current_ctx))
-        ast_children = to_ast_list(cast_children)
-
-        try:
-            if kind in {Z3_OP_IMPLIES, Z3_OP_XOR, Z3_OP_ARRAY_EXT,
-                        Z3_OP_SET_DIFFERENCE, Z3_OP_SET_SUBSET,
-                        Z3_OP_GE, Z3_OP_GT, Z3_OP_LE, Z3_OP_LT,
-                        Z3_OP_MOD, Z3_OP_DIV, Z3_OP_EQ, Z3_OP_POWER,
-                        Z3_OP_SELECT}:
-                assert len(ast_children) > 1, 'Not enough subexpressions'
-                upd_expr = mk_function(ctx_ref, ast_children[0],
-                                       ast_children[1])
-
-            elif kind in {Z3_OP_NOT, Z3_OP_TO_REAL, Z3_OP_TO_INT,
-                          Z3_OP_IS_INT, Z3_OP_FPA_ABS, Z3_OP_FPA_ABS}:
-                upd_expr = mk_function(ctx_ref, ast_children[0])
-
-            elif kind in {Z3_OP_ITE, Z3_OP_STORE}:
-                assert len(ast_children) > 2, 'Not enough subexpressions'
-                upd_expr = mk_function(ctx_ref, ast_children[0], ast_children[1], ast_children[2])
-
-            else:
-                arity = len(children)
-                upd_expr = mk_function(ctx_ref, arity, ast_children)
-
-            upd_expr = to_expr_ref(upd_expr, current_ctx)
-
-        except Exception:
-            print('Expression kind:', kind)
-            raise
-    else:
-        if vars is None:
-            vars, _ = get_vars_and_body(expr)
-        try:
-            if expr.is_forall():
-                upd_expr = ForAll(vars, children[0])
-            else:
-                upd_expr = Exists(vars, children[0])
-        except Exception:
-            print(expr)
-            raise
+    if vars is None:
+        vars, _ = get_vars_and_body(expr)
+    try:
+        if expr.is_forall():
+            upd_expr = ForAll(vars, children[0])
+        else:
+            upd_expr = Exists(vars, children[0])
+    except Exception:
+        print(expr)
+        raise
     return upd_expr
 
 
@@ -450,13 +413,22 @@ def get_chc_body(clause):
                 # number of predicates
                 body_expr.append(subexpr)
         body = Or(body_expr, current_ctx)
-    elif (is_not(expr) and is_or(child)) or is_true(expr):
-        pass
     elif (is_not(expr) and child.decl().kind() == Z3_OP_UNINTERPRETED) or \
             expr.decl().kind() == Z3_OP_UNINTERPRETED:
         body = None
     else:
-        assert False, 'Can\'t find body of the expression: ' + \
-                      str(clause)
+        pass
 
     return body
+
+
+def reverse_dict(initial_dict: dict):
+    new_dict = defaultdict(set)
+    for key in initial_dict:
+        value = initial_dict[key]
+        if isinstance(value, int):
+            new_dict[value].add(key)
+        else:
+            for v in value:
+                new_dict[v].add(key)
+    return new_dict

@@ -46,10 +46,7 @@ def reduce_instance(seed: Instance, bug_instance: Instance,
             trans_number += 1
             expr_number += 1
             mutation = Mutation()
-            mutation.type = mut_types['REMOVE_EXPR']
-            mutation.trans_num = trans_number
-            mutation.path = [i]
-            mutation.kind_ind = -1
+            mutation.set_remove_mutation(trans_number)
 
             try:
                 reduced_chc = mutation.transform(instance)

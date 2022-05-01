@@ -19,6 +19,7 @@ import z3_api_mods
 
 faulthandler.enable()
 enable_trace('spacer')
+enable_trace('dl_rule_transf')
 
 heuristics = []
 heuristic_flags = defaultdict(bool)
@@ -51,7 +52,7 @@ def calc_sort_key(heuristic: str, stats, weights=None) -> int:
         states_prob = stats.get_probability(StatsType.STATES)
         sort_key = sum(states_prob[state] * weights[state]
                        for state in stats.states_num)
-    elif heuristic == 'difficulty':
+    elif heuristic in {'difficulty', 'simplicity'}:
         is_nonlinear = not stats[0]
         upred_num = stats[1]
         sort_key = (is_nonlinear, upred_num)
@@ -117,7 +118,8 @@ def sort_queue():
                     instance.sort_key = calc_sort_key(heur,
                                                       (group.is_linear,
                                                        group.upred_num))
-            chunk.sort(key=lambda item: item.sort_key, reverse=True)
+            to_reverse = False if heur == 'simplicity' else True
+            chunk.sort(key=lambda item: item.sort_key, reverse=to_reverse)
             queue += chunk
 
 
@@ -478,6 +480,10 @@ def fuzz(files: set):
                 timeout, changed = mut.apply(instance, mut_instance)
                 mut_time = time.perf_counter() - mut_time
                 mut_instance.update_mutation_stats(new_application=True)
+                mut_instance.dump('output/mutants',
+                                  group.filename,
+                                  to_name=mut_instance.id,
+                                  clear=False)
 
                 if changed:
                     mut_types_exc = set()
@@ -523,8 +529,7 @@ def fuzz(files: set):
                             handle_bug(instance, mut_instance, message)
                             problems_num += 1
                         else:
-                            if message == 'timeout':
-                                print('Model validation timeout')
+                            status = 'model_timeout' if message == 'timeout' else 'pass'
 
                             if with_oracles:
                                 found_problem, states = compare_satis(mut_instance)
@@ -541,7 +546,7 @@ def fuzz(files: set):
                                              mut_instance=mut_instance)
                                 counter['conflict'] += 1
                             else:
-                                log_run_info('pass',
+                                log_run_info(status,
                                              instance=instance,
                                              mut_instance=mut_instance)
                             instance = mut_instance
@@ -589,14 +594,15 @@ def main():
                         help='directory with seeds or keyword \'all\'')
     parser.add_argument('-heuristics', '-heur',
                         nargs='*',
-                        choices=['transitions', 'states', 'difficulty'],
+                        choices=['transitions', 'states',
+                                 'difficulty', 'simplicity'],
                         default=['default'],
                         help='trace data which will be used to '
                              'select an instance for mutation')
     parser.add_argument('-mutations', '-mut',
                         nargs='*',
                         choices=['simplifications', 'solving_parameters',
-                                 'custom'],
+                                 'own'],
                         default=[])
     parser.add_argument('-options', '-opt',
                         nargs='*',
@@ -644,7 +650,7 @@ def create_output_dirs():
     if not os.path.exists('output'):
         os.mkdir('output')
     for dir in {'output/last_mutants', 'output/decl',
-                'output/bugs', 'output/unknown'}:
+                'output/bugs', 'output/unknown', 'output/mutants'}:
         if not os.path.exists(dir):
             os.mkdir(dir)
         if dir != 'output':
