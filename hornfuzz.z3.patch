@@ -1,0 +1,503 @@
+diff --git a/.gitignore b/.gitignore
+index 051580bb3..2e2b59753 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -92,3 +92,5 @@ examples/**/obj
+ CMakeSettings.json
+ # Editor temp files
+ *.swp
++.idea/*
++cmake-build-debug/*
+diff --git a/scripts/update_api.py b/scripts/update_api.py
+index ab1b4d6fd..e8a5697a3 100755
+--- a/scripts/update_api.py
++++ b/scripts/update_api.py
+@@ -1054,6 +1054,11 @@ def def_API(name, result, params):
+                 log_c.write(" }\n")
+                 log_c.write("  Au(%s);\n" % sz_e)
+                 exe_c.write("in.get_uint_array(%s)" % i)
++            elif ty == INT:
++                log_c.write("I(0);")
++                log_c.write(" }\n")
++                log_c.write("  Ai(%s);\n" % sz_e)
++                exe_c.write("in.get_int_array(%s)" % i)
+             else:
+                 error ("unsupported parameter for %s, %s" % (name, p))
+         elif kind == OUT_MANAGED_ARRAY:
+diff --git a/src/api/api_ast.cpp b/src/api/api_ast.cpp
+index d5de6b5fb..fb34d477b 100644
+--- a/src/api/api_ast.cpp
++++ b/src/api/api_ast.cpp
+@@ -41,6 +41,7 @@ Revision History:
+ #include "util/scoped_timer.h"
+ #include "ast/pp_params.hpp"
+ #include "ast/expr_abstract.h"
++#include "ast/for_each_expr.h"
+ 
+ 
+ extern bool is_numeral_sort(Z3_context c, Z3_sort ty);
+@@ -820,8 +821,8 @@ extern "C" {
+                 SET_ERROR_CODE(Z3_IOB, nullptr);
+             }
+             else {
+-                a = m.mk_app(e->get_decl(), num_args, args);
+-            }
++				a = m.mk_app(e->get_decl(), num_args, args);
++			}
+             break;
+         }
+         case AST_QUANTIFIER: {
+@@ -841,6 +842,161 @@ extern "C" {
+         Z3_CATCH_RETURN(nullptr);
+     }
+ 
++	std::tuple<family_id, decl_kind> to_decl_kind(Z3_context c, Z3_decl_kind kind)
++	{
++		family_id fid = mk_c(c)->get_basic_fid();
++		decl_kind dk = OP_TRUE;
++		switch(kind)
++		{
++			case Z3_OP_TRUE: break;
++			case Z3_OP_AND: dk = OP_AND; break;
++			case Z3_OP_OR: dk = OP_OR; break;
++			case Z3_OP_LE: fid = mk_c(c)->get_arith_fid(); dk = OP_LE; break;
++			case Z3_OP_GE: fid = mk_c(c)->get_arith_fid(); dk = OP_GE; break;
++			case Z3_OP_LT: fid = mk_c(c)->get_arith_fid(); dk = OP_LT; break;
++			case Z3_OP_GT: fid = mk_c(c)->get_arith_fid(); dk = OP_GT; break;
++			default: mk_c(c)->m().raise_exception("Unsupported Z3_decl_kind.");
++		}
++		return std::make_pair(fid, dk);
++	}
++
++	struct location_info
++	{
++		unsigned depth = 0;
++		int ind = 0;
++	};
++
++	uint64_t Z3_API Z3_mk_int_vector(Z3_context c) {
++		LOG_Z3_mk_int_vector(c);
++		RESET_ERROR_CODE();
++		auto* int_vec = alloc(vector<int>);
++		return reinterpret_cast<uint64_t>(int_vec);
++	}
++
++	void Z3_API Z3_free_int_vector(Z3_context c, uint64_t ptr) {
++		LOG_Z3_free_int_vector(c, ptr);
++		RESET_ERROR_CODE();
++		auto *int_vec = reinterpret_cast<vector<int> *>(ptr);
++		dealloc(int_vec);
++	}
++
++	Z3_ast Z3_API Z3_find_term(Z3_context c,
++							   Z3_ast a,
++							   unsigned kind,
++							   unsigned depth,
++							   bool is_removing,
++							   bool search_quantifier,
++							   uint64_t path)
++	{
++		Z3_TRY;
++		LOG_Z3_find_term(c, a, kind, depth, is_removing, search_quantifier, path);
++		RESET_ERROR_CODE();
++		expr* result;
++		unsigned cur_depth;
++		auto&& kind_info = to_decl_kind(c, (Z3_decl_kind)kind);
++		family_id fid = std::get<0>(kind_info);
++		decl_kind decl_kind = std::get<1>(kind_info);
++		vector<std::tuple<expr*, location_info>> expr_stack;
++		auto&& cur_path = reinterpret_cast<vector<int>*>(path);
++		expr_stack.push_back(std::make_pair(to_expr(a), location_info()));
++		while (depth >= 0 && !expr_stack.empty())
++		{
++			auto&& cur_tup = expr_stack.back();
++			expr* cur_expr = std::get<0>(cur_tup);
++			expr_stack.pop_back();
++			location_info loc_info = std::get<1>(cur_tup);
++			cur_depth = loc_info.depth;
++			cur_path->setx(cur_depth, loc_info.ind, 0);
++			++cur_depth;
++			if (is_app(cur_expr))
++			{
++				app* cur_app = to_app(cur_expr);
++				if (!search_quantifier &&
++					(is_removing || is_app_of(cur_app, fid, decl_kind)))
++				{
++					result = cur_expr;
++					if (depth == 0)
++						break;
++					depth--;
++				}
++				for (int i = 0; i < cur_app->get_num_args(); i++)
++				{
++					loc_info = {cur_depth, i};
++					expr_stack.push_back(std::make_pair(cur_app->get_arg(i), loc_info));
++				}
++			}
++			else if (is_quantifier(cur_expr))
++			{
++				quantifier *cur_q = to_quantifier(cur_expr);
++				if (search_quantifier)
++				{
++					result = cur_expr;
++					if (depth == 0)
++						break;
++					depth--;
++				}
++				expr* body = cur_q->get_expr();
++				loc_info = {cur_depth, 0};
++				expr_stack.push_back(std::make_pair(body, loc_info));
++			}
++			else
++				continue;
++		}
++		cur_path->setx(cur_depth, -1, 0);
++		// std::cout << mk_pp(result, mk_c(c)->m()) << std::endl;
++		RETURN_Z3(of_expr(result));
++		Z3_CATCH_RETURN(nullptr);
++	}
++
++	expr* set_term(Z3_context c, expr* cur_ast, expr* new_term, unsigned cur_depth, vector<int>& path)
++	{
++		expr* result;
++		expr* cur_expr = to_expr(cur_ast);
++		ast_manager& m = mk_c(c)->m();
++		if (path[cur_depth] == -1)
++			return new_term;
++		if (is_app(cur_expr))
++		{
++			app *cur_app = to_app(cur_expr);
++			unsigned target_ind = path[cur_depth];
++			expr *child = cur_app->get_arg(target_ind);
++			unsigned children_num = cur_app->get_num_args();
++			expr *children[children_num];
++			for (int i = 0; i < children_num; i++)
++			{
++				if (i==target_ind)
++					children[i] = set_term(c, child, new_term, ++cur_depth, path);
++				else
++					children[i] = cur_app->get_arg(i);
++			}
++			result = m.mk_app(cur_app->get_decl(), children_num, children);
++		}
++		else if (is_quantifier(cur_expr))
++		{
++			quantifier *cur_q = to_quantifier(cur_expr);
++			expr *child = cur_q->get_expr();
++			expr *new_child = set_term(c, child, new_term, ++cur_depth, path);
++			result = m.update_quantifier(cur_q, to_expr(new_child));
++		}
++		mk_c(c)->save_ast_trail(result);
++		return result;
++	}
++
++
++	Z3_ast Z3_API Z3_set_term(Z3_context c,
++							  Z3_ast cur_ast,
++							  Z3_ast new_term,
++							  uint64_t path)
++	{
++		Z3_TRY;
++		LOG_Z3_set_term(c, cur_ast, new_term, path);
++		RESET_ERROR_CODE();
++		auto&& cur_path = reinterpret_cast<vector<int>*>(path);
++		expr* result = set_term(c, to_expr(cur_ast), to_expr(new_term), 1, *cur_path);
++		RETURN_Z3(of_expr(result));
++		Z3_CATCH_RETURN(nullptr);
++	}
++
+     Z3_ast Z3_API Z3_substitute(Z3_context c,
+                                 Z3_ast _a,
+                                 unsigned num_exprs,
+diff --git a/src/api/z3_api.h b/src/api/z3_api.h
+index d7dd0a332..4f7cfa408 100644
+--- a/src/api/z3_api.h
++++ b/src/api/z3_api.h
+@@ -5233,6 +5233,36 @@ extern "C" {
+     */
+     Z3_ast Z3_API Z3_update_term(Z3_context c, Z3_ast a, unsigned num_args, Z3_ast const args[]);
+ 
++	/**
++ 		def_API('Z3_mk_int_vector', UINT64, ( _in(CONTEXT), ))
++ 	*/
++	uint64_t Z3_API Z3_mk_int_vector(Z3_context c);
++
++	/**
++ 		def_API('Z3_free_int_vector', VOID, (_in(CONTEXT), _in(UINT64)))
++ 	*/
++	void Z3_API Z3_free_int_vector(Z3_context c, uint64_t);
++
++	/**
++	 	\brief .
++
++		def_API('Z3_find_term', AST, (_in(CONTEXT), _in(AST), _in(UINT), _in(UINT), _in(BOOL), _in(BOOL), _in(UINT64)))
++	*/
++	Z3_ast Z3_API Z3_find_term(Z3_context c,
++							   Z3_ast a,
++							   unsigned kind,
++							   unsigned depth,
++							   bool is_removing,
++							   bool search_quantifier,
++							   uint64_t path);
++
++	/**
++	 	\brief .
++
++		def_API('Z3_set_term', AST, (_in(CONTEXT), _in(AST), _in(AST), _in(UINT64)))
++	*/
++	Z3_ast Z3_API Z3_set_term(Z3_context c, Z3_ast cur_ast, Z3_ast new_term, uint64_t path);
++
+     /**
+        \brief Substitute every occurrence of \ccode{from[i]} in \c a with \ccode{to[i]}, for \c i smaller than \c num_exprs.
+        The result is the new AST. The arrays \c from and \c to must have size \c num_exprs.
+diff --git a/src/muz/base/dl_rule_transformer.cpp b/src/muz/base/dl_rule_transformer.cpp
+index cc9269378..3005e1890 100644
+--- a/src/muz/base/dl_rule_transformer.cpp
++++ b/src/muz/base/dl_rule_transformer.cpp
+@@ -72,8 +72,7 @@ namespace datalog {
+         bool modified = false;
+ 
+         TRACE("dl_rule_transf", 
+-            tout<<"init:\n";
+-            rules.display(tout);
++            tout << "init: ";
+         );
+         scoped_ptr<rule_set> new_rules = alloc(rule_set, rules);      
+         plugin_vector::iterator it = m_plugins.begin();
+@@ -108,8 +107,7 @@ namespace datalog {
+ 
+             IF_VERBOSE(1, verbose_stream() << new_rules->get_num_rules() << " rules " << sec << "s)\n";);
+             TRACE("dl_rule_transf", 
+-                tout << typeid(p).name()<<":\n";
+-                new_rules->display(tout);
++                tout << typeid(p).name() << " ";
+             );
+         }
+         if (modified) {
+diff --git a/src/muz/spacer/spacer_context.cpp b/src/muz/spacer/spacer_context.cpp
+index 42b366d94..acdbee926 100644
+--- a/src/muz/spacer/spacer_context.cpp
++++ b/src/muz/spacer/spacer_context.cpp
+@@ -2585,7 +2585,7 @@ bool context::validate() {
+                 if (res != l_false) {
+                     msg << "rule validation failed when checking: "
+                         << mk_pp(tmp, m);
+-                    IF_VERBOSE(0, verbose_stream() << msg.str() << "\n";);
++					IF_VERBOSE(0, verbose_stream() << msg.str() << "\n";);
+                     throw default_exception(msg.str());
+                     return false;
+                 }
+diff --git a/src/muz/transforms/dl_mk_array_blast.cpp b/src/muz/transforms/dl_mk_array_blast.cpp
+index 30b57f2a4..9ea3ef4f2 100644
+--- a/src/muz/transforms/dl_mk_array_blast.cpp
++++ b/src/muz/transforms/dl_mk_array_blast.cpp
+@@ -233,7 +233,7 @@ namespace datalog {
+                 conjs.push_back(m.mk_implies(m.mk_and(eqs.size(), eqs.data()), m.mk_eq(v1, v2)));
+             }
+         }
+-        body = m.mk_and(conjs.size(), conjs.data());        
++        body = m.mk_and(conjs.size(), conjs.data());
+         m_rewriter(body);   
+         return true;
+     }
+@@ -289,6 +289,7 @@ namespace datalog {
+         m_rewriter(head);
+         TRACE("dl", tout << body << " => " << head << "\n";);
+         change = ackermanize(r, body, head);
++
+         if (!change) {
+             rules.add_rule(&r);
+             return false;
+@@ -299,7 +300,6 @@ namespace datalog {
+         rule_set new_rules(m_ctx);
+         TRACE("dl", tout << fml2 << "\n";);
+         rm.mk_rule(fml2, p, new_rules, r.name());
+-        
+ 
+         rule_ref new_rule(rm);
+         if (m_simplifier.transform_rule(new_rules.last(), new_rule)) {
+@@ -308,7 +308,7 @@ namespace datalog {
+                 rm.to_formula(r, fml1);
+                 p = m.mk_rewrite(fml1, fml2);
+                 p = m.mk_modus_ponens(r.get_proof(), p);
+-                new_rule->set_proof(m, p);                
++				new_rule->set_proof(m, p);
+             }
+             rules.add_rule(new_rule.get());
+             rm.mk_rule_rewrite_proof(r, *new_rule.get());
+@@ -328,11 +328,11 @@ namespace datalog {
+         for (rule* r : source) {
+             if (m_ctx.canceled())
+                 return nullptr;
+-            change = blast(*r, *rules) || change;
++			change = blast(*r, *rules) || change;
+         }
+         if (!change) {
+             rules = nullptr;
+-        }        
++        }
+         return rules.detach();        
+     }
+ 
+diff --git a/src/tactic/core/collect_statistics_tactic.cpp b/src/tactic/core/collect_statistics_tactic.cpp
+index dc906cb32..eb7742f86 100644
+--- a/src/tactic/core/collect_statistics_tactic.cpp
++++ b/src/tactic/core/collect_statistics_tactic.cpp
+@@ -19,6 +19,7 @@ Notes:
+ --*/
+ #include<string>
+ #include<map>
++#include<regex>
+ 
+ #include "ast/ast.h"
+ #include "util/params.h"
+@@ -29,9 +30,11 @@ Notes:
+ #include "ast/fpa_decl_plugin.h"
+ #include "tactic/tactical.h"
+ #include "util/stats.h"
++#include "tactic/tactic_params.hpp"
+ 
+ #include "tactic/core/collect_statistics_tactic.h"
+ 
++
+ class collect_statistics_tactic : public tactic {
+     ast_manager &        m;
+     params_ref           m_params;
+@@ -41,6 +44,7 @@ class collect_statistics_tactic : public tactic {
+     bv_decl_plugin       m_bv_pi;
+     datatype_decl_plugin m_datatype_pi;
+     fpa_decl_plugin      m_fpa_pi;
++	bool                 m_to_file;
+ 
+     typedef std::map<std::string, unsigned long> stats_type;
+     stats_type m_stats;
+@@ -60,10 +64,14 @@ public:
+     }
+ 
+     void updt_params(params_ref const & p) override {
+-        m_params.append(p);
++		m_params.append(p);
++		tactic_params tp(p);
++		m_to_file  = p.get_bool("to_file", tp.collect_statistics_to_file());
+     }
+ 
+-    void collect_param_descrs(param_descrs & r) override {}
++    void collect_param_descrs(param_descrs & r) override {
++		r.insert("to_file", CPK_BOOL, "(default: false) writes statistics to the file.");
++	}
+ 
+     void operator()(goal_ref const & g, goal_ref_buffer & result) override {
+         tactic_report report("collect-statistics", *g);
+@@ -74,10 +82,30 @@ public:
+         for (unsigned i = 0; i < sz; i++)
+             for_each_expr(cp, visited, g->form(i));
+ 
+-        std::cout << "(" << std::endl;
+-        for (auto const& kv : m_stats) 
+-            std::cout << " :" << kv.first << "    " << kv.second << std::endl;
+-        std::cout << ")" << std::endl;
++		if (m_to_file) {
++			std::ofstream sout(".collect_stats.json");
++
++			sout << "{";
++			if (!m_stats.empty()) {
++				const auto& lastKey = m_stats.rbegin()->first;
++        		for (auto const& kv : m_stats) {
++					std::regex newlines_reg("\n+");
++					auto result = std::regex_replace(kv.first, newlines_reg, "");
++            		sout << "\"" << result << "\": " << kv.second;
++					if (kv.first != lastKey)
++        				sout << ", \n";
++				}
++			}
++        	sout << "}\n";
++
++			sout.close();
++		}
++		else {
++			std::cout << "(" << std::endl;
++        	for (auto const& kv : m_stats)
++            	std::cout << " :" << kv.first << "    " << kv.second << std::endl;
++        	std::cout << ")" << std::endl;
++		}
+ 
+         g->inc_depth();
+         result.push_back(g.get());
+@@ -198,3 +226,4 @@ protected:
+ tactic * mk_collect_statistics_tactic(ast_manager & m, params_ref const & p) {
+     return clean(alloc(collect_statistics_tactic, m, p));
+ }
++
+diff --git a/src/tactic/tactic_params.pyg b/src/tactic/tactic_params.pyg
+index 3870e90ad..f28a9ce1c 100644
+--- a/src/tactic/tactic_params.pyg
++++ b/src/tactic/tactic_params.pyg
+@@ -10,6 +10,7 @@ def_module_params('tactic',
+                           ('blast_term_ite.max_steps', UINT, UINT_MAX, "maximal number of steps allowed for tactic."),
+                           ('propagate_values.max_rounds', UINT, 4, "maximal number of rounds to propagate values."),
+                           ('default_tactic', SYMBOL, '', "overwrite default tactic in strategic solver"),
++                          ('collect_statistics.to_file', BOOL, False, "writes statistics to the file."),
+ 
+                      #     ('aig.per_assertion', BOOL, True, "process one assertion at a time"),
+                      #     ('add_bounds.lower, INT, -2, "lower bound to be added to unbounded variables."),
+diff --git a/src/util/debug.h b/src/util/debug.h
+index 9ad55a7c2..c96137578 100644
+--- a/src/util/debug.h
++++ b/src/util/debug.h
+@@ -39,9 +39,7 @@ bool assertions_enabled();
+ #endif
+ #endif
+ 
+-#ifdef __EMSCRIPTEN__
+ #define NO_Z3_DEBUGGER
+-#endif
+ 
+ #ifdef NO_Z3_DEBUGGER
+ #define INVOKE_DEBUGGER() exit(ERR_INTERNAL_FATAL)
+@@ -66,7 +64,7 @@ bool is_debug_enabled(const char * tag);
+ #ifdef Z3DEBUG
+ # define UNREACHABLE() DEBUG_CODE(notify_assertion_violation(__FILE__, __LINE__, "UNEXPECTED CODE WAS REACHED."); INVOKE_DEBUGGER();)
+ #else
+-# define UNREACHABLE() { notify_assertion_violation(__FILE__, __LINE__, "UNEXPECTED CODE WAS REACHED."); exit(ERR_UNREACHABLE); } ((void) 0)
++# define UNREACHABLE() { notify_assertion_violation(__FILE__, __LINE__, "UNEXPECTED CODE WAS REACHED."); } ((void) 0)
+ #endif
+ 
+ #ifdef Z3DEBUG
+@@ -77,7 +75,7 @@ bool is_debug_enabled(const char * tag);
+ 
+ #define VERIFY(_x_) if (!(_x_)) {                                                       \
+         notify_assertion_violation(__FILE__, __LINE__, "Failed to verify: " #_x_ "\n"); \
+-        exit(ERR_UNREACHABLE);                                                          \
++                                                                 \
+     }                                                           
+ 
+ #define ENSURE(_x_) VERIFY(_x_)
+diff --git a/src/util/trace.h b/src/util/trace.h
+index 2a63bfaf9..6b3f84e6a 100644
+--- a/src/util/trace.h
++++ b/src/util/trace.h
+@@ -75,9 +75,9 @@ static inline void open_trace() {}
+ static inline void finalize_trace() {}
+ #endif
+ 
+-#define TRACEH(TAG)  tout << "-------- [" << TAG << "] " << __FUNCTION__ << " " << __FILE__ << ":" << __LINE__ << " ---------\n"
++#define TRACEH(TAG)  tout  << __FUNCTION__ << " " << __FILE__ << ":" << __LINE__ << "\n"
+ #define TRACEEND tout << "------------------------------------------------\n"
+-#define TRACEBODY(TAG, CODE) TRACEH(TAG); CODE; TRACEEND; tout.flush()
++#define TRACEBODY(TAG, CODE) TRACEH(TAG); if (TAG == "dl_rule_transf") { CODE; } tout.flush()
+ #define STRACEBODY(CODE) CODE; tout.flush()
+ 
+ #define TRACE(TAG, CODE) TRACE_CODE(if (is_trace_enabled(TAG)) { THREAD_LOCK(TRACEBODY(TAG, CODE)); })
+diff --git a/src/util/z3_version.h b/src/util/z3_version.h
+new file mode 100644
+index 000000000..7317d8781
+--- /dev/null
++++ b/src/util/z3_version.h
+@@ -0,0 +1,7 @@
++// automatically generated file.
++#define Z3_MAJOR_VERSION   4
++#define Z3_MINOR_VERSION   8
++#define Z3_BUILD_NUMBER    16
++#define Z3_REVISION_NUMBER 0
++
++#define Z3_FULL_VERSION    "Z3 4.8.16.0"

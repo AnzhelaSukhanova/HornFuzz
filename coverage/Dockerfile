@@ -12,9 +12,11 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 RUN apt-get update -y \
   && apt-get install -y git gcovr ninja-build llvm clang cmake
 
-RUN git clone https://github.com/AnzhelaSukhanova/z3.git \
+ADD ../hornfuzz.z3.patch .
+RUN git clone https://github.com/Z3Prover/z3.git \
  && cd z3 \
- && git checkout ddd611d
+ && git checkout a24a92268 \
+ && git apply ../hornfuzz.z3.patch
 
 # fiz z3 repo
 RUN rm /z3/src/util/z3_version.h

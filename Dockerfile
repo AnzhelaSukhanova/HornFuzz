@@ -1,10 +1,9 @@
-FROM archlinux
-
-MAINTAINER Anzhela Sukhanova <bidelya@gmail.com>
+FROM archlinux:base-devel-20220417.0.53367
 
 # preinstall
 RUN pacman -Syy \
- && pacman --noconfirm -Suy \
+ && yes | pacman -S archlinux-keyring \
+# && yes | pacman --noconfirm -Suy \
  && pacman --noconfirm -S wget \
                     git \
                     python \
@@ -34,9 +33,11 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
                        
 # download and edit Z3-sourses
-RUN git clone https://github.com/AnzhelaSukhanova/z3.git \
+ADD hornfuzz.z3.patch .
+RUN git clone https://github.com/Z3Prover/z3.git \
  && cd z3 \
- && git checkout ddd611d \
+ && git checkout a24a92268 \
+ && git apply ../hornfuzz.z3.patch \
  && python scripts/mk_make.py --python \
  && sed -i -e 's, -D_MP_INTERNAL, -D_TRACE -D_MP_INTERNAL,g' build/config.mk
  
@@ -45,7 +46,7 @@ RUN cd z3/build && make -j$(nproc) && make install
 
 # add project-files
 ADD src src
-ADD seed_info seed_info
+ADD seed_info.tar.gz .
 ADD false_formulas false_formulas
 ADD exclude_seed.json .
 
