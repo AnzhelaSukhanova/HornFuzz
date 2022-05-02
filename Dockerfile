@@ -1,10 +1,9 @@
-FROM archlinux
-
-MAINTAINER Anzhela Sukhanova <bidelya@gmail.com>
+FROM archlinux:base-devel-20220417.0.53367
 
 # preinstall
 RUN pacman -Syy \
- && pacman --noconfirm -Suy \
+ && yes | pacman -S archlinux-keyring \
+# && yes | pacman --noconfirm -Suy \
  && pacman --noconfirm -S wget \
                     git \
                     python \
