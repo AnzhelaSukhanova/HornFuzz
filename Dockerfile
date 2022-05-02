@@ -47,7 +47,7 @@ RUN cd z3/build && make -j$(nproc) && make install
 
 # add project-files
 ADD src src
-ADD seed_info seed_info
+ADD seed_info.tar.gz .
 ADD false_formulas false_formulas
 ADD exclude_seed.json .
 
