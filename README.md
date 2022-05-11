@@ -1,5 +1,5 @@
-# Spacer fuzzer
-Fuzzer of the CHC-solver Spacer.
+# HornFuzz
+Fuzzer of the CHC solvers.
 
 ## Install
 Install Z3 with Python API according to the instructions given here: https://github.com/Z3Prover/z3.  
