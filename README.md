@@ -6,10 +6,10 @@ Install Z3 with Python API according to the instructions given here: https://git
 Or you can use the Dockerfile (`docker build -t spacer-fuzzing .`).
 
 ## Use
-* `python src/main.py <seed-file1> [<seed-file2> ...]`  
-* `python src/main.py spacer-benchmarks[/<subdir>]` — to check all benchmarks from _/spacer-benchmarks_ or _/spacer-benchmarks/\<subdirectory\>_.  
-* `python src/main.py chc-comp<year>-benchmarks[/<subdir>]` — to check all benchmarks from _/chc-comp\<year\>-benchmarks_ or _/chc-comp\<year\>-benchmarks/\<subdirectory\>_.  
-* `python src/main.py all` — to check all benchmarks.  
+* `python hornfuzz.py <seed-file1> [<seed-file2> ...]`  
+* `python hornfuzz.py spacer-benchmarks[/<subdir>]` — to check all benchmarks from _/spacer-benchmarks_ or _/spacer-benchmarks/\<subdirectory\>_.  
+* `python hornfuzz.py chc-comp<year>-benchmarks[/<subdir>]` — to check all benchmarks from _/chc-comp\<year\>-benchmarks_ or _/chc-comp\<year\>-benchmarks/\<subdirectory\>_.  
+* `python hornfuzz.py all` — to check all benchmarks.  
 
 `docker run spacer-fuzzing` if you are using docker.  
 

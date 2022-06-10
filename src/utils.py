@@ -9,7 +9,7 @@ from typing import List
 
 import numpy as np
 from scipy.sparse import dok_matrix
-from from_z3 import *
+from src.from_z3 import *
 
 TRACE_FILE = '.z3-trace'
 
@@ -109,8 +109,10 @@ class TraceStats(object):
 
     def __add__(self, other):
         """Return the sum of two transition matrices."""
-        sum = TraceStats()
+        if stats_type == StatsType.DEFAULT:
+            return self
 
+        sum = TraceStats()
         if stats_type in {StatsType.TRANSITIONS, StatsType.ALL}:
             size = len(trace_states)
             shape = (size, size)

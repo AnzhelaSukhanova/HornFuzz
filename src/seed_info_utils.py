@@ -34,7 +34,7 @@ def build_seed_info_index():
     return index
 
 
-def map_seeds_ordered(seeds: dict, index, f):
+def map_seeds_ordered(seeds: dict, index, general_stats, f):
     reverse_index = {}
     for seed, descriptor in index.items():
         seed_group = reverse_index.setdefault(descriptor['id'], {'descriptor': descriptor, 'seeds': set()})
@@ -49,6 +49,7 @@ def map_seeds_ordered(seeds: dict, index, f):
         for seed in seeds_for_apply:
             args = seeds[seed]
             args['seed_info'] = seed_info[seed]
+            args['general_stats'] = general_stats
             yield f(**args)
 
 

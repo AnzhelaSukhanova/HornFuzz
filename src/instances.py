@@ -1,7 +1,7 @@
 import time
 import re
-import utils
-from utils import *
+import src.utils
+from src.utils import *
 
 MUT_APPLY_TIME_LIMIT = 10
 SEED_SOLVE_TIME_LIMIT_MS = int(2 * 1e3)
@@ -19,7 +19,7 @@ current_ctx = None
 def set_ctx(ctx):
     global current_ctx
     current_ctx = ctx
-    utils.set_ctx(ctx)
+    src.utils.set_ctx(ctx)
 
 
 class Family(Enum):
@@ -88,6 +88,8 @@ class InstanceGroup(object):
         instance = self.instances[i]
         prev_instance = self.instances[i - 1]
         if instance.trace_stats.hash == prev_instance.trace_stats.hash:
+            if instance.trace_stats.hash == 0:
+                return
             self.same_stats += 1
         else:
             self.same_stats = 0
