@@ -377,6 +377,13 @@ class Instance(object):
         current_mutation_stats['new_traces'] += int(new_trace_found)
 
 
+def copy_chc(src_instance: Instance) -> AstVector:
+    new_chc_system = AstVector(ctx=current_ctx)
+    for clause in src_instance.chc:
+        new_chc_system.push(clause)
+    return new_chc_system
+
+
 class MutTypeEncoder(json.JSONEncoder):
 
     def default(self, obj):
@@ -835,7 +842,7 @@ class Mutation(object):
         return mut_system
 
     def add_lin_rule(self, instance: Instance) -> AstVector:
-        mut_system = deepcopy(instance.chc)
+        mut_system = copy_chc(instance)
         _, clause = self.get_clause_info(instance)
         head, vars = take_pred_from_clause(clause)
 
@@ -853,7 +860,7 @@ class Mutation(object):
         return mut_system
 
     def add_nonlin_rule(self, instance: Instance) -> AstVector:
-        mut_system = deepcopy(instance.chc)
+        mut_system = copy_chc(instance)
         _, clause = self.get_clause_info(instance)
         head_upred, head_vars, upred = take_pred_from_clause(clause, with_term=True)
 
@@ -902,9 +909,15 @@ class Mutation(object):
         else:
             i = self.clause_i
 
-        clause = chc_system[i]
-        if not self.clause_i:
-            self.clause_i = i
+        system_length = len(chc_system)
+        if i < system_length:
+            clause = chc_system[i]
+            if not self.clause_i:
+                self.clause_i = i
+        else:
+            print(f'IndexError in clause = chc_system[i]: len(chc_system) = {system_length}, i = {i}.')
+            self.clear()
+            clause = chc_system[0]
         return i, clause
 
     def transform(self, instance: Instance) -> AstVector:
@@ -913,6 +926,8 @@ class Mutation(object):
         mut_system = AstVector(ctx=current_ctx)
 
         clause_i, clause = self.get_clause_info(instance)
+        if self.type.name == 'ID':
+            return chc_system
 
         mut_clause = self.transform_nth(clause)
         if not self.applied:

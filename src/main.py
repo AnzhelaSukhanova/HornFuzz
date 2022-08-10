@@ -85,6 +85,7 @@ def check_satis(instance: Instance, is_seed: bool = False, get_stats: bool = Tru
     if get_stats and (heuristic_flags['transitions'] or
                       heuristic_flags['states']):
         general_stats += instance.trace_stats
+
     return instance.satis == satis
 
 
