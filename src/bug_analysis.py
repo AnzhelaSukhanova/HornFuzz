@@ -1,4 +1,7 @@
 import argparse
+
+from typing import Tuple
+
 import instances
 
 from main import check_satis
@@ -18,7 +21,6 @@ def is_same_res(instance: Instance, result: bool = False, message: str = None) -
         same_res = result == check_satis(instance, get_stats=False)
         instance.check_model()
         if instance.model_info[0] == unsat:
-            print(instance.model_info)
             same_res = True
         instance.model_info = (sat, 0)
     except AssertionError as err:
@@ -27,7 +29,7 @@ def is_same_res(instance: Instance, result: bool = False, message: str = None) -
 
 
 def reduce_instance(seed: Instance, bug_instance: Instance,
-                    message: str = None) -> tuple[Instance, bool]:
+                    message: str = None) -> Tuple[Instance, bool]:
     """Reduce the chc-system causing the problem."""
 
     print('Instance reducing')
@@ -74,31 +76,34 @@ def reduce_instance(seed: Instance, bug_instance: Instance,
     return bug_instance, is_reduced
 
 
-def reduce_mut_chain(instance: Instance, message: str = None) -> Instance:
+def reduce_mut_chain(group: InstanceGroup, message: str = None) -> Instance:
     """
     Search for a reduced version of mutation chain that is
     the minimal set of bug-triggering transformations.
     """
-    group = instance.get_group()
-    group.push(instance)
     initial_size = len(group.instances)
     chunk_size = initial_size // 2
 
     while chunk_size:
-        print('Chunk size:', chunk_size)
+        print(f'\nChunk size: {chunk_size}.')
         for i in range(initial_size - 1, 0, -chunk_size):
             from_ind = max(i - chunk_size + 1, 1)
             ind_chunk = range(from_ind, i + 1)
-            new_group = undo_mutations(instance, ind_chunk)
+            try:
+                new_group = undo_mutations(group, ind_chunk)
+            except Z3Exception:
+                continue
             new_instance = new_group[-1]
-            if group != new_group and \
+            if len(group.instances) != len(new_group.instances) and \
                     is_same_res(new_instance, message=message):
                 group = new_group
+                initial_size -= chunk_size
+                print(f'{chunk_size} mutation can be removed.')
 
-            if chunk_size == 1:
-                mut_type = group[ind_chunk[0]].mutation.type
-                if mut_type not in type_kind_corr and mut_type != 'ID':
-                    group[ind_chunk[0]] = reduce_simplify(group[ind_chunk[0] - 1], mut_type, message)
+            # if chunk_size == 1:
+            #     mut_type = group[ind_chunk[0]].mutation.type
+            #     if mut_type.is_simplification():
+            #         group[ind_chunk[0]] = reduce_simplify(group[ind_chunk[0] - 1], mut_type, message)
         chunk_size //= 2
 
     instance = group.pop()
@@ -106,19 +111,21 @@ def reduce_mut_chain(instance: Instance, message: str = None) -> Instance:
     return instance
 
 
-def undo_mutations(instance: Instance, ind: range) -> InstanceGroup:
+def undo_mutations(group: InstanceGroup, ind: range) -> InstanceGroup:
     """Undo the mutations from a given interval."""
-
-    group = instance.get_group()
-    new_group = deepcopy(group)
-    new_group.instances.clear()
+    group_len = len(group.instances)
+    new_group = InstanceGroup(len(instance_groups), group.filename)
+    new_group.copy_info(group)
     for i in range(ind[0]):
         new_group.push(group[i])
+        # mut = group[i].mutation
+        # if i > 0:
+        #     print(i, mut.prev_mutation.get_name(), mut.get_name())
 
     last_instance = new_group[ind[0] - 1]
-    for i in range(ind[-1] + 1, len(group.instances)):
-        mut_instance = Instance(last_instance.group_id)
-        mut_instance.mutation = group[i].mutation
+    for i in range(ind[-1] + 1, group_len):
+        mut_instance = Instance()
+        mut_instance.mutation = deepcopy(group[i].mutation)
         mut = mut_instance.mutation
         try:
             mut.apply(last_instance, mut_instance)
@@ -175,8 +182,9 @@ def reduce_declarations(instance: Instance):
     return new_declarations
 
 
-def reduce(reduce_chain: bool = False, filename: str = None):
+def reduce(filename: str = None, reduce_chain: bool = False, reduce_inst: bool = True) -> defaultdict(Instance):
     filenames = get_filenames('output/bugs') if not filename else [filename]
+    result_instances = defaultdict(Instance)
 
     for i, filename in enumerate(filenames):
         print(filename)
@@ -186,9 +194,13 @@ def reduce(reduce_chain: bool = False, filename: str = None):
         if reduce_chain:
             group.restore(i, mutations)
             mut_instance = group[-1]
-            assert is_same_res(mut_instance, message=message), \
-                'Incorrect mutant-restoration'
-            mut_instance = reduce_mut_chain(mut_instance, message)
+            try:
+                assert is_same_res(mut_instance, message=message), \
+                    'Incorrect mutant-restoration'
+            except AssertionError:
+                print(traceback.format_exc())
+                continue
+            mut_instance = reduce_mut_chain(group, message)
         else:
             group.restore(i, {})
             mut_system = parse_smt2_file(filename,
@@ -212,21 +224,27 @@ def reduce(reduce_chain: bool = False, filename: str = None):
                 dir_path = reduce_dir + subdir[0]
                 if not os.path.exists(dir_path):
                     os.mkdir(dir_path)
-        try:
-            is_reduced = True
-            while is_reduced:
-                mut_instance, is_reduced = reduce_instance(group[0],
-                                                           mut_instance,
-                                                           message)
-                declarations = reduce_declarations(mut_instance) \
-                    if not is_reduced else None
-                mut_instance.dump('output/reduced',
-                                  seed_name,
-                                  declarations=declarations,
-                                  clear=False)
 
-        except Exception:
-            print(traceback.format_exc())
+        if reduce_inst:
+            try:
+                is_reduced = True
+                while is_reduced:
+                    mut_instance, is_reduced = reduce_instance(group[0],
+                                                               mut_instance,
+                                                               message)
+                    declarations = reduce_declarations(mut_instance) \
+                        if not is_reduced else None
+                    mut_instance.dump('output/reduced',
+                                      seed_name,
+                                      declarations=declarations,
+                                      clear=False)
+
+            except Exception:
+                print(traceback.format_exc())
+
+        result_instances[filename] = mut_instance
+
+    return result_instances
 
 
 def get_bug_info(filename: str):
@@ -271,6 +289,35 @@ def redo_mutations(filename: str):
         print('Bug not found')
 
 
+def deduplicate(bug_files: str) -> dict:
+    bug_groups = defaultdict(set)
+    if not os.path.isdir(bug_files):
+        return {'': bug_files}
+    else:
+        files = get_filenames(bug_files)
+
+    for file in files:
+        instance_dict = reduce(file, True, False)
+        last_instance = instance_dict[file]
+        params = last_instance.params
+        has_inlining = True if 'XFORM.INLINE_LINEAR_BRANCH' in params \
+                               or 'XFORM.INLINE_EAGER' in params \
+                               or 'XFORM.INLINE_LINEAR' in params \
+            else False
+        has_coi = True if 'XFORM.COI' in params else False
+        if has_inlining and has_coi:
+            bug_groups['inlining/coi'].add(last_instance)
+        elif has_inlining:
+            bug_groups['inlining'].add(last_instance)
+        elif has_coi:
+            bug_groups['coi'].add(last_instance)
+        else:
+            bug_groups['other'].add(last_instance)
+
+    for key in bug_groups:
+        print(key, len(bug_groups[key]))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('bug_file',
@@ -281,15 +328,18 @@ def main():
                         default=None)
     parser.add_argument('-reduce_chain', action='store_true')
     parser.add_argument('-reproduce', action='store_true')
+    parser.add_argument('-deduplicate', action='store_true')
     argv = parser.parse_args()
     instances.set_ctx(Context())
 
     init_mut_types([])
     if not argv.seed_file:
-        if not argv.reproduce:
-            reduce(argv.reduce_chain, argv.bug_file)
-        else:
+        if argv.reduce_chain:
+            reduce(argv.bug_file, argv.reduce_chain)
+        elif argv.reproduce:
             redo_mutations(argv.bug_file)
+        else:
+            deduplicate(argv.bug_file)
     else:
         seed = parse_smt2_file(argv.seed_file,
                                ctx=instances.current_ctx)

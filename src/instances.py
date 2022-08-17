@@ -32,6 +32,7 @@ class InstanceGroup(object):
 
     def __init__(self, id: int, filename: str):
         instance_groups[id] = self
+        self.id = id
         self.filename = filename
         self.instances = defaultdict(Instance)
         self.same_stats = 0
@@ -48,12 +49,39 @@ class InstanceGroup(object):
         index = index % len(self.instances)
         self.instances[index] = instance
 
+    def __deepcopy__(self, memodict):
+        group_id = len(instance_groups)
+        result = InstanceGroup(group_id, self.filename)
+        memodict[id(self)] = result
+        for k, v in self.__dict__.items():
+            setattr(result, k, deepcopy(v, memodict))
+        return result
+
+    def copy_info(self, src_group):
+        for k, v in src_group.__dict__.items():
+            if k not in {'id', 'filename', 'instances'}:
+                setattr(self, k, deepcopy(v))
+
     def push(self, instance):
         """Add an instance to the group."""
-        length = len(self.instances)
-        self.instances[length] = instance
-        if length == 0:
+        instance.group_id = self.id
+
+        if self.upred_num == 0:
+            instance.find_pred_info()
+            if self.family == Family.UNKNOWN and instance.chc:
+                self.find_family(instance.chc)
+
+        group_len = len(self.instances)
+        if group_len == 0:
             self.dump_declarations()
+        else:
+            prev_instance = self[-1]
+            instance.mutation.add_after(prev_instance.mutation)
+
+        self.instances[group_len] = instance
+
+        chc_len = len(instance.chc)
+        group.same_stats_limit = 5 * chc_len
 
     def dump_declarations(self):
         filename = 'output/decl/' + self.filename
@@ -101,11 +129,11 @@ class InstanceGroup(object):
 
     def restore(self, id: int, mutations):
         seed = parse_smt2_file(self.filename, ctx=current_ctx)
-        instance = Instance(id, seed)
+        instance = Instance(seed)
         self.push(instance)
 
         for mut in mutations:
-            mut_instance = Instance(id)
+            mut_instance = Instance()
             mut_instance.mutation.restore(mut)
             try:
                 mut_instance.mutation.apply(instance, mut_instance)
@@ -164,13 +192,20 @@ class MutType(object):
         return self.name == 'REMOVE'
 
 
+def copy_chc(chc_system: AstVector) -> AstVector:
+    new_chc_system = AstVector(ctx=current_ctx)
+    for clause in chc_system:
+        new_chc_system.push(clause)
+    return new_chc_system
+
+
 class Instance(object):
 
-    def __init__(self, group_id: int, chc: AstVector = None):
+    def __init__(self, chc: AstVector = None):
         global INSTANCE_ID
         self.id = INSTANCE_ID
         INSTANCE_ID += 1
-        self.group_id = group_id
+        self.group_id = -1
         self.chc = None
         if chc is not None:
             self.set_chc(chc)
@@ -180,28 +215,25 @@ class Instance(object):
         self.params = {}
         self.model = None
         self.model_info = (sat, 0)
-
-        group = self.get_group()
-        if not group.instances:
-            self.mutation = Mutation()
-        else:
-            prev_instance = group[-1]
-            self.mutation = Mutation(prev_instance.mutation)
+        self.mutation = Mutation()
 
     def set_chc(self, chc: AstVector):
         """Set the chc-system of the instance."""
         assert chc is not None, "Empty chc-system"
 
         self.chc = chc
-        group = self.get_group()
-        if group.upred_num == 0:
-            self.find_pred_info()
-            if group.family == Family.UNKNOWN:
-                group.find_family(chc)
-
         chc_len = len(self.chc)
-        group.same_stats_limit = 5 * chc_len
         self.info = ClauseInfo(chc_len)
+
+    def __deepcopy__(self, memodict):
+        result = Instance()
+        memodict[id(self)] = result
+        for k, v in self.__dict__.items():
+            if k == 'chc':
+                result.set_chc(copy_chc(self.chc))
+            else:
+                setattr(result, k, deepcopy(v, memodict))
+        return result
 
     def get_chc(self, is_seed: bool):
         if self.chc is None:
@@ -375,13 +407,6 @@ class Instance(object):
                                  {'applications': 0.0, 'new_traces': 0.0})
         current_mutation_stats['applications'] += int(new_application)
         current_mutation_stats['new_traces'] += int(new_trace_found)
-
-
-def copy_chc(src_instance: Instance) -> AstVector:
-    new_chc_system = AstVector(ctx=current_ctx)
-    for clause in src_instance.chc:
-        new_chc_system.push(clause)
-    return new_chc_system
 
 
 class MutTypeEncoder(json.JSONEncoder):
@@ -664,16 +689,20 @@ def update_mutation_weights():
 
 class Mutation(object):
 
-    def __init__(self, prev_mutation=None):
+    def __init__(self):
         self.type = mut_types['ID']
-        self.number = prev_mutation.number + 1 if prev_mutation else 0
+        self.number = 0
         self.clause_i = None
         self.kind = None
-        self.prev_mutation = prev_mutation
+        self.prev_mutation = None
         self.applied = False
         self.trans_num = None
         self.simplify_changed = True
         self.exceptions = set()
+
+    def add_after(self, prev_mutation):
+        self.number = prev_mutation.number + 1
+        self.prev_mutation = prev_mutation
 
     def clear(self):
         self.type = mut_types['ID']
@@ -842,7 +871,7 @@ class Mutation(object):
         return mut_system
 
     def add_lin_rule(self, instance: Instance) -> AstVector:
-        mut_system = copy_chc(instance)
+        mut_system = copy_chc(instance.chc)
         _, clause = self.get_clause_info(instance)
         head, vars = take_pred_from_clause(clause)
 
@@ -860,7 +889,7 @@ class Mutation(object):
         return mut_system
 
     def add_nonlin_rule(self, instance: Instance) -> AstVector:
-        mut_system = copy_chc(instance)
+        mut_system = copy_chc(instance.chc)
         _, clause = self.get_clause_info(instance)
         head_upred, head_vars, upred = take_pred_from_clause(clause, with_term=True)
 

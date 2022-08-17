@@ -1,1 +1,15 @@
+# Run files
 .z3-trace
+logfile
+output/*
+.collect_stats.json
+
+# PyCharm files
+.idea/*
+src/__pycache__/*
+
+# Seeds
+chc-comp21-benchmarks/*
+spacer-benchmarks/*
+sv-benchmarks-clauses/*
+seed_info/*
