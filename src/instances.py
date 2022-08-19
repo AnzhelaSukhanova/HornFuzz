@@ -80,9 +80,6 @@ class InstanceGroup(object):
 
         self.instances[group_len] = instance
 
-        chc_len = len(instance.chc)
-        group.same_stats_limit = 5 * chc_len
-
     def dump_declarations(self):
         filename = 'output/decl/' + self.filename
         with open(self.filename, 'r') as seed_file:
@@ -139,9 +136,10 @@ class InstanceGroup(object):
                 mut_instance.mutation.apply(instance, mut_instance)
                 self.push(mut_instance)
                 instance = mut_instance
-            except AssertionError:
+            except (AssertionError, Z3Exception):
                 message = traceback.format_exc()
                 print(message)
+                continue
 
     def reset(self, start_ind: int = None):
         length = len(self.instances)
@@ -223,6 +221,9 @@ class Instance(object):
 
         self.chc = chc
         chc_len = len(self.chc)
+        if self.group_id >= 0:
+            group = self.get_group()
+            group.same_stats_limit = 5 * chc_len
         self.info = ClauseInfo(chc_len)
 
     def __deepcopy__(self, memodict):
@@ -311,9 +312,8 @@ class Instance(object):
         """Return the group of the instance."""
         return instance_groups[self.group_id]
 
-    def get_log(self, is_mutant: bool = True) -> dict:
+    def get_log(self, group: InstanceGroup, is_mutant: bool = True) -> dict:
         """Create a log entry with information about the instance."""
-        group = self.get_group()
         log = {'filename': group.filename, 'id': self.id}
         if is_mutant:
             log['prev_inst_id'] = group[-1].id

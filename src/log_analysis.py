@@ -215,6 +215,25 @@ class Stats:
         print(num)
 
 
+def prepare_data(name: str):
+    stats = Stats(name)
+
+    entries = []
+    for line in stats.lines:
+        try:
+            entry = json.loads(line)
+            if not stats.seed_num and 'seed_number' in entry:
+                info = entry
+                stats.seed_num = info['seed_number']
+            elif 'context_deletion_error' not in entry:
+                entries.append(list(entry.values())[0])
+
+        except Exception:
+            print('Can\'t read the line:', line)
+    stats.df = pd.DataFrame(entries)
+    return stats
+
+
 def analyze(log_names: list, stats: list, select: list, options: list):
     if not os.path.exists('stats'):
         os.makedirs('stats')
@@ -223,21 +242,7 @@ def analyze(log_names: list, stats: list, select: list, options: list):
     times = plt.figure()
     legend = []
     for i, name in enumerate(log_names):
-        cur_stats = Stats(name)
-
-        entries = []
-        for line in cur_stats.lines:
-            try:
-                entry = json.loads(line)
-                if not cur_stats.seed_num and 'seed_number' in entry:
-                    info = entry
-                    cur_stats.seed_num = info['seed_number']
-                elif 'context_deletion_error' not in entry:
-                    entries.append(list(entry.values())[0])
-
-            except Exception:
-                print('Can\'t read the line:', line)
-        cur_stats.df = pd.DataFrame(entries)
+        cur_stats = prepare_data(name)
 
         # for heur in info['heuristics']:
         #     if heur == 'transitions':

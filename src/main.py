@@ -61,7 +61,8 @@ def calc_sort_key(heuristic: str, stats, weights=None) -> int:
     return sort_key
 
 
-def check_satis(instance: Instance, is_seed: bool = False, get_stats: bool = True):
+def check_satis(instance: Instance, group: InstanceGroup = None,
+                is_seed: bool = False, get_stats: bool = True):
     global general_stats
 
     solver = SolverFor('HORN',
@@ -69,7 +70,7 @@ def check_satis(instance: Instance, is_seed: bool = False, get_stats: bool = Tru
     solver.set('engine', 'spacer')
 
     if not is_seed:
-        seed = instance.get_group()[0]
+        seed = group[0]
         if seed.satis == unknown:
             seed.check(solver, is_seed=True, get_stats=get_stats)
         satis = seed.satis
@@ -161,7 +162,7 @@ def print_general_info(solve_time: time = None, mut_time: time = None,
     logging.info(json.dumps({'general_info': log}))
 
 
-def log_run_info(status: str, message: str = None,
+def log_run_info(status: str, group: InstanceGroup, message: str = None,
                  instance: Instance = None, mut_instance: Instance = None):
     """Create a log entry with information about the run."""
 
@@ -170,7 +171,7 @@ def log_run_info(status: str, message: str = None,
         log['message'] = message
     if instance:
         if not mut_instance:
-            instance_info = instance.get_log(is_mutant=False)
+            instance_info = instance.get_log(group, is_mutant=False)
             log.update(instance_info)
             if status == 'error':
                 if instance.chc:
@@ -181,7 +182,7 @@ def log_run_info(status: str, message: str = None,
                 log['satis'] = instance.satis.r
 
         else:
-            mutant_info = mut_instance.get_log()
+            mutant_info = mut_instance.get_log(group)
             log.update(mutant_info)
             if status not in {'pass', 'without_change'}:
                 chain = mut_instance.mutation.get_chain()
@@ -215,6 +216,7 @@ def analyze_check_exception(instance: Instance, err: Exception,
             status = 'seed_unknown'
             message = repr(err)
         log_run_info(status,
+                     group,
                      message,
                      instance)
     else:
@@ -225,6 +227,7 @@ def analyze_check_exception(instance: Instance, err: Exception,
             status = 'mutant_timeout' if mut_instance \
                 else 'timeout_before_check'
             log_run_info(status,
+                         group,
                          message,
                          instance,
                          mut_instance)
@@ -236,6 +239,7 @@ def analyze_check_exception(instance: Instance, err: Exception,
                 counter['error'] += 1
                 status = 'error'
             log_run_info(status,
+                         group,
                          message,
                          instance,
                          mut_instance)
@@ -255,7 +259,7 @@ def analyze_check_exception(instance: Instance, err: Exception,
 def mk_seed_instance(idx: int, seed_file_name: str, parse: bool = False) -> \
         Optional[Instance]:
     group = InstanceGroup(idx, seed_file_name)
-    instance = Instance(idx)
+    instance = Instance()
     try:
         if parse:
             parse_ctx = Context()
@@ -359,7 +363,7 @@ def run_seeds(files: set):
 
     for i, (instance, solve_time) in enumerate(itertools.chain(known_seeds, other_seeds)):
         queue.append(instance)
-        log_run_info('seed', instance=instance)
+        log_run_info('seed', instance.get_group(), instance=instance)
         print_general_info(solve_time=solve_time)
     seed_number = len(queue)
 
@@ -377,9 +381,10 @@ def handle_bug(instance: Instance, mut_instance: Instance = None,
         else instance.model_info[0]
     status = 'bug' if model_state == sat else 'wrong_model'
     log_run_info(status,
-                 message=message,
-                 instance=instance,
-                 mut_instance=mut_instance)
+                 group,
+                 message,
+                 instance,
+                 mut_instance)
 
     group = instance.get_group()
     if mut_instance:
@@ -490,7 +495,7 @@ def fuzz(files: set):
                     mut_types_exc = set()
                     try:
                         st_time = time.perf_counter()
-                        res = check_satis(mut_instance)
+                        res = check_satis(mut_instance, group)
                         solve_time = time.perf_counter() - st_time
                     except AssertionError as err:
                         analyze_check_exception(instance,
@@ -516,6 +521,7 @@ def fuzz(files: set):
                     elif timeout:
                         counter['timeout'] += 1
                         log_run_info('mutant_timeout',
+                                     group,
                                      instance=instance,
                                      mut_instance=mut_instance)
                         problems_num += 1
@@ -542,12 +548,14 @@ def fuzz(files: set):
 
                             if found_problem:
                                 log_run_info('oracle_bug',
+                                             group,
                                              message=str(states),
                                              instance=instance,
                                              mut_instance=mut_instance)
                                 counter['conflict'] += 1
                             else:
                                 log_run_info(status,
+                                             group,
                                              instance=instance,
                                              mut_instance=mut_instance)
                             instance = mut_instance
@@ -560,6 +568,7 @@ def fuzz(files: set):
                     exc_type = instance.mutation.type
                     mut_types_exc.add(exc_type)
                     log_run_info('without_change',
+                                 group,
                                  instance=instance,
                                  mut_instance=mut_instance)
                     print_general_info()
