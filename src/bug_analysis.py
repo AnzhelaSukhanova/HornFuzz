@@ -24,6 +24,8 @@ def is_same_res(instance: Instance, result: bool = False, message: str = None) -
         instance.check_model()
         if instance.model_info[0] == unsat:
             same_res = True
+        else:
+            print(instance.model_info)
         instance.model_info = (sat, 0)
     except AssertionError as err:
         same_res = repr(err) == message
@@ -304,15 +306,16 @@ def deduplicate(bug_files: str, logfile: str) -> dict:
                 files.add(bug_name)
 
     for file in files:
+        print(file)
         instance = reduce(file, True, False)
         if instance is None:
             continue
         params = instance.params
-        has_inlining = True if 'XFORM.INLINE_LINEAR_BRANCH' in params \
-                               or 'XFORM.INLINE_EAGER' in params \
-                               or 'XFORM.INLINE_LINEAR' in params \
+        has_inlining = True if 'xform.inline_linear_branch' in params \
+                               or 'xform.inline_eager' in params \
+                               or 'xform.inline_linear' in params \
             else False
-        has_coi = True if 'XFORM.COI' in params else False
+        has_coi = True if 'xform.coi' in params else False
         if has_inlining and has_coi:
             bug_groups['inlining/coi'].add(instance)
         elif has_inlining:

@@ -714,7 +714,7 @@ class Mutation(object):
         """Mutate instances."""
         timeout = False
         changed = True
-        new_instance.params = instance.params
+        new_instance.params = deepcopy(instance.params)
 
         self.next_mutation(instance)
         mut_name = self.type.name
