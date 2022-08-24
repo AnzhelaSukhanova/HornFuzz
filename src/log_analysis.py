@@ -2,6 +2,8 @@ import json
 import argparse
 import math
 import os
+from os.path import isdir
+from prettytable import PrettyTable
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -10,11 +12,14 @@ from collections import defaultdict
 from statistics import mean
 
 INPUTS_GROUP_NUM = 1
-MUT_TABLE_COLUMN_NUMBER = 8
+SEC_IN_HOUR = 3600
+DAY = 24
+ROUND_NUM = 5
 
 unique_traces = 0
+count_dict = defaultdict(list)
 colors = ['crimson', 'teal', 'darkorange', 'darkblue']
-markers = ['d', 's', '^', 'o', '+']
+markers = ['d', 's', '^', 'o', '+', '*', '1', 'x', 'h', '.', '2', '3', '4', 'D', 'H', 'X']
 graph_i = 0
 
 
@@ -28,7 +33,7 @@ class Stats:
         self.df = None
         self.seed_num = 0
 
-    def create_time_graph(self, fig: plt.Figure, y: str, with_mut_type_times: bool):
+    def create_time_graph(self, fig: plt.Figure, y: str, with_mut_type_times: bool, graph_i: int):
         num_axis = []
         time_axis = []
         total_mut_time = 0
@@ -51,6 +56,9 @@ class Stats:
         k = -self.seed_num
         entry = self.df[time_ind].iloc[0]
         fst_time = entry['current_time']
+        last_entry = self.df[time_ind].iloc[-1]
+        if last_entry['current_time'] - fst_time < DAY * SEC_IN_HOUR:
+            return
 
         for i, entry in self.df[time_ind].iterrows():
             if not math.isnan(entry['solve_time']):
@@ -59,14 +67,17 @@ class Stats:
                     j += 1
                     mut_type = mut_type_rows.iloc[j]['mut_type']
                     mut_type = mut_type.split('(')[0]
-                    mut_type_times[mut_type] += entry['mut_time'] / 3600
+                    mut_type_times[mut_type] += entry['mut_time'] / SEC_IN_HOUR
 
                 if not math.isnan(entry['mut_time']):
-                    mut_times.append(entry['mut_time'] / 3600)
-                    total_mut_time += entry['mut_time'] / 3600
-                solve_times.append(entry['solve_time'] / 3600)
-                total_solve_time += entry['solve_time'] / 3600
-            time = (entry['current_time'] - fst_time) / 3600
+                    mut_times.append(entry['mut_time'] / SEC_IN_HOUR)
+                    total_mut_time += entry['mut_time'] / SEC_IN_HOUR
+                solve_times.append(entry['solve_time'] / SEC_IN_HOUR)
+                total_solve_time += entry['solve_time'] / SEC_IN_HOUR
+            time = (entry['current_time'] - fst_time) / SEC_IN_HOUR
+            if time > DAY:
+                break
+
             time_axis.append(time)
             if y == 'bugs':
                 k += 1
@@ -78,22 +89,24 @@ class Stats:
 
         entry = self.df[time_ind].iloc[-1]
         last_time = entry['current_time']
-        total_time = (last_time - fst_time) / 3600
+        total_time = (last_time - fst_time) / SEC_IN_HOUR
 
         ax.set_xlabel('Time, h')
         if y == 'bugs':
             ax.set_ylabel('Bugs')
         else:
             ax.set_ylabel('Inputs solved')
+
         ax.plot(time_axis, num_axis)
+
         print('Mutation time to total time:',
-              round(total_mut_time / total_time, 5))
-        print("Mutation time:", round(total_mut_time, 5))
+              round(total_mut_time / total_time, ROUND_NUM))
+        print("Mutation time:", round(total_mut_time, ROUND_NUM))
         print('Solving time to total time:',
-              round(total_solve_time / total_time, 5))
-        print("Solving time:", round(total_solve_time, 5))
-        print("Mean solving time:", round(mean(solve_times), 5))
-        print("Total time:", round(total_time, 5))
+              round(total_solve_time / total_time, ROUND_NUM))
+        print("Solving time:", round(total_solve_time, ROUND_NUM))
+        print("Mean solving time:", round(mean(solve_times), ROUND_NUM))
+        print("Total time:", round(total_time, ROUND_NUM))
 
         if with_mut_type_times:
             sorted_mut_type_times = dict(sorted(mut_type_times.items(),
@@ -110,35 +123,35 @@ class Stats:
         coef = []
         ax = fig.gca()
         ind = self.df['unique_traces'].notnull()
-        last_time = None
-        cur_time = None
-        start_time = None
-        last_trace = 0
+
+        fst_entry = self.df[ind].iloc[0]
+        fst_time = fst_entry['current_time']
+        last_entry = self.df[ind].iloc[-1]
+        last_time = last_entry['current_time']
+        total_time = (last_time - fst_time) / SEC_IN_HOUR
+        if total_time < DAY:
+            return
+        print("Total time:", round(total_time, ROUND_NUM))
+
         cur_trace = 0
         cur_run = 0
         j = 0
+        last_time = None
         for i, entry in self.df[ind].iterrows():
-            if not start_time:
-                start_time = entry['current_time']
-            if entry['current_time'] - start_time > 43 * 60 * 60:
-                break
             cur_time = entry['current_time']
             cur_trace = entry['unique_traces']
             cur_run = entry['runs']
             if i >= self.seed_num and \
                     (not last_time or
-                     cur_time - last_time >= 3600):
-                unique_traces_axis.append(cur_trace)
-                print(cur_trace - last_trace)
-                time = (cur_time - start_time) / (60 * 60)
+                     cur_time - last_time >= SEC_IN_HOUR):
+                time = (cur_time - fst_time) / SEC_IN_HOUR
+                if time > DAY:
+                    break
                 time_axis.append(time)
-                if last_time:
-                    coef.append(cur_trace / time if time else 0)
+                unique_traces_axis.append(cur_trace)
                 last_time = cur_time
-                last_trace = cur_trace
             j += 1
 
-        print("Total time:", round((cur_time - start_time)/(60*60), 5))
         print("Run number:", cur_run)
         print("Trace number:", cur_trace)
 
@@ -194,99 +207,129 @@ class Stats:
                                  str(sorted_weights[mut_name]),
                                  '\n'])
 
-    def analyze_entries(self, status: str):
-        print('_______________' + status +
-              '_______________', end='\n')
+    def analyze_entries(self, status: str, log_i: int):
+        global count_dict
+
+        # print('_______________' + status +
+        #       '_______________', end='\n')
         ind = self.df['status'] == status
-        count_dict = defaultdict(int)
+        # ind = self.df['filename'].notnull()
         num = 0
         for i, entry in self.df.loc[ind].iterrows():
+            if status == 'wrong_model' and entry['model_state'] != -1:
+                continue
             filename = entry['filename']
             num += 1
-            # if entry['model_state'] == -1:
-            #     count_dict[entry['mut_type'].split('(')[0]] += 1
-            count_dict[filename] += 1
-
-        count_dict = dict(sorted(count_dict.items(),
-                                 key=lambda item: item[1],
-                                 reverse=True))
-        for key in count_dict:
-           print(key, count_dict[key])
-        print(num)
-
-
-def prepare_data(name: str):
-    stats = Stats(name)
-
-    entries = []
-    for line in stats.lines:
-        try:
-            entry = json.loads(line)
-            if not stats.seed_num and 'seed_number' in entry:
-                info = entry
-                stats.seed_num = info['seed_number']
-            elif 'context_deletion_error' not in entry:
-                entries.append(list(entry.values())[0])
-
-        except Exception:
-            print('Can\'t read the line:', line)
-    stats.df = pd.DataFrame(entries)
-    return stats
+            mutation = entry['mut_type'].split('(')[0]
+            if len(count_dict[mutation]) > log_i:
+                # count_dict[filename][log_i] += 1
+                count_dict[mutation][log_i] += 1
+            else:
+                while len(count_dict[mutation]) < log_i:
+                    count_dict[mutation].append(0)
+                # count_dict[filename].append(1)
+                count_dict[mutation].append(1)
+        # count_dict[''].append(num)
 
 
 def analyze(log_names: list, stats: list, select: list, options: list):
+    global count_dict
+
     if not os.path.exists('stats'):
         os.makedirs('stats')
 
     traces = plt.figure()
     times = plt.figure()
     legend = []
-    for i, name in enumerate(log_names):
-        cur_stats = prepare_data(name)
 
-        # for heur in info['heuristics']:
-        #     if heur == 'transitions':
-        #         legend.append('Trace transition heuristic')
-        #     elif heur == 'states':
-        #         legend.append('Trace state heuristic')
-        #     elif heur == 'difficulty':
-        #         legend.append('Complexity heuristic')
-        #     else:
-        #         legend.append('Default')
+    for j, name in enumerate(log_names):
+        if os.path.isdir(name):
+            logfiles = []
+            for file in os.listdir(name):
+                logfiles.append(name + '/' + file)
+        else:
+            logfiles = [name]
 
-        if select:
-            for status in select:
-                cur_stats.analyze_entries(status)
+        for i, logfile in enumerate(logfiles):
+            cur_stats = Stats(logfile)
 
-        if 'traces' in stats:
-            cur_stats.create_traces_time_graph(traces)
-            # cur_stats.create_traces_runs_graph(traces)
-        with_mut_type_times = True if 'with_mut_type_times' in options else False
-        if 'runs' in stats:
-            cur_stats.create_time_graph(times, 'runs', with_mut_type_times)
-        if 'bugs' in stats:
-            cur_stats.create_time_graph(times, 'bugs', with_mut_type_times)
-        if 'mutations' in stats:
-            cur_stats.get_mutation_weights()
+            entries = []
+            for line in cur_stats.lines:
+                try:
+                    entry = json.loads(line)
+                    if not cur_stats.seed_num and 'seed_number' in entry:
+                        info = entry
+                        cur_stats.seed_num = info['seed_number']
+                    elif 'context_deletion_error' not in entry:
+                        entries.append(list(entry.values())[0])
 
-    legend.append('Random order')
-    legend.append('Simple instance heuristic')
-    legend.append('Complex instance heuristic')
-    legend.append('Rare transition heuristic')
-    # legend.append('Linear approximation')
+                except Exception:
+                    print('Can\'t read the line:', line)
+            cur_stats.df = pd.DataFrame(entries)
+
+            # for heur in info['heuristics']:
+            #     if heur == 'transitions':
+            #         legend.append('Trace transition heuristic')
+            #     elif heur == 'states':
+            #         legend.append('Trace state heuristic')
+            #     elif heur == 'difficulty':
+            #         legend.append('Complexity heuristic')
+            #     else:
+            #         legend.append('Default')
+
+            if select:
+                for status in select:
+                    cur_stats.analyze_entries(status, j)
+
+            if 'traces' in stats:
+                cur_stats.create_traces_time_graph(traces)
+                # cur_stats.create_traces_runs_graph(traces)
+            with_mut_type_times = True if 'with_mut_type_times' in options else False
+            if 'runs' in stats:
+                cur_stats.create_time_graph(times, 'runs', with_mut_type_times, i)
+            if 'bugs' in stats:
+                cur_stats.create_time_graph(times, 'bugs', with_mut_type_times, i)
+            if 'mutations' in stats:
+                cur_stats.get_mutation_weights()
+
+            legend.append(name.split('/')[-1])
+        # legend.append('Random order')
+        # legend.append('Simple instance heuristic')
+        # legend.append('Complex instance heuristic')
+        # legend.append('Rare transition heuristic')
+        # legend.append('Linear approximation')
 
     if 'traces' in stats:
-        traces.legend(legend, bbox_to_anchor=(0.57, 0.88))  # (0.49, 0.88)
+        traces.legend(legend)  # (0.49, 0.88)
         traces.savefig('stats/traces.png', bbox_inches='tight')
 
     if 'runs' in stats or 'bugs' in stats:
-        times.legend(legend, bbox_to_anchor=(0.9, 0.8))  # (0.9, 0.28)
+        times.legend(legend) # (0.9, 0.28))
         times.savefig('stats/times.png', bbox_inches='tight')
+
+    if select:
+        table = PrettyTable()
+        #table.field_names = ['seed'] + log_names
+        table.field_names = ['mutation', 'transitions + parameters',
+                             'transitions', 'default + parameters', 'default']
+        count_dict = dict(sorted(count_dict.items(),
+                                 key=lambda item: item[1][0],
+                                 reverse=True))
+        for key in count_dict:
+            row = [key[:55]] + count_dict[key]
+            while len(row) < 5:
+                row += [0]
+            try:
+                table.add_row(row)
+            except Exception:
+                print(row)
+                break
+        print(table)
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('logfile',
+    parser.add_argument('logfiles',
                         nargs='*',
                         default=['logfile'])
     parser.add_argument('-stats',
@@ -308,9 +351,10 @@ def main():
                         choices=['with_mut_type_times'],
                         default=[])
     argv = parser.parse_args()
+
     plt.rc('font', size=11)
 
-    analyze(argv.logfile, argv.stats, argv.select, argv.options)
+    analyze(argv.logfiles, argv.stats, argv.select, argv.options)
 
 
 if __name__ == '__main__':
