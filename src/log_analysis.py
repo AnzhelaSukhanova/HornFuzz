@@ -232,6 +232,25 @@ class Stats:
         # count_dict[''].append(num)
 
 
+def prepare_data(name: str):
+    stats = Stats(name)
+
+    entries = []
+    for line in stats.lines:
+        try:
+            entry = json.loads(line)
+            if not stats.seed_num and 'seed_number' in entry:
+                info = entry
+                stats.seed_num = info['seed_number']
+            elif 'context_deletion_error' not in entry:
+                entries.append(list(entry.values())[0])
+
+        except Exception:
+            print('Can\'t read the line:', line)
+    stats.df = pd.DataFrame(entries)
+    return stats
+
+
 def analyze(log_names: list, stats: list, select: list, options: list):
     global count_dict
 
@@ -242,62 +261,40 @@ def analyze(log_names: list, stats: list, select: list, options: list):
     times = plt.figure()
     legend = []
 
-    for j, name in enumerate(log_names):
-        if os.path.isdir(name):
-            logfiles = []
-            for file in os.listdir(name):
-                logfiles.append(name + '/' + file)
-        else:
-            logfiles = [name]
+    for i, name in enumerate(log_names):
+        cur_stats = prepare_data(name)
 
-        for i, logfile in enumerate(logfiles):
-            cur_stats = Stats(logfile)
+        # for heur in info['heuristics']:
+        #     if heur == 'transitions':
+        #         legend.append('Trace transition heuristic')
+        #     elif heur == 'states':
+        #         legend.append('Trace state heuristic')
+        #     elif heur == 'difficulty':
+        #         legend.append('Complexity heuristic')
+        #     else:
+        #         legend.append('Default')
 
-            entries = []
-            for line in cur_stats.lines:
-                try:
-                    entry = json.loads(line)
-                    if not cur_stats.seed_num and 'seed_number' in entry:
-                        info = entry
-                        cur_stats.seed_num = info['seed_number']
-                    elif 'context_deletion_error' not in entry:
-                        entries.append(list(entry.values())[0])
+        if select:
+            for status in select:
+                cur_stats.analyze_entries(status, j)
 
-                except Exception:
-                    print('Can\'t read the line:', line)
-            cur_stats.df = pd.DataFrame(entries)
+        if 'traces' in stats:
+            cur_stats.create_traces_time_graph(traces)
+            # cur_stats.create_traces_runs_graph(traces)
+        with_mut_type_times = True if 'with_mut_type_times' in options else False
+        if 'runs' in stats:
+            cur_stats.create_time_graph(times, 'runs', with_mut_type_times, i)
+        if 'bugs' in stats:
+            cur_stats.create_time_graph(times, 'bugs', with_mut_type_times, i)
+        if 'mutations' in stats:
+            cur_stats.get_mutation_weights()
 
-            # for heur in info['heuristics']:
-            #     if heur == 'transitions':
-            #         legend.append('Trace transition heuristic')
-            #     elif heur == 'states':
-            #         legend.append('Trace state heuristic')
-            #     elif heur == 'difficulty':
-            #         legend.append('Complexity heuristic')
-            #     else:
-            #         legend.append('Default')
-
-            if select:
-                for status in select:
-                    cur_stats.analyze_entries(status, j)
-
-            if 'traces' in stats:
-                cur_stats.create_traces_time_graph(traces)
-                # cur_stats.create_traces_runs_graph(traces)
-            with_mut_type_times = True if 'with_mut_type_times' in options else False
-            if 'runs' in stats:
-                cur_stats.create_time_graph(times, 'runs', with_mut_type_times, i)
-            if 'bugs' in stats:
-                cur_stats.create_time_graph(times, 'bugs', with_mut_type_times, i)
-            if 'mutations' in stats:
-                cur_stats.get_mutation_weights()
-
-            legend.append(name.split('/')[-1])
-        # legend.append('Random order')
-        # legend.append('Simple instance heuristic')
-        # legend.append('Complex instance heuristic')
-        # legend.append('Rare transition heuristic')
-        # legend.append('Linear approximation')
+        legend.append(name.split('/')[-1])
+    # legend.append('Random order')
+    # legend.append('Simple instance heuristic')
+    # legend.append('Complex instance heuristic')
+    # legend.append('Rare transition heuristic')
+    # legend.append('Linear approximation')
 
     if 'traces' in stats:
         traces.legend(legend)  # (0.49, 0.88)
@@ -329,7 +326,7 @@ def analyze(log_names: list, stats: list, select: list, options: list):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('logfiles',
+    parser.add_argument('logfile',
                         nargs='*',
                         default=['logfile'])
     parser.add_argument('-stats',
@@ -354,7 +351,7 @@ def main():
 
     plt.rc('font', size=11)
 
-    analyze(argv.logfiles, argv.stats, argv.select, argv.options)
+    analyze(argv.logfile, argv.stats, argv.select, argv.options)
 
 
 if __name__ == '__main__':

@@ -295,9 +295,15 @@ def deduplicate(bug_files: str, logfile: str) -> dict:
             files = get_filenames(bug_files)
     elif logfile:
         stats = log_analysis.prepare_data(logfile)
+        start_time = stats.df.iloc[1]['current_time']
+        print(start_time)
         ind = stats.df['status'] == 'wrong_model'
         files = set()
         for i, entry in stats.df.loc[ind].iterrows():
+            if entry['current_time'] - start_time > \
+                    log_analysis.DAY * log_analysis.SEC_IN_HOUR:
+                break
+
             if entry['model_state'] == -1:
                 filename = entry['filename']
                 bug_id = str(int(entry['id']))
@@ -307,7 +313,12 @@ def deduplicate(bug_files: str, logfile: str) -> dict:
 
     for file in files:
         print(file)
-        instance = reduce(file, True, False)
+        # instance = reduce(file, True, False)
+        mutations, message, seed_name = get_bug_info(file)
+        group_id = len(instance_groups)
+        group = InstanceGroup(group_id, seed_name)
+        group.restore(group_id, mutations)
+        instance = group[-1]
         if instance is None:
             continue
         params = instance.params
