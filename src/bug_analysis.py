@@ -287,6 +287,11 @@ def redo_mutations(filename: str):
 
 
 def deduplicate(bug_files: str, logfile: str) -> dict:
+    def add_param_to_bug_group(name: str, param: str, params: defaultdict):
+        if not params[param]:
+            name += 'not '
+        name += param + ' '
+        
     bug_groups = defaultdict(set)
     if bug_files:
         if not os.path.isdir(bug_files):
@@ -296,7 +301,6 @@ def deduplicate(bug_files: str, logfile: str) -> dict:
     elif logfile:
         stats = log_analysis.prepare_data(logfile)
         start_time = stats.df.iloc[1]['current_time']
-        print(start_time)
         ind = stats.df['status'] == 'wrong_model'
         files = set()
         for i, entry in stats.df.loc[ind].iterrows():
@@ -311,6 +315,7 @@ def deduplicate(bug_files: str, logfile: str) -> dict:
                            '_' + bug_id + '.smt2'
                 files.add(bug_name)
 
+    previous_cases = set()
     for file in files:
         print(file)
         # instance = reduce(file, True, False)
@@ -321,22 +326,35 @@ def deduplicate(bug_files: str, logfile: str) -> dict:
         instance = group[-1]
         if instance is None:
             continue
-        params = instance.params
-        has_inlining = True if 'xform.inline_linear_branch' in params \
-                               or 'xform.inline_eager' in params \
-                               or 'xform.inline_linear' in params \
-            else False
-        has_coi = True if 'xform.coi' in params else False
-        if has_inlining and has_coi:
-            bug_groups['inlining/coi'].add(instance)
-        elif has_inlining:
-            bug_groups['inlining'].add(instance)
-        elif has_coi:
-            bug_groups['coi'].add(instance)
-        else:
-            bug_groups['other'].add(instance)
 
-    for key in bug_groups:
+        params = instance.params
+        last_mutation = instance.mutation
+        
+        if instance.mutation.number == 1:
+            instance = reduce(file, True, False)
+        if instance.mutation.number <= 1:
+            bug_groups[last_mutation.type.name.lower()].add(instance)
+        else:
+            inline_name = ''
+            if 'xform.inline_linear_branch' in params:
+                add_param_to_bug_group(inline_name, 'xform.inline_linear_branch', params)
+            if 'xform.inline_eager' in params:
+                add_param_to_bug_group(inline_name, 'xform.inline_eager', params)
+            if 'xform.inline_linear' in params:
+                add_param_to_bug_group(inline_name, 'xform.inline_linear', params)
+            if inline_name:
+                bug_groups[inline_name].add(instance)
+            else:
+                old_case = False
+                for prev_mutation in previous_cases:
+                    if last_mutation.same_chain_start(prev_mutation):
+                        old_case = True
+                if not old_case:
+                    bug_groups['other'].add(instance)
+                    previous_cases.add(last_mutation)
+                    print(last_mutation.get_chain())
+
+    for key in sorted(bug_groups):
         print(key, len(bug_groups[key]))
 
 
