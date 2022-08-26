@@ -287,10 +287,10 @@ def redo_mutations(filename: str):
 
 
 def deduplicate(bug_files: str, logfile: str) -> dict:
-    def add_param_to_bug_group(name: str, param: str, params: defaultdict):
-        if not params[param]:
-            name += 'not '
+    def param_to_str(param: str, params: defaultdict) -> str:
+        name = 'not ' if not params[param] else ''
         name += param + ' '
+        return name
         
     bug_groups = defaultdict(set)
     if bug_files:
@@ -328,20 +328,24 @@ def deduplicate(bug_files: str, logfile: str) -> dict:
             continue
 
         params = instance.params
-        last_mutation = instance.mutation
-        
+        reproduce = True
         if instance.mutation.number == 1:
-            instance = reduce(file, True, False)
-        if instance.mutation.number <= 1:
+            new_instance = reduce(file, True, False)
+            if new_instance is not None:
+                instance = new_instance
+            else:
+                reproduce = False
+        last_mutation = instance.mutation
+        if last_mutation.number <= 1 and reproduce:
             bug_groups[last_mutation.type.name.lower()].add(instance)
         else:
             inline_name = ''
             if 'xform.inline_linear_branch' in params:
-                add_param_to_bug_group(inline_name, 'xform.inline_linear_branch', params)
+                inline_name += param_to_str('xform.inline_linear_branch', params)
             if 'xform.inline_eager' in params:
-                add_param_to_bug_group(inline_name, 'xform.inline_eager', params)
+                inline_name += param_to_str('xform.inline_eager', params)
             if 'xform.inline_linear' in params:
-                add_param_to_bug_group(inline_name, 'xform.inline_linear', params)
+                inline_name += param_to_str('xform.inline_linear', params)
             if inline_name:
                 bug_groups[inline_name].add(instance)
             else:
