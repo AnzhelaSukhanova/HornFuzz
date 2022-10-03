@@ -32,6 +32,7 @@ class InstanceGroup(object):
 
     def __init__(self, id: int, filename: str):
         instance_groups[id] = self
+        self.id = id
         self.filename = filename
         self.instances = defaultdict(Instance)
         self.same_stats = 0
@@ -48,12 +49,36 @@ class InstanceGroup(object):
         index = index % len(self.instances)
         self.instances[index] = instance
 
+    def __deepcopy__(self, memodict):
+        group_id = len(instance_groups)
+        result = InstanceGroup(group_id, self.filename)
+        memodict[id(self)] = result
+        for k, v in self.__dict__.items():
+            setattr(result, k, deepcopy(v, memodict))
+        return result
+
+    def copy_info(self, src_group):
+        for k, v in src_group.__dict__.items():
+            if k not in {'id', 'filename', 'instances'}:
+                setattr(self, k, deepcopy(v))
+
     def push(self, instance):
         """Add an instance to the group."""
-        length = len(self.instances)
-        self.instances[length] = instance
-        if length == 0:
+        instance.group_id = self.id
+
+        if self.upred_num == 0:
+            instance.find_pred_info()
+            if self.family == Family.UNKNOWN and instance.chc:
+                self.find_family(instance.chc)
+
+        group_len = len(self.instances)
+        if group_len == 0:
             self.dump_declarations()
+        else:
+            prev_instance = self[-1]
+            instance.mutation.add_after(prev_instance.mutation)
+
+        self.instances[group_len] = instance
 
     def dump_declarations(self):
         filename = 'output/decl/' + self.filename
@@ -101,19 +126,20 @@ class InstanceGroup(object):
 
     def restore(self, id: int, mutations):
         seed = parse_smt2_file(self.filename, ctx=current_ctx)
-        instance = Instance(id, seed)
+        instance = Instance(seed)
         self.push(instance)
 
         for mut in mutations:
-            mut_instance = Instance(id)
+            mut_instance = Instance()
             mut_instance.mutation.restore(mut)
             try:
                 mut_instance.mutation.apply(instance, mut_instance)
                 self.push(mut_instance)
                 instance = mut_instance
-            except AssertionError:
+            except (AssertionError, Z3Exception):
                 message = traceback.format_exc()
                 print(message)
+                continue
 
     def reset(self, start_ind: int = None):
         length = len(self.instances)
@@ -164,13 +190,20 @@ class MutType(object):
         return self.name == 'REMOVE'
 
 
+def copy_chc(chc_system: AstVector) -> AstVector:
+    new_chc_system = AstVector(ctx=current_ctx)
+    for clause in chc_system:
+        new_chc_system.push(clause)
+    return new_chc_system
+
+
 class Instance(object):
 
-    def __init__(self, group_id: int, chc: AstVector = None):
+    def __init__(self, chc: AstVector = None):
         global INSTANCE_ID
         self.id = INSTANCE_ID
         INSTANCE_ID += 1
-        self.group_id = group_id
+        self.group_id = -1
         self.chc = None
         if chc is not None:
             self.set_chc(chc)
@@ -180,28 +213,28 @@ class Instance(object):
         self.params = {}
         self.model = None
         self.model_info = (sat, 0)
-
-        group = self.get_group()
-        if not group.instances:
-            self.mutation = Mutation()
-        else:
-            prev_instance = group[-1]
-            self.mutation = Mutation(prev_instance.mutation)
+        self.mutation = Mutation()
 
     def set_chc(self, chc: AstVector):
         """Set the chc-system of the instance."""
         assert chc is not None, "Empty chc-system"
 
         self.chc = chc
-        group = self.get_group()
-        if group.upred_num == 0:
-            self.find_pred_info()
-            if group.family == Family.UNKNOWN:
-                group.find_family(chc)
-
         chc_len = len(self.chc)
-        group.same_stats_limit = 5 * chc_len
+        if self.group_id >= 0:
+            group = self.get_group()
+            group.same_stats_limit = 5 * chc_len
         self.info = ClauseInfo(chc_len)
+
+    def __deepcopy__(self, memodict):
+        result = Instance()
+        memodict[id(self)] = result
+        for k, v in self.__dict__.items():
+            if k == 'chc':
+                result.set_chc(copy_chc(self.chc))
+            else:
+                setattr(result, k, deepcopy(v, memodict))
+        return result
 
     def get_chc(self, is_seed: bool):
         if self.chc is None:
@@ -279,9 +312,8 @@ class Instance(object):
         """Return the group of the instance."""
         return instance_groups[self.group_id]
 
-    def get_log(self, is_mutant: bool = True) -> dict:
+    def get_log(self, group: InstanceGroup, is_mutant: bool = True) -> dict:
         """Create a log entry with information about the instance."""
-        group = self.get_group()
         log = {'filename': group.filename, 'id': self.id}
         if is_mutant:
             log['prev_inst_id'] = group[-1].id
@@ -354,7 +386,7 @@ class Instance(object):
         if to_name:
             cur_path = cur_path[:-5] + '_' + str(to_name) + '.smt2'
         with open(cur_path, 'w') as file:
-            mut_info = self.mutation.get_chain(in_log_format=True)
+            mut_info = self.mutation.get_chain(format='log')
             file.write('; ' + json.dumps(mut_info) + '\n')
             if message:
                 file.write('; ' + message + '\n')
@@ -375,13 +407,6 @@ class Instance(object):
                                  {'applications': 0.0, 'new_traces': 0.0})
         current_mutation_stats['applications'] += int(new_application)
         current_mutation_stats['new_traces'] += int(new_trace_found)
-
-
-def copy_chc(src_instance: Instance) -> AstVector:
-    new_chc_system = AstVector(ctx=current_ctx)
-    for clause in src_instance.chc:
-        new_chc_system.push(clause)
-    return new_chc_system
 
 
 class MutTypeEncoder(json.JSONEncoder):
@@ -664,16 +689,20 @@ def update_mutation_weights():
 
 class Mutation(object):
 
-    def __init__(self, prev_mutation=None):
+    def __init__(self):
         self.type = mut_types['ID']
-        self.number = prev_mutation.number + 1 if prev_mutation else 0
+        self.number = 0
         self.clause_i = None
         self.kind = None
-        self.prev_mutation = prev_mutation
+        self.prev_mutation = None
         self.applied = False
         self.trans_num = None
         self.simplify_changed = True
         self.exceptions = set()
+
+    def add_after(self, prev_mutation):
+        self.number = prev_mutation.number + 1
+        self.prev_mutation = prev_mutation
 
     def clear(self):
         self.type = mut_types['ID']
@@ -685,7 +714,7 @@ class Mutation(object):
         """Mutate instances."""
         timeout = False
         changed = True
-        new_instance.params = instance.params
+        new_instance.params = deepcopy(instance.params)
 
         self.next_mutation(instance)
         mut_name = self.type.name
@@ -842,7 +871,7 @@ class Mutation(object):
         return mut_system
 
     def add_lin_rule(self, instance: Instance) -> AstVector:
-        mut_system = copy_chc(instance)
+        mut_system = copy_chc(instance.chc)
         _, clause = self.get_clause_info(instance)
         head, vars = take_pred_from_clause(clause)
 
@@ -860,7 +889,7 @@ class Mutation(object):
         return mut_system
 
     def add_nonlin_rule(self, instance: Instance) -> AstVector:
-        mut_system = copy_chc(instance)
+        mut_system = copy_chc(instance.chc)
         _, clause = self.get_clause_info(instance)
         head_upred, head_vars, upred = take_pred_from_clause(clause, with_term=True)
 
@@ -982,22 +1011,42 @@ class Mutation(object):
         self.applied = True
         return mut_clause
 
-    def get_chain(self, in_log_format=False):
+    def get_chain(self, format='pp'):
         """Return the full mutation chain."""
-        if not in_log_format:
+        if format == 'pp':
             chain = self.get_name()
-        else:
+        elif format == 'log':
             chain = [self.get_log()]
+        elif format == 'list':
+            chain = [self.get_name()]
+        else:
+            assert False, "Unknown output format"
         cur_mutation = self
         for i in range(self.number, 1, -1):
             cur_mutation = cur_mutation.prev_mutation
-            if not in_log_format:
+            if format == 'pp':
                 mut_name = cur_mutation.get_name()
                 chain = mut_name + '->' + chain
-            else:
+            elif format == 'log':
                 cur_log = [cur_mutation.get_log()]
                 chain = cur_log + chain
+            elif format == 'list':
+                mut_name = [cur_mutation.get_name()]
+                chain = mut_name + chain
+            else:
+                assert False, "Unknown output format"
         return chain
+
+    def same_chain_start(self, other) -> bool:
+        fst_chain = self.get_chain(format='list')
+        snd_chain = other.get_chain(format='list')
+        fst_len = len(fst_chain)
+        snd_len = len(snd_chain)
+        length = fst_len if fst_len < snd_len else snd_len
+        for i, mut in enumerate(fst_chain[:(length // 2)]):
+            if mut != snd_chain[i]:
+                return False
+        return True
 
     def get_name(self):
         """Get mutation name with some information about it."""
