@@ -386,7 +386,7 @@ class Instance(object):
         if to_name:
             cur_path = cur_path[:-5] + '_' + str(to_name) + '.smt2'
         with open(cur_path, 'w') as file:
-            mut_info = self.mutation.get_chain(in_log_format=True)
+            mut_info = self.mutation.get_chain(format='log')
             file.write('; ' + json.dumps(mut_info) + '\n')
             if message:
                 file.write('; ' + message + '\n')
@@ -1011,22 +1011,42 @@ class Mutation(object):
         self.applied = True
         return mut_clause
 
-    def get_chain(self, in_log_format=False):
+    def get_chain(self, format='pp'):
         """Return the full mutation chain."""
-        if not in_log_format:
+        if format == 'pp':
             chain = self.get_name()
-        else:
+        elif format == 'log':
             chain = [self.get_log()]
+        elif format == 'list':
+            chain = [self.get_name()]
+        else:
+            assert False, "Unknown output format"
         cur_mutation = self
         for i in range(self.number, 1, -1):
             cur_mutation = cur_mutation.prev_mutation
-            if not in_log_format:
+            if format == 'pp':
                 mut_name = cur_mutation.get_name()
                 chain = mut_name + '->' + chain
-            else:
+            elif format == 'log':
                 cur_log = [cur_mutation.get_log()]
                 chain = cur_log + chain
+            elif format == 'list':
+                mut_name = [cur_mutation.get_name()]
+                chain = mut_name + chain
+            else:
+                assert False, "Unknown output format"
         return chain
+
+    def same_chain_start(self, other) -> bool:
+        fst_chain = self.get_chain(format='list')
+        snd_chain = other.get_chain(format='list')
+        fst_len = len(fst_chain)
+        snd_len = len(snd_chain)
+        length = fst_len if fst_len < snd_len else snd_len
+        for i, mut in enumerate(fst_chain[:(length // 2)]):
+            if mut != snd_chain[i]:
+                return False
+        return True
 
     def get_name(self):
         """Get mutation name with some information about it."""
