@@ -804,7 +804,7 @@ class Mutation(object):
 
             if with_weights:
                 reverse_weights = random.choice([True, False]) \
-                    if self.number > 0.9 * ONE_INST_MUT_LIMIT \
+                    if instance.mutation.number + 1 > 0.5 * ONE_INST_MUT_LIMIT \
                     else False
                 weights = []
                 for name in types_to_choose:

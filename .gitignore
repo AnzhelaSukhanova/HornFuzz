@@ -4,12 +4,16 @@ logfile
 output/*
 .collect_stats.json
 
+# Results
+stats/*
+logs-*/*
+
 # PyCharm files
 .idea/*
 src/__pycache__/*
 
 # Seeds
-chc-comp21-benchmarks/*
-spacer-benchmarks/*
-sv-benchmarks-clauses/*
+chc-comp21-benchmarks/
+spacer-benchmarks/
+sv-benchmarks/
 seed_info/*

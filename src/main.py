@@ -380,13 +380,13 @@ def handle_bug(instance: Instance, mut_instance: Instance = None,
         if mut_instance \
         else instance.model_info[0]
     status = 'bug' if model_state == sat else 'wrong_model'
+    group = instance.get_group()
     log_run_info(status,
                  group,
                  message,
                  instance,
                  mut_instance)
 
-    group = instance.get_group()
     if mut_instance:
         mut_instance.dump('output/bugs',
                           group.filename,

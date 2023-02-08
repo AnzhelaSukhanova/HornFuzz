@@ -1,15 +1,12 @@
-import json
 import argparse
+import json
 import math
 import os
-from os.path import isdir
-from prettytable import PrettyTable
-
-import pandas as pd
-import matplotlib.pyplot as plt
-
 from collections import defaultdict
-from statistics import mean
+
+import matplotlib.pyplot as plt
+import pandas as pd
+from prettytable import PrettyTable
 
 INPUTS_GROUP_NUM = 1
 SEC_IN_HOUR = 3600
@@ -21,6 +18,7 @@ count_dict = defaultdict(list)
 colors = ['crimson', 'teal', 'darkorange', 'darkblue']
 markers = ['d', 's', '^', 'o', '+', '*', '1', 'x', 'h', '.', '2', '3', '4', 'D', 'H', 'X']
 graph_i = 0
+chain_lengths = []
 
 
 class Stats:
@@ -99,14 +97,15 @@ class Stats:
 
         ax.plot(time_axis, num_axis)
 
-        print('Mutation time to total time:',
-              round(total_mut_time / total_time, ROUND_NUM))
-        print("Mutation time:", round(total_mut_time, ROUND_NUM))
-        print('Solving time to total time:',
-              round(total_solve_time / total_time, ROUND_NUM))
-        print("Solving time:", round(total_solve_time, ROUND_NUM))
-        print("Mean solving time:", round(mean(solve_times), ROUND_NUM))
-        print("Total time:", round(total_time, ROUND_NUM))
+        # print('Mutation time to total time:',
+        #       round(total_mut_time / total_time, ROUND_NUM))
+        # print("Mutation time:", round(total_mut_time, ROUND_NUM))
+        # print('Solving time to total time:',
+        #       round(total_solve_time / total_time, ROUND_NUM))
+        # print("Solving time:", round(total_solve_time, ROUND_NUM))
+        # print("Mean solving time:", round(mean(solve_times), ROUND_NUM))
+        # print("Total time:", round(total_time, ROUND_NUM))
+
 
         if with_mut_type_times:
             sorted_mut_type_times = dict(sorted(mut_type_times.items(),
@@ -157,8 +156,6 @@ class Stats:
 
         ax.set_ylabel('Unique traces')
         ax.set_xlabel('Time, h')
-        # ax.set_ylabel('Количество уникальных трасс')
-        # ax.set_xlabel('Время работы, ч')
 
         # lin_coef = mean(coef)
         # ax.plot(time_axis, [item * lin_coef for item in time_axis], c='black', linestyle='--')
@@ -208,7 +205,7 @@ class Stats:
                                  '\n'])
 
     def analyze_entries(self, status: str, log_i: int):
-        global count_dict
+        global count_dict, chain_lengths
 
         # print('_______________' + status +
         #       '_______________', end='\n')
@@ -221,15 +218,34 @@ class Stats:
             filename = entry['filename']
             num += 1
             mutation = entry['mut_type'].split('(')[0]
-            if len(count_dict[mutation]) > log_i:
-                # count_dict[filename][log_i] += 1
-                count_dict[mutation][log_i] += 1
-            else:
-                while len(count_dict[mutation]) < log_i:
-                    count_dict[mutation].append(0)
-                # count_dict[filename].append(1)
-                count_dict[mutation].append(1)
+            chain_len = len(entry['mut_chain'].split('->'))
+            chain_lengths.append(chain_len)
+            # if len(count_dict[mutation]) > log_i:
+            #     count_dict[mutation][log_i] += 1
+            # else:
+            #     while len(count_dict[mutation]) < log_i:
+            #         count_dict[mutation].append(0)
+            #     count_dict[mutation].append(1)
         # count_dict[''].append(num)
+
+
+def prepare_data(name: str):
+    stats = Stats(name)
+
+    entries = []
+    for line in stats.lines:
+        try:
+            entry = json.loads(line)
+            if not stats.seed_num and 'seed_number' in entry:
+                info = entry
+                stats.seed_num = info['seed_number']
+            elif 'context_deletion_error' not in entry:
+                entries.append(list(entry.values())[0])
+
+        except Exception:
+            print('Can\'t read the line:', line)
+    stats.df = pd.DataFrame(entries)
+    return stats
 
 
 def analyze(log_names: list, stats: list, select: list, options: list):
@@ -242,63 +258,31 @@ def analyze(log_names: list, stats: list, select: list, options: list):
     times = plt.figure()
     legend = []
 
-    for j, name in enumerate(log_names):
-        if os.path.isdir(name):
-            logfiles = []
-            for file in os.listdir(name):
-                logfiles.append(name + '/' + file)
-        else:
-            logfiles = [name]
+    for i, name in enumerate(log_names):
+        cur_stats = prepare_data(name)
+        if select:
+            for status in select:
+                cur_stats.analyze_entries(status, i)
 
-        for i, logfile in enumerate(logfiles):
-            cur_stats = Stats(logfile)
+        if 'traces' in stats:
+            cur_stats.create_traces_time_graph(traces)
+            # cur_stats.create_traces_runs_graph(traces)
+        with_mut_type_times = True if 'with_mut_type_times' in options else False
+        if 'runs' in stats:
+            cur_stats.create_time_graph(times, 'runs', with_mut_type_times, i)
+        if 'bugs' in stats:
+            cur_stats.create_time_graph(times, 'bugs', with_mut_type_times, i)
+        if 'mutations' in stats:
+            cur_stats.get_mutation_weights()
 
-            entries = []
-            for line in cur_stats.lines:
-                try:
-                    entry = json.loads(line)
-                    if not cur_stats.seed_num and 'seed_number' in entry:
-                        info = entry
-                        cur_stats.seed_num = info['seed_number']
-                    elif 'context_deletion_error' not in entry:
-                        entries.append(list(entry.values())[0])
+        legend.append(name.split('/')[-1])
+    # legend.append('Random order')
+    # legend.append('Simple instance heuristic')
+    # legend.append('Complex instance heuristic')
+    # legend.append('Rare transition heuristic')
+    # legend.append('Linear approximation')
 
-                except Exception:
-                    print('Can\'t read the line:', line)
-            cur_stats.df = pd.DataFrame(entries)
-
-            # for heur in info['heuristics']:
-            #     if heur == 'transitions':
-            #         legend.append('Trace transition heuristic')
-            #     elif heur == 'states':
-            #         legend.append('Trace state heuristic')
-            #     elif heur == 'difficulty':
-            #         legend.append('Complexity heuristic')
-            #     else:
-            #         legend.append('Default')
-
-            if select:
-                for status in select:
-                    cur_stats.analyze_entries(status, j)
-
-            if 'traces' in stats:
-                cur_stats.create_traces_time_graph(traces)
-                # cur_stats.create_traces_runs_graph(traces)
-            with_mut_type_times = True if 'with_mut_type_times' in options else False
-            if 'runs' in stats:
-                cur_stats.create_time_graph(times, 'runs', with_mut_type_times, i)
-            if 'bugs' in stats:
-                cur_stats.create_time_graph(times, 'bugs', with_mut_type_times, i)
-            if 'mutations' in stats:
-                cur_stats.get_mutation_weights()
-
-            legend.append(name.split('/')[-1])
-        # legend.append('Random order')
-        # legend.append('Simple instance heuristic')
-        # legend.append('Complex instance heuristic')
-        # legend.append('Rare transition heuristic')
-        # legend.append('Linear approximation')
-
+    print(sorted(chain_lengths))
     if 'traces' in stats:
         traces.legend(legend)  # (0.49, 0.88)
         traces.savefig('stats/traces.png', bbox_inches='tight')
@@ -329,7 +313,7 @@ def analyze(log_names: list, stats: list, select: list, options: list):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('logfiles',
+    parser.add_argument('logfile',
                         nargs='*',
                         default=['logfile'])
     parser.add_argument('-stats',
@@ -353,8 +337,14 @@ def main():
     argv = parser.parse_args()
 
     plt.rc('font', size=11)
-
-    analyze(argv.logfiles, argv.stats, argv.select, argv.options)
+    log = argv.logfile
+    if os.path.isdir(log[0]):
+        log = []
+        for root, subdirs, files in os.walk(argv.logfile[0]):
+            for file in files:
+                path = os.path.join(root, file)
+                log.append(path)
+    analyze(log, argv.stats, argv.select, argv.options)
 
 
 if __name__ == '__main__':
