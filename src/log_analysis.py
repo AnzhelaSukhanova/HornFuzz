@@ -55,8 +55,8 @@ class Stats:
         entry = self.df[time_ind].iloc[0]
         fst_time = entry['current_time']
         last_entry = self.df[time_ind].iloc[-1]
-        if last_entry['current_time'] - fst_time < DAY * SEC_IN_HOUR:
-            return
+        #if last_entry['current_time'] - fst_time < DAY * SEC_IN_HOUR:
+        #   return
 
         for i, entry in self.df[time_ind].iterrows():
             if not math.isnan(entry['solve_time']):
@@ -128,8 +128,8 @@ class Stats:
         last_entry = self.df[ind].iloc[-1]
         last_time = last_entry['current_time']
         total_time = (last_time - fst_time) / SEC_IN_HOUR
-        if total_time < DAY:
-            return
+        # if total_time < DAY:
+        #      return
         print("Total time:", round(total_time, ROUND_NUM))
 
         cur_trace = 0
@@ -194,7 +194,7 @@ class Stats:
             sorted_weights = dict()
             mut_names = mut_weights.index.values
             for i, entry in enumerate(mut_weights):
-                sorted_weights[mut_names[i]] = entry
+                sorted_weights[mut_names[i]] = round(entry, 5)
             sorted_weights = dict(sorted(sorted_weights.items(),
                                          key=lambda item: item[1],
                                          reverse=True))
@@ -218,15 +218,15 @@ class Stats:
             filename = entry['filename']
             num += 1
             mutation = entry['mut_type'].split('(')[0]
-            chain_len = len(entry['mut_chain'].split('->'))
-            chain_lengths.append(chain_len)
-            # if len(count_dict[mutation]) > log_i:
-            #     count_dict[mutation][log_i] += 1
-            # else:
-            #     while len(count_dict[mutation]) < log_i:
-            #         count_dict[mutation].append(0)
-            #     count_dict[mutation].append(1)
-        # count_dict[''].append(num)
+            #chain_len = len(entry['mut_chain'].split('->'))
+            #chain_lengths.append(chain_len)
+            if len(count_dict[mutation]) > log_i:
+                count_dict[mutation][log_i] += 1
+            else:
+                while len(count_dict[mutation]) < log_i:
+                    count_dict[mutation].append(0)
+                count_dict[mutation].append(1)
+        count_dict[''].append(num)
 
 
 def prepare_data(name: str):
@@ -282,7 +282,6 @@ def analyze(log_names: list, stats: list, select: list, options: list):
     # legend.append('Rare transition heuristic')
     # legend.append('Linear approximation')
 
-    print(sorted(chain_lengths))
     if 'traces' in stats:
         traces.legend(legend)  # (0.49, 0.88)
         traces.savefig('stats/traces.png', bbox_inches='tight')
@@ -291,24 +290,10 @@ def analyze(log_names: list, stats: list, select: list, options: list):
         times.legend(legend) # (0.9, 0.28))
         times.savefig('stats/times.png', bbox_inches='tight')
 
-    if select:
-        table = PrettyTable()
-        #table.field_names = ['seed'] + log_names
-        table.field_names = ['mutation', 'transitions + parameters',
-                             'transitions', 'default + parameters', 'default']
-        count_dict = dict(sorted(count_dict.items(),
-                                 key=lambda item: item[1][0],
-                                 reverse=True))
-        for key in count_dict:
-            row = [key[:55]] + count_dict[key]
-            while len(row) < 5:
-                row += [0]
-            try:
-                table.add_row(row)
-            except Exception:
-                print(row)
-                break
-        print(table)
+    count_dict = dict(sorted(count_dict.items(),
+                             key=lambda item: item[1][0],
+                             reverse=True))
+    print(count_dict)
 
 
 def main():
@@ -337,14 +322,16 @@ def main():
     argv = parser.parse_args()
 
     plt.rc('font', size=11)
-    log = argv.logfile
-    if os.path.isdir(log[0]):
-        log = []
-        for root, subdirs, files in os.walk(argv.logfile[0]):
-            for file in files:
-                path = os.path.join(root, file)
-                log.append(path)
-    analyze(log, argv.stats, argv.select, argv.options)
+    log_names = []
+    for item in argv.logfile:
+        if os.path.isdir(item):
+            for root, subdirs, files in os.walk(argv.logfile[0]):
+                for file in files:
+                    path = os.path.join(root, file)
+                    log_names.append(path)
+        else:
+            log_names.append(item)
+    analyze(log_names, argv.stats, argv.select, argv.options)
 
 
 if __name__ == '__main__':

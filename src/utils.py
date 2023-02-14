@@ -26,11 +26,17 @@ info_kinds = {Z3_OP_AND: '(declare-fun and *)',
               None: None}
 
 current_ctx = None
+heuristic = 'default'
 
 
 def set_ctx(ctx):
     global current_ctx
     current_ctx = ctx
+
+
+def set_heuristic(heur: str):
+    global heuristic
+    heuristic = heur
 
 
 class State(object):
@@ -70,48 +76,21 @@ class ClauseInfo(object):
             self.clause_expr_num[kind] = np.zeros(number, dtype=int)
 
 
-class StatsType(Enum):
-    DEFAULT = 0
-    TRANSITIONS = 1
-    STATES = 2
-    ALL = 3
-
-
-stats_type = StatsType.DEFAULT
-with_formula_heur = False
-
-
-def set_stats_type(heuristics: defaultdict):
-    """Set the type of statistics based on heuristics."""
-    global stats_type, with_formula_heur
-
-    if heuristics['transitions'] and heuristics['states']:
-        stats_type = StatsType.ALL
-    elif heuristics['transitions']:
-        stats_type = StatsType.TRANSITIONS
-    elif heuristics['states']:
-        stats_type = StatsType.STATES
-
-    if heuristics['difficulty'] or heuristics['simplicity']:
-        with_formula_heur = True
-
-
 class TraceStats(object):
 
     def __init__(self):
         self.hash = 0
 
-        if stats_type in {StatsType.TRANSITIONS, StatsType.ALL}:
+        if heuristic == 'transitions':
             self.matrix = dok_matrix((1, 1), dtype=int)
-
-        if stats_type in {StatsType.STATES, StatsType.ALL}:
+        elif heuristic == 'states':
             self.states_num = defaultdict(int)
 
     def __add__(self, other):
         """Return the sum of two transition matrices."""
         sum = TraceStats()
 
-        if stats_type in {StatsType.TRANSITIONS, StatsType.ALL}:
+        if heuristic == 'transitions':
             size = len(trace_states)
             shape = (size, size)
             self.matrix.resize(shape)
@@ -119,7 +98,7 @@ class TraceStats(object):
             sum.matrix = self.matrix
             sum.matrix += other.matrix
 
-        if stats_type in {StatsType.STATES, StatsType.ALL}:
+        elif heuristic == 'states':
             sum.states_num = deepcopy(self.states_num)
             for state in other.states_num:
                 sum.states_num[state] += other.states_num[state]
@@ -152,35 +131,35 @@ class TraceStats(object):
         prev_state = None
         for state in states:
             hash_builder.update(state.encode('utf-8'))
-            if stats_type.value > 0:
+            if heuristic in {'transitions', 'states'}:
                 if state not in trace_states:
                     trace_states[state] = len(trace_states)
 
-            if stats_type in {StatsType.STATES, StatsType.ALL}:
-                self.states_num[state] += 1
-
-            if stats_type in {StatsType.TRANSITIONS, StatsType.ALL}:
+            if heuristic == 'transitions':
                 size = len(trace_states)
                 self.matrix = dok_matrix((size, size), dtype=int)
                 if prev_state:
                     self.add_trans(prev_state, state)
                 prev_state = state
 
+            elif heuristic == 'states':
+                self.states_num[state] += 1
+
         self.hash = hash_builder.digest()
 
-    def get_probability(self, type: StatsType):
+    def get_probability(self):
         """
         Return the transition matrix in probabilistic form
         or state probabilities.
         """
-        if type == StatsType.TRANSITIONS:
+        if heuristic == 'transitions':
             prob = dok_matrix(self.matrix.shape, dtype=float)
             trans_num = self.matrix.sum(axis=1)
             not_zero_ind = [tuple(item)
                             for item in np.transpose(self.matrix.nonzero())]
             for i, j in not_zero_ind:
                 prob[i, j] = self.matrix[i, j] / trans_num[i]
-        elif type == StatsType.STATES:
+        elif heuristic == 'states':
             total_states_num = sum(self.states_num.values())
             prob = {state: self.states_num[state] / total_states_num
                     for state in self.states_num}
@@ -189,16 +168,15 @@ class TraceStats(object):
                           'for this type of statistics'
         return prob
 
-    def get_weights(self, type: StatsType):
-        """Return the weights of trace transitions or states."""
-        if type == StatsType.TRANSITIONS:
-            prob_matrix = self.get_probability(type)
+    def get_weighted_stats(self):
+        if heuristic == 'transitions':
+            prob_matrix = self.get_probability()
             weights = dok_matrix(prob_matrix.shape, dtype=float)
             not_zero_ind = [tuple(item)
                             for item in np.transpose(prob_matrix.nonzero())]
             for i in not_zero_ind:
                 weights[i] = 1 / prob_matrix[i]
-        elif type == StatsType.STATES:
+        elif heuristic == 'states':
             total_states_num = sum(self.states_num.values())
             weights = {state: total_states_num / self.states_num[state]
                        for state in self.states_num}

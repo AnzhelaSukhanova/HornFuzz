@@ -13,7 +13,7 @@ Or you can use the Dockerfile (`docker build -t spacer-fuzzing .`).
 
 `docker run spacer-fuzzing` if you are using docker.  
 
-Add `-heuristics <priority1> <priority2> ...` (or `-heur`) to change default instance selection to the selection based on:  
+Add `-heuristic <heuristic>` (or `-heur`) to change default instance selection to the selection based on:  
 * the probability of transitions (`transitions`);  
 * the probability of states (`states`);  
 * chc-difficulty (`difficulty`).  

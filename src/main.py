@@ -21,8 +21,7 @@ faulthandler.enable()
 enable_trace('spacer')
 enable_trace('dl_rule_transf')
 
-heuristics = []
-heuristic_flags = defaultdict(bool)
+heuristic = 'default'
 mutations = []
 options = []
 
@@ -39,26 +38,34 @@ with_oracles = False
 oracles_names = {'Eldarica'}
 
 
-def calc_sort_key(heuristic: str, stats, weights=None) -> int:
-    """Calculate the priority of an instance in the sorted queue."""
+def calculate_weights() -> list:
+    weighted_stats = general_stats.get_weighted_stats() \
+        if heuristic in {'transitions', 'states'} \
+        else None
+    weights = []
 
-    if heuristic == 'transitions':
-        prob_matrix = stats.get_probability(StatsType.TRANSITIONS)
-        size = stats.matrix.shape[0]
-        weight_matrix_part = weights[:size, :size]
-        trans_matrix = stats.matrix
-        sort_key = np.sum(prob_matrix * trans_matrix * weight_matrix_part)
-    elif heuristic == 'states':
-        states_prob = stats.get_probability(StatsType.STATES)
-        sort_key = sum(states_prob[state] * weights[state]
-                       for state in stats.states_num)
-    elif heuristic in {'difficulty', 'simplicity'}:
-        is_nonlinear = not stats[0]
-        upred_num = stats[1]
-        sort_key = (is_nonlinear, upred_num)
-    else:
-        assert False, "Incorrect heuristic"
-    return sort_key
+    for instance in queue:
+        stats = instance.trace_stats
+        if heuristic == 'transitions':
+            prob_matrix = stats.get_probability()
+            size = stats.matrix.shape[0]
+            weight_matrix_part = weighted_stats[:size, :size]
+            trans_matrix = stats.matrix
+            weight = np.sum(prob_matrix * trans_matrix * weight_matrix_part)
+        elif heuristic == 'states':
+            states_prob = stats.get_probability()
+            weight = sum(states_prob[state] * weighted_stats[state]
+                         for state in stats.states_num)
+        elif heuristic in {'difficulty', 'simplicity'}:
+            group = instance.get_group()
+            is_nonlinear = not group.is_linear
+            upred_num = group.upred_num
+            weight = (is_nonlinear, upred_num)
+        else:
+            weight = 0
+        weights.append(weight + 1)
+
+    return weights
 
 
 def check_satis(instance: Instance, group: InstanceGroup = None,
@@ -83,46 +90,20 @@ def check_satis(instance: Instance, group: InstanceGroup = None,
     if is_seed:
         satis = instance.satis
 
-    if get_stats and (heuristic_flags['transitions'] or
-                      heuristic_flags['states']):
+    if get_stats and (heuristic in {'transitions', 'states'}):
         general_stats += instance.trace_stats
 
     return instance.satis == satis
 
 
 def sort_queue():
-    """Sort the queue by statistics."""
     global queue
-
-    if heuristic_flags['default']:
-        return
-
-    length = len(heuristics)
-    for i in range(length):
-        heur = heuristics[i]
-        if heur in {'transitions', 'states'}:
-            type = StatsType.TRANSITIONS if heur == 'transitions' \
-                else StatsType.STATES
-            weights = general_stats.get_weights(type)
-        chunk_size = len(queue) // (i + 1)
-        queue_chunks = [queue[j:j + chunk_size]
-                        for j in range(0, len(queue), chunk_size)]
-        queue = []
-        for chunk in queue_chunks:
-            for instance in chunk:
-                if heur == 'transitions' or heur == 'states':
-                    ins_stats = instance.trace_stats
-                    instance.sort_key = calc_sort_key(heur,
-                                                      ins_stats,
-                                                      weights)
-                else:
-                    group = instance.get_group()
-                    instance.sort_key = calc_sort_key(heur,
-                                                      (group.is_linear,
-                                                       group.upred_num))
-            to_reverse = False if heur == 'simplicity' else True
-            chunk.sort(key=lambda item: item.sort_key, reverse=to_reverse)
-            queue += chunk
+    weights = calculate_weights()
+    if heuristic == 'simplicity':
+        weights = reversed(weights)
+    next_instance = random.choices(queue, weights, k=1)[0]
+    queue.remove(next_instance)
+    queue.append(next_instance)
 
 
 def update_mutation_weights():
@@ -296,7 +277,7 @@ def known_seeds_processor(files: set, base_idx: int, seed_info_index):
         counter['runs'] += 1
         solve_time = instance.process_seed_info(seed_info)
         instance.update_traces_info()
-        if heuristic_flags['transitions'] or heuristic_flags['states']:
+        if heuristic in {'transitions', 'states'}:
             general_stats += instance.trace_stats
         return instance, solve_time
 
@@ -439,7 +420,7 @@ def fuzz(files: set):
 
     run_seeds(files)
     logging.info(json.dumps({'seed_number': seed_number,
-                             'heuristics': heuristics,
+                             'heuristic': heuristic,
                              'mutations': mutations,
                              'options': options}))
     if with_weights:
@@ -450,7 +431,7 @@ def fuzz(files: set):
 
         sort_queue()
 
-        instance = queue.pop(0)
+        instance = queue.pop()
         counter['runs'] += 1
         group = instance.get_group()
         try:
@@ -543,7 +524,7 @@ def fuzz(files: set):
                             else:
                                 found_problem = False
                             group.push(mut_instance)
-                            if not heuristic_flags['default']:
+                            if heuristic != 'default':
                                 group.check_stats()
 
                             if found_problem:
@@ -594,19 +575,19 @@ def fuzz(files: set):
 
 
 def main():
-    global general_stats, heuristics, heuristic_flags, \
-        mutations, options, seed_number, with_oracles
+    global general_stats, mutations, heuristic,\
+        options, seed_number, with_oracles
 
     parser = argparse.ArgumentParser()
     parser.add_argument('seeds',
                         nargs='*',
                         default='',
                         help='directory with seeds or keyword \'all\'')
-    parser.add_argument('-heuristics', '-heur',
-                        nargs='*',
+    parser.add_argument('-heuristic', '-heur',
+                        nargs='?',
                         choices=['transitions', 'states',
                                  'difficulty', 'simplicity'],
-                        default=['default'],
+                        default='default',
                         help='trace data which will be used to '
                              'select an instance for mutation')
     parser.add_argument('-mutations', '-mut',
@@ -630,11 +611,9 @@ def main():
     set_option(max_args=int(1e6), max_lines=int(1e6),
                max_depth=int(1e6), max_visited=int(1e6))
 
-    heuristics = argv.heuristics
-    for heur in heuristics:
-        heuristic_flags[heur] = True
-    set_stats_type(heuristic_flags)
-    if heuristic_flags['transitions'] or heuristic_flags['states']:
+    heuristic = argv.heuristic
+    set_heuristic(heuristic)
+    if heuristic in {'transitions', 'states'}:
         general_stats = TraceStats()
         
     options = argv.options
