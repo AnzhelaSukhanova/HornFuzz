@@ -16,5 +16,5 @@ src/__pycache__/*
 # Seeds
 chc-comp21-benchmarks/
 spacer-benchmarks/
-sv-benchmarks/
+sv-benchmarks-clauses/
 seed_info/*
