@@ -134,16 +134,16 @@ class TraceStats(object):
             if heuristic in {'transitions', 'states'}:
                 if state not in trace_states:
                     trace_states[state] = len(trace_states)
-                if heuristic == 'states':
-                    self.states_num[state] += 1
 
-        if heuristic == 'transitions':
-            size = len(trace_states)
-            self.matrix = dok_matrix((size, size), dtype=int)
-            for state in states:
+            if heuristic == 'transitions':
+                size = len(trace_states)
+                self.matrix = dok_matrix((size, size), dtype=int)
                 if prev_state:
                     self.add_trans(prev_state, state)
                 prev_state = state
+
+            elif heuristic == 'states':
+                self.states_num[state] += 1
 
         self.hash = hash_builder.digest()
 
@@ -410,10 +410,3 @@ def reverse_dict(initial_dict: dict):
             for v in value:
                 new_dict[v].add(key)
     return new_dict
-
-
-def print_matrix(matrix: dok_matrix):
-    for i in range(matrix.shape[0]):
-        for j in range(matrix.shape[1]):
-            print(matrix[i, j], end=' ')
-        print()

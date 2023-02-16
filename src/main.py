@@ -4,7 +4,6 @@ import gc
 import logging
 import itertools
 from typing import Optional
-from sklearn.preprocessing import normalize
 
 import objgraph
 import os.path
@@ -33,7 +32,7 @@ general_stats = None
 counter = defaultdict(int)
 
 PROBLEMS_LIMIT = 10
-MUT_WEIGHT_UPDATE_RUNS = 10*ONE_INST_MUT_LIMIT
+MUT_WEIGHT_UPDATE_RUNS = 10000
 
 with_oracles = False
 oracles_names = {'Eldarica'}
@@ -63,11 +62,9 @@ def calculate_weights() -> list:
             upred_num = group.upred_num
             weight = (is_nonlinear, upred_num)
         else:
-            weight = 0.1
-        if weight == 0:
-            weight += 0.1
-        weights.append(weight)
-    weights = normalize([weights])[0]
+            weight = 0
+        weights.append(weight + 1)
+
     return weights
 
 
