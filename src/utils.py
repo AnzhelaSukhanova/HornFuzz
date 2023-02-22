@@ -78,11 +78,11 @@ class ClauseInfo(object):
 
 class TraceStats(object):
 
-    def __init__(self):
+    def __init__(self, size: int = 1):
         self.hash = 0
 
         if heuristic == 'transitions':
-            self.matrix = dok_matrix((1, 1), dtype=int)
+            self.matrix = dok_matrix((size, size), dtype=int)
         elif heuristic == 'states':
             self.states_num = defaultdict(int)
 
@@ -92,9 +92,8 @@ class TraceStats(object):
 
         if heuristic == 'transitions':
             size = len(trace_states)
-            shape = (size, size)
-            self.matrix.resize(shape)
-            other.matrix.resize(shape)
+            self.resize(size)
+            other.resize(size)
             sum.matrix = self.matrix
             sum.matrix += other.matrix
 
@@ -104,11 +103,19 @@ class TraceStats(object):
                 sum.states_num[state] += other.states_num[state]
         return sum
 
+    def resize(self, size: int):
+        shape = (size, size)
+        self.matrix.resize(shape)
+
     def add_trans(self, i: State, j: State):
         """Add transition to matrix."""
         global trace_states
         i_ind = trace_states[i]
         j_ind = trace_states[j]
+        shape = self.matrix.shape
+        if shape[0] <= i_ind or shape[1] <= j_ind:
+            size = max(i_ind, j_ind) + 1
+            self.resize(size)
         self.matrix[i_ind, j_ind] += 1
 
     def read_from_trace(self, is_seed: bool = False):
@@ -129,18 +136,32 @@ class TraceStats(object):
     def load_states(self, states: List[State]):
         hash_builder = hashlib.sha512()
         prev_state = None
+        # for state in states:
+        #     hash_builder.update(state.encode('utf-8'))
+        #     if heuristic in {'transitions', 'states'}:
+        #         if state not in trace_states:
+        #             trace_states[state] = len(trace_states)
+        #         if heuristic == 'states':
+        #             self.states_num[state] += 1
+        #
+        # if heuristic == 'transitions':
+        #     size = len(trace_states)
+        #     self.matrix = dok_matrix((size, size), dtype=int)
+        #     for state in states:
+        #         if prev_state:
+        #             self.add_trans(prev_state, state)
+        #         prev_state = state
+
         for state in states:
             hash_builder.update(state.encode('utf-8'))
             if heuristic in {'transitions', 'states'}:
                 if state not in trace_states:
                     trace_states[state] = len(trace_states)
-                if heuristic == 'states':
-                    self.states_num[state] += 1
 
-        if heuristic == 'transitions':
-            size = len(trace_states)
-            self.matrix = dok_matrix((size, size), dtype=int)
-            for state in states:
+            if heuristic == 'states':
+                self.states_num[state] += 1
+
+            if heuristic == 'transitions':
                 if prev_state:
                     self.add_trans(prev_state, state)
                 prev_state = state
