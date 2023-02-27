@@ -136,21 +136,6 @@ class TraceStats(object):
     def load_states(self, states: List[State]):
         hash_builder = hashlib.sha512()
         prev_state = None
-        # for state in states:
-        #     hash_builder.update(state.encode('utf-8'))
-        #     if heuristic in {'transitions', 'states'}:
-        #         if state not in trace_states:
-        #             trace_states[state] = len(trace_states)
-        #         if heuristic == 'states':
-        #             self.states_num[state] += 1
-        #
-        # if heuristic == 'transitions':
-        #     size = len(trace_states)
-        #     self.matrix = dok_matrix((size, size), dtype=int)
-        #     for state in states:
-        #         if prev_state:
-        #             self.add_trans(prev_state, state)
-        #         prev_state = state
 
         for state in states:
             hash_builder.update(state.encode('utf-8'))

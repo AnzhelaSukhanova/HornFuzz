@@ -50,4 +50,4 @@ ADD false_formulas false_formulas
 ADD exclude_seed.json .
 
 # run fuzzing
-CMD ["python", "src/main.py", "all", "-heuristics", "transitions"]
+CMD ["python", "src/main.py", "all", "-heuristic", "transitions"]
