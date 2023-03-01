@@ -1,10 +1,8 @@
 import hashlib
 import json
 import random
-import traceback
 from collections import defaultdict
 from copy import deepcopy
-from enum import Enum
 from typing import List
 
 import numpy as np
@@ -14,6 +12,10 @@ from from_z3 import *
 TRACE_FILE = '.z3-trace'
 
 trace_states = defaultdict(int)
+start_state_number = 50
+transition_matrix = np.zeros((start_state_number, start_state_number), dtype=int)
+all_new_transitions = 0
+new_transitions = 0
 trace_offset = 0
 info_kinds = {Z3_OP_AND: '(declare-fun and *)',
               Z3_OP_OR: '(declare-fun or *)',
@@ -78,7 +80,7 @@ class ClauseInfo(object):
 
 class TraceStats(object):
 
-    def __init__(self, size: int = 1):
+    def __init__(self, size: int = start_state_number):
         self.hash = 0
 
         if heuristic == 'transitions':
@@ -109,14 +111,21 @@ class TraceStats(object):
 
     def add_trans(self, i: State, j: State):
         """Add transition to matrix."""
-        global trace_states
+        global trace_states, transition_matrix, \
+            new_transitions, all_new_transitions
+
         i_ind = trace_states[i]
         j_ind = trace_states[j]
         shape = self.matrix.shape
         if shape[0] <= i_ind or shape[1] <= j_ind:
             size = max(i_ind, j_ind) + 1
             self.resize(size)
+            transition_matrix = np.resize(transition_matrix, (size, size))
         self.matrix[i_ind, j_ind] += 1
+        if not transition_matrix[i_ind, j_ind]:
+            transition_matrix[i_ind, j_ind] = 1
+            new_transitions += 1
+            all_new_transitions += 1
 
     def read_from_trace(self, is_seed: bool = False):
         """Read z3-trace from last read line."""
@@ -134,6 +143,8 @@ class TraceStats(object):
             trace_offset = trace.seek(0, io.SEEK_END)
 
     def load_states(self, states: List[State]):
+        global new_transitions
+        new_transitions = 0
         hash_builder = hashlib.sha512()
         prev_state = None
 
@@ -150,7 +161,7 @@ class TraceStats(object):
                 if prev_state:
                     self.add_trans(prev_state, state)
                 prev_state = state
-
+        print(len(trace_states))
         self.hash = hash_builder.digest()
 
     def get_probability(self):

@@ -1,22 +1,21 @@
 import argparse
 import faulthandler
 import gc
-import logging
 import itertools
-from typing import Optional
-from sklearn.preprocessing import normalize
-
-import objgraph
+import logging
 import os.path
+import traceback
+from typing import Optional
+
+from sklearn.preprocessing import normalize
 
 import instances
 import oracles
-from instances import *
-from seeds import *
-from seed_info_utils import *
 
-# noinspection PyUnresolvedReferences
 import z3_api_mods
+from instances import *
+from seed_info_utils import *
+from seeds import *
 
 faulthandler.enable()
 enable_trace('spacer')
@@ -469,7 +468,7 @@ def fuzz(files: set):
                 mut_time = time.perf_counter()
                 timeout, changed = mut.apply(instance, mut_instance)
                 mut_time = time.perf_counter() - mut_time
-                mut_instance.update_mutation_stats(new_application=True)
+                mut_instance.inc_mutation_stats('applications')
                 mut_instance.dump('output/mutants',
                                   group.filename,
                                   to_name=mut_instance.id,
@@ -496,7 +495,8 @@ def fuzz(files: set):
 
                     trace_changed = (instance.trace_stats.hash !=
                                      mut_instance.trace_stats.hash)
-                    mut_instance.update_mutation_stats(new_trace_found=trace_changed)
+                    if trace_changed:
+                        mut_instance.inc_mutation_stats('new_traces')
 
                     if not res:
                         handle_bug(instance, mut_instance)
