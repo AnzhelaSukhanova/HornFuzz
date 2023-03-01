@@ -1,6 +1,7 @@
 import time
 import re
 import utils
+from enum import Enum
 from utils import *
 
 MUT_APPLY_TIME_LIMIT = 10
@@ -9,7 +10,7 @@ MUT_SOLVE_TIME_LIMIT_MS = int(1e5)
 
 MODEL_CHECK_TIME_LIMIT = 100
 INSTANCE_ID = 0
-ONE_INST_MUT_LIMIT = 1000
+ONE_INST_MUT_LIMIT = 100
 
 unique_traces = set()
 instance_groups = defaultdict()
@@ -209,7 +210,6 @@ class Instance(object):
             self.set_chc(chc)
         self.satis = unknown
         self.trace_stats = TraceStats()
-        self.sort_key = 0
         self.params = {}
         self.model = None
         self.model_info = (sat, 0)
@@ -282,6 +282,7 @@ class Instance(object):
 
         if get_stats:
             self.trace_stats.read_from_trace(is_seed)
+            self.inc_mutation_stats('new_transitions', utils.new_transitions)
             self.update_traces_info()
 
         assert self.satis != unknown, solver.reason_unknown()
@@ -347,7 +348,7 @@ class Instance(object):
         uninterpreted predicates and their set.
         """
         if mut_groups[0] != MutTypeGroup.OWN and \
-                heuristic not in {'difficulty', 'simplicity'}:
+                utils.heuristic not in {'difficulty', 'simplicity'}:
             return
         group = self.get_group()
         chc_system = self.chc
@@ -399,15 +400,17 @@ class Instance(object):
         if clear:
             self.reset_chc()
 
-    def update_mutation_stats(self, new_application: bool = False, new_trace_found: bool = False):
+    def inc_mutation_stats(self, stats_name: str, value: int = 1):
         global mut_stats
 
         mut_name = self.mutation.type.name
         current_mutation_stats = \
             mut_stats.setdefault(mut_name,
-                                 {'applications': 0.0, 'new_traces': 0.0})
-        current_mutation_stats['applications'] += int(new_application)
-        current_mutation_stats['new_traces'] += int(new_trace_found)
+                                 {'applications': 0.0,
+                                  'new_traces': 0.0,
+                                  'new_transitions': 0.0,
+                                  'trace_changed': 0.0})
+        current_mutation_stats[stats_name] += value
 
 
 class MutTypeEncoder(json.JSONEncoder):
@@ -659,11 +662,11 @@ def init_mut_types(options: list = None, mutations: list = None):
 
 
 own_mutations = {'SWAP_AND': Z3_OP_AND, 'DUP_AND': Z3_OP_AND,
-                        'BREAK_AND': Z3_OP_AND, 'SWAP_OR': Z3_OP_OR,
-                        'MIX_BOUND_VARS': Z3_QUANTIFIER_AST,
-                        'ADD_INEQ': {Z3_OP_LE, Z3_OP_GE, Z3_OP_LT, Z3_OP_GT},
-                        'ADD_LIN_RULE': Z3_OP_UNINTERPRETED,
-                        'ADD_NONLIN_RULE': Z3_OP_UNINTERPRETED}
+                 'BREAK_AND': Z3_OP_AND, 'SWAP_OR': Z3_OP_OR,
+                 'MIX_BOUND_VARS': Z3_QUANTIFIER_AST,
+                 'ADD_INEQ': {Z3_OP_LE, Z3_OP_GE, Z3_OP_LT, Z3_OP_GT},
+                 'ADD_LIN_RULE': Z3_OP_UNINTERPRETED,
+                 'ADD_NONLIN_RULE': Z3_OP_UNINTERPRETED}
 
 default_simplify_options = {'algebraic_number_evaluator', 'bit2bool',
                             'elim_ite', 'elim_sign_ext', 'flat', 'hi_div0',
@@ -684,8 +687,14 @@ def update_mutation_weights():
             continue
         trace_discover_probability = current_mut_stats['new_traces'] / \
                                      current_mut_stats['applications']
-        mut_types[mut_name].weight = 0.62 * mut_types[mut_name].weight + \
-                                     0.38 * trace_discover_probability
+        trace_change_probability = current_mut_stats['trace_changed'] / \
+                                   current_mut_stats['applications']
+        new_transition_probability = current_mut_stats['new_transitions'] / \
+                                     utils.all_new_transitions
+        mut_types[mut_name].weight = 0.6 * mut_types[mut_name].weight + \
+                                     0.2 * trace_change_probability + \
+                                     0.1 * trace_discover_probability + \
+                                     0.1 * new_transition_probability
 
 
 class Mutation(object):
@@ -755,6 +764,12 @@ class Mutation(object):
                 instance.chc.sexpr() == new_instance.chc.sexpr():
             self.simplify_changed = True
             changed = False
+        else:
+            if utils.heuristic == 'transitions':
+                prev_matrix = instance.trace_stats.matrix
+                cur_matrix = new_instance.trace_stats.matrix
+                if prev_matrix != cur_matrix:
+                    new_instance.inc_mutation_stats('trace_changed')
 
         return timeout, changed
 
@@ -1055,14 +1070,14 @@ class Mutation(object):
 
         if mut_name == 'ADD_INEQ':
             return mut_name + '(' + \
-                   str(self.kind) + ', ' + \
-                   str(self.clause_i) + ', ' + \
-                   str(self.trans_num) + ')'
+                str(self.kind) + ', ' + \
+                str(self.clause_i) + ', ' + \
+                str(self.trans_num) + ')'
 
         elif mut_name in own_mutations:
             return mut_name + '(' + \
-                   str(self.clause_i) + ', ' + \
-                   str(self.trans_num) + ')'
+                str(self.clause_i) + ', ' + \
+                str(self.trans_num) + ')'
 
         else:
             return mut_name

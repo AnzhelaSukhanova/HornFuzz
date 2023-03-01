@@ -41,6 +41,8 @@ RUN git clone https://github.com/AnzhelaSukhanova/z3.git \
  && sed -i -e 's, -D_MP_INTERNAL, -D_TRACE -D_MP_INTERNAL,g' build/config.mk
  
 # install Z3
+RUN cd z3/build && make -j$(nproc) || true
+ADD tactic_params.hpp z3/src/tactic/tactic_params.hpp
 RUN cd z3/build && make -j$(nproc) && make install
 
 # add project-files
