@@ -9,7 +9,7 @@ MUT_SOLVE_TIME_LIMIT_MS = int(1e5)
 
 MODEL_CHECK_TIME_LIMIT = 100
 INSTANCE_ID = 0
-ONE_INST_MUT_LIMIT = 1000
+ONE_INST_MUT_LIMIT = 100
 
 unique_traces = set()
 instance_groups = defaultdict()
@@ -452,7 +452,8 @@ def init_mut_types(options: list = None, mutations: list = None):
 
     if not mutations or 'solving_parameters' in mutations:
         mut_groups.append(MutTypeGroup.PARAMETERS)
-        for name in {'SPACER.P3.SHARE_INVARIANTS',
+        for name in {'SPACER.GLOBAL',
+                     'SPACER.P3.SHARE_INVARIANTS',
                      'SPACER.P3.SHARE_LEMMAS',
                      # 'SPACER.PUSH_POB', -- takes a long time
                      'SPACER.USE_LIM_NUM_GEN',
@@ -480,6 +481,9 @@ def init_mut_types(options: list = None, mutations: list = None):
         for name in {'SPACER.CTP',
                      'SPACER.ELIM_AUX',
                      'SPACER.EQ_PROP',
+                     'SPACER.GG.CONCRETIZE',
+                     'SPACER.GG.CONJECTURE',
+                     'SPACER.GG.SUBSUME',
                      'SPACER.GROUND_POBS',
                      'SPACER.KEEP_PROXY',
                      'SPACER.MBQI',
@@ -740,7 +744,7 @@ class Mutation(object):
             new_instance.set_chc(self.add_nonlin_rule(instance))
 
         elif mut_name == 'EMPTY_SIMPLIFY':
-            new_instance.set_chc(self.empty_simplify(instance.chc))
+            new_instance.set_chc(empty_simplify(instance.chc))
 
         elif mut_name in own_mutations:
             new_instance.set_chc(self.transform(instance))
@@ -840,7 +844,7 @@ class Mutation(object):
             if i in ind:
                 cur_clause = AstVector(ctx=current_ctx)
                 cur_clause.push(chc_system[i])
-                rewritten_clause = self.empty_simplify(cur_clause)[0]
+                rewritten_clause = empty_simplify(cur_clause)[0]
 
                 clause = simplify(rewritten_clause, *params)
 
@@ -850,23 +854,6 @@ class Mutation(object):
                 del cur_clause, rewritten_clause
             else:
                 clause = chc_system[i]
-            mut_system.push(clause)
-
-        return mut_system
-
-    def empty_simplify(self, chc_system: AstVector) -> AstVector:
-        mut_system = AstVector(ctx=current_ctx)
-
-        for i in range(len(chc_system)):
-            clause = simplify(chc_system[i],
-                              algebraic_number_evaluator=False,
-                              bit2bool=False,
-                              elim_ite=False,
-                              elim_sign_ext=False,
-                              flat=False,
-                              hi_div0=False,
-                              ignore_patterns_on_ground_qbody=False,
-                              push_to_real=False)
             mut_system.push(clause)
 
         return mut_system
@@ -1103,6 +1090,24 @@ class Mutation(object):
                 self.trans_num = int(mut_info[2])
         else:
             assert False, 'Incorrect mutation entry'
+
+
+def empty_simplify(chc_system: AstVector) -> AstVector:
+    mut_system = AstVector(ctx=current_ctx)
+
+    for i in range(len(chc_system)):
+        clause = simplify(chc_system[i],
+                          algebraic_number_evaluator=False,
+                          bit2bool=False,
+                          elim_ite=False,
+                          elim_sign_ext=False,
+                          flat=False,
+                          hi_div0=False,
+                          ignore_patterns_on_ground_qbody=False,
+                          push_to_real=False)
+        mut_system.push(clause)
+
+    return mut_system
 
 
 def mut_break(children):
