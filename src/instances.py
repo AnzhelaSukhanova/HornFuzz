@@ -694,7 +694,8 @@ def update_mutation_weights():
         trace_change_probability = current_mut_stats['trace_changed'] / \
                                    current_mut_stats['applications']
         new_transition_probability = current_mut_stats['new_transitions'] / \
-                                     utils.all_new_transitions
+                                     utils.all_new_transitions \
+            if utils.all_new_transitions else 0
         mut_types[mut_name].weight = 0.6 * mut_types[mut_name].weight + \
                                      0.2 * trace_change_probability + \
                                      0.1 * trace_discover_probability + \
