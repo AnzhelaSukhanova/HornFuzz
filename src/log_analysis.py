@@ -217,9 +217,8 @@ class Stats:
                 continue
             filename = entry['filename']
             num += 1
-            mutation = entry['mut_type'].split('(')[0]
-            #chain_len = len(entry['mut_chain'].split('->'))
-            #chain_lengths.append(chain_len)
+            mutation = entry['mut_type']
+            print(filename, entry['mut_chain'])
             if len(count_dict[mutation]) > log_i:
                 count_dict[mutation][log_i] += 1
             else:

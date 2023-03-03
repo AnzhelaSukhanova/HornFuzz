@@ -251,15 +251,10 @@ def get_bug_info(filename: str):
         message = file.readline()
         message = message[2:] if message[0] == ';' else None
 
+    mutations = []
     if mut_line:
         if mut_line[0] == '[':
             mutations = json.loads(mut_line)
-        else:
-            mutations = mut_line.split('->')
-            if len(mutations) == 1:
-                mutations = []
-    else:
-        mutations = []
 
     if filename.startswith('out'):
         filename = '/'.join(filename.split('/')[2:])

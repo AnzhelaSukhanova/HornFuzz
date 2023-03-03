@@ -307,7 +307,10 @@ class Instance(object):
         return None
 
     def update_traces_info(self):
+        prev_trace_number = len(unique_traces)
         unique_traces.add(self.trace_stats.hash)
+        cur_trace_number = len(unique_traces)
+        self.inc_mutation_stats('new_traces', cur_trace_number - prev_trace_number)
 
     def get_group(self):
         """Return the group of the instance."""
@@ -691,15 +694,13 @@ def update_mutation_weights():
             continue
         trace_discover_probability = current_mut_stats['new_traces'] / \
                                      current_mut_stats['applications']
-        trace_change_probability = current_mut_stats['trace_changed'] / \
-                                   current_mut_stats['applications']
-        new_transition_probability = current_mut_stats['new_transitions'] / \
-                                     utils.all_new_transitions \
-            if utils.all_new_transitions else 0
-        mut_types[mut_name].weight = 0.6 * mut_types[mut_name].weight + \
-                                     0.2 * trace_change_probability + \
-                                     0.1 * trace_discover_probability + \
-                                     0.1 * new_transition_probability
+        # trace_change_probability = current_mut_stats['trace_changed'] / \
+        #                            current_mut_stats['applications']
+        # new_transition_probability = current_mut_stats['new_transitions'] / \
+        #                              utils.all_new_transitions \
+        #     if utils.all_new_transitions else 0
+        mut_types[mut_name].weight = 0.62 * mut_types[mut_name].weight + \
+                                     0.38 * trace_discover_probability
 
 
 class Mutation(object):
@@ -769,12 +770,6 @@ class Mutation(object):
                 instance.chc.sexpr() == new_instance.chc.sexpr():
             self.simplify_changed = True
             changed = False
-        else:
-            if utils.heuristic == 'transitions':
-                prev_matrix = instance.trace_stats.matrix
-                cur_matrix = new_instance.trace_stats.matrix
-                if prev_matrix != cur_matrix:
-                    new_instance.inc_mutation_stats('trace_changed')
 
         return timeout, changed
 
@@ -1015,11 +1010,9 @@ class Mutation(object):
         self.applied = True
         return mut_clause
 
-    def get_chain(self, format='pp'):
+    def get_chain(self, format='list'):
         """Return the full mutation chain."""
-        if format == 'pp':
-            chain = self.get_name()
-        elif format == 'log':
+        if format == 'log':
             chain = [self.get_log()]
         elif format == 'list':
             chain = [self.get_name()]
@@ -1028,10 +1021,7 @@ class Mutation(object):
         cur_mutation = self
         for i in range(self.number, 1, -1):
             cur_mutation = cur_mutation.prev_mutation
-            if format == 'pp':
-                mut_name = cur_mutation.get_name()
-                chain = mut_name + '->' + chain
-            elif format == 'log':
+            if format == 'log':
                 cur_log = [cur_mutation.get_log()]
                 chain = cur_log + chain
             elif format == 'list':
@@ -1042,8 +1032,8 @@ class Mutation(object):
         return chain
 
     def same_chain_start(self, other) -> bool:
-        fst_chain = self.get_chain(format='list')
-        snd_chain = other.get_chain(format='list')
+        fst_chain = self.get_chain()
+        snd_chain = other.get_chain()
         fst_len = len(fst_chain)
         snd_len = len(snd_chain)
         length = fst_len if fst_len < snd_len else snd_len

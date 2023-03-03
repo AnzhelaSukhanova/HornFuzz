@@ -159,8 +159,7 @@ def log_run_info(status: str, group: InstanceGroup, message: str = None,
             if status == 'error':
                 if instance.chc:
                     log['chc'] = instance.chc.sexpr()
-                chain = instance.mutation.get_chain()
-                log['mut_chain'] = chain
+                log['mut_chain'] = instance.mutation.get_chain()
             else:
                 log['satis'] = instance.satis.r
 
@@ -168,8 +167,9 @@ def log_run_info(status: str, group: InstanceGroup, message: str = None,
             mutant_info = mut_instance.get_log(group)
             log.update(mutant_info)
             if status not in {'pass', 'without_change'}:
-                chain = mut_instance.mutation.get_chain()
-                log['mut_chain'] = chain
+                log['mut_chain'] = instance.mutation.get_chain()
+                last_mutation = mut_instance.mutation
+                log['mut_chain'].append(last_mutation.get_name())
                 if status in {'bug', 'wrong_model',
                               'mutant_unknown', 'error'}:
                     log['satis'] = mut_instance.satis.r
@@ -496,7 +496,7 @@ def fuzz(files: set):
                     trace_changed = (instance.trace_stats.hash !=
                                      mut_instance.trace_stats.hash)
                     if trace_changed:
-                        mut_instance.inc_mutation_stats('new_traces')
+                        mut_instance.inc_mutation_stats('trace_changed')
 
                     if not res:
                         handle_bug(instance, mut_instance)

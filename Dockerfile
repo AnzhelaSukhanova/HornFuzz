@@ -36,13 +36,11 @@ RUN pip install -r requirements.txt
 # download and edit Z3-sourses
 RUN git clone https://github.com/AnzhelaSukhanova/z3.git \
  && cd z3 \
- && git checkout cd6801b \
+ && git checkout c2db023 \
  && python scripts/mk_make.py --python \
  && sed -i -e 's, -D_MP_INTERNAL, -D_TRACE -D_MP_INTERNAL,g' build/config.mk
  
 # install Z3
-RUN cd z3/build && make -j$(nproc) || true
-ADD tactic_params.hpp z3/src/tactic/tactic_params.hpp
 RUN cd z3/build && make -j$(nproc) && make install
 
 # add project-files
@@ -52,4 +50,4 @@ ADD false_formulas false_formulas
 ADD exclude_seed.json .
 
 # run fuzzing
-CMD ["python", "src/main.py", "all", "-heuristic", "transitions"]
+CMD ["python", "src/main.py", "all"]
