@@ -263,8 +263,7 @@ class Instance(object):
         self.chc = None
         self.model = None
 
-    def check(self, solver: Solver, is_seed: bool = False,
-              get_stats: bool = True):
+    def check(self, solver: Solver, is_seed: bool = False):
         """Check the satisfiability of the instance."""
         solver.reset()
         self.trace_stats.reset_trace_offset()
@@ -279,11 +278,6 @@ class Instance(object):
         self.satis = solver.check()
         if self.satis == sat:
             self.model = solver.model()
-
-        if get_stats:
-            self.trace_stats.read_from_trace(is_seed)
-            self.inc_mutation_stats('new_transitions', utils.new_transitions)
-            self.update_traces_info()
 
         assert self.satis != unknown, solver.reason_unknown()
 
@@ -306,11 +300,13 @@ class Instance(object):
             return solver.reason_unknown()
         return None
 
-    def update_traces_info(self):
+    def update_traces_info(self, is_seed: bool = False):
         prev_trace_number = len(unique_traces)
         unique_traces.add(self.trace_stats.hash)
-        cur_trace_number = len(unique_traces)
-        self.inc_mutation_stats('new_traces', cur_trace_number - prev_trace_number)
+        if not is_seed:
+            cur_trace_number = len(unique_traces)
+            growth = cur_trace_number - prev_trace_number
+            self.inc_mutation_stats('new_traces', growth)
 
     def get_group(self):
         """Return the group of the instance."""
@@ -412,7 +408,7 @@ class Instance(object):
                                  {'applications': 0.0,
                                   'new_traces': 0.0,
                                   'new_transitions': 0.0,
-                                  'trace_changed': 0.0})
+                                  'changed_traces': 0.0})
         current_mutation_stats[stats_name] += value
 
 
@@ -694,13 +690,15 @@ def update_mutation_weights():
             continue
         trace_discover_probability = current_mut_stats['new_traces'] / \
                                      current_mut_stats['applications']
-        # trace_change_probability = current_mut_stats['trace_changed'] / \
-        #                            current_mut_stats['applications']
-        # new_transition_probability = current_mut_stats['new_transitions'] / \
-        #                              utils.all_new_transitions \
-        #     if utils.all_new_transitions else 0
-        mut_types[mut_name].weight = 0.62 * mut_types[mut_name].weight + \
-                                     0.38 * trace_discover_probability
+        trace_change_probability = current_mut_stats['changed_traces'] / \
+                                   current_mut_stats['applications']
+        new_transition_probability = current_mut_stats['new_transitions'] / \
+                                     utils.all_new_transitions \
+            if utils.all_new_transitions else 0
+        mut_types[mut_name].weight = 0.7 * mut_types[mut_name].weight + \
+                                     0.1 * trace_change_probability + \
+                                     0.1 * trace_discover_probability + \
+                                     0.1 * new_transition_probability
 
 
 class Mutation(object):

@@ -161,7 +161,6 @@ class TraceStats(object):
                 if prev_state:
                     self.add_trans(prev_state, state)
                 prev_state = state
-        print(len(trace_states))
         self.hash = hash_builder.digest()
 
     def get_probability(self):

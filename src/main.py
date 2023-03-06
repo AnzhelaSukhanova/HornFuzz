@@ -70,10 +70,28 @@ def calculate_weights() -> list:
     return weights
 
 
-def check_satis(instance: Instance, group: InstanceGroup = None,
-                is_seed: bool = False, get_stats: bool = True):
+def get_trace_stats(instance: Instance, is_seed: bool = False,
+                    trace_changed: bool = False):
     global general_stats
 
+    instance.trace_stats.read_from_trace(is_seed)
+    instance.update_traces_info(is_seed=is_seed)
+
+    if not is_seed:
+        instance.inc_mutation_stats('applications')
+        instance.inc_mutation_stats('changed_traces', int(trace_changed))
+        instance.inc_mutation_stats('new_transitions', utils.new_transitions)
+
+        mut_type = instance.mutation.type
+        current_mutation_stats = instances.mut_stats[mut_type.name]
+        assert current_mutation_stats['changed_traces'] < current_mutation_stats['new_traces']
+
+    if heuristic in {'transitions', 'states'}:
+        general_stats += instance.trace_stats
+
+
+def check_satis(instance: Instance, group: InstanceGroup = None,
+                is_seed: bool = False):
     solver = SolverFor('HORN',
                        ctx=instances.current_ctx)
     solver.set('engine', 'spacer')
@@ -81,19 +99,16 @@ def check_satis(instance: Instance, group: InstanceGroup = None,
     if not is_seed:
         seed = group[0]
         if seed.satis == unknown:
-            seed.check(solver, is_seed=True, get_stats=get_stats)
+            seed.check(solver, is_seed=True)
         satis = seed.satis
 
     for param in instance.params:
         value = instance.params[param]
         solver.set(param, value)
 
-    instance.check(solver, is_seed, get_stats)
+    instance.check(solver, is_seed)
     if is_seed:
         satis = instance.satis
-
-    if get_stats and (heuristic in {'transitions', 'states'}):
-        general_stats += instance.trace_stats
 
     return instance.satis == satis
 
@@ -307,6 +322,7 @@ def new_seeds_processor(files: set, base_idx: int, seed_info_index):
         try:
             st_time = time.perf_counter()
             check_satis(instance, is_seed=True)
+            get_trace_stats(instance, is_seed=True)
             message = instance.check_model()
             if instance.model_info[0] != sat:
                 handle_bug(instance,
@@ -468,7 +484,6 @@ def fuzz(files: set):
                 mut_time = time.perf_counter()
                 timeout, changed = mut.apply(instance, mut_instance)
                 mut_time = time.perf_counter() - mut_time
-                mut_instance.inc_mutation_stats('applications')
                 mut_instance.dump('output/mutants',
                                   group.filename,
                                   to_name=mut_instance.id,
@@ -480,6 +495,9 @@ def fuzz(files: set):
                         st_time = time.perf_counter()
                         res = check_satis(mut_instance, group)
                         solve_time = time.perf_counter() - st_time
+                        trace_changed = (instance.trace_stats.hash !=
+                                         mut_instance.trace_stats.hash)
+                        get_trace_stats(mut_instance, trace_changed=trace_changed)
                     except AssertionError as err:
                         analyze_check_exception(instance,
                                                 err,
@@ -492,11 +510,6 @@ def fuzz(files: set):
                         instance = group[0]
                         mut_instance.reset_chc()
                         continue
-
-                    trace_changed = (instance.trace_stats.hash !=
-                                     mut_instance.trace_stats.hash)
-                    if trace_changed:
-                        mut_instance.inc_mutation_stats('trace_changed')
 
                     if not res:
                         handle_bug(instance, mut_instance)
