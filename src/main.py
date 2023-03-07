@@ -30,9 +30,11 @@ queue = []
 current_ctx = None
 general_stats = None
 counter = defaultdict(int)
+without_bug_counter = defaultdict(int)
 
 PROBLEMS_LIMIT = 10
 MUT_WEIGHT_UPDATE_RUNS = 10*ONE_INST_MUT_LIMIT
+WITHOUT_BUG_LIMIT = 500
 
 with_oracles = False
 oracles_names = {'Eldarica'}
@@ -45,8 +47,12 @@ def calculate_weights() -> list:
     weights = []
 
     for instance in queue:
+        group = instance.get_group()
+        filename = group.filename
         stats = instance.trace_stats
-        if heuristic == 'transitions':
+        if without_bug_counter[filename] >= WITHOUT_BUG_LIMIT:
+            weight = 0.1
+        elif heuristic == 'transitions':
             prob_matrix = stats.get_probability()
             size = stats.matrix.shape[0]
             weight_matrix_part = weighted_stats[:size, :size]
@@ -84,7 +90,8 @@ def get_trace_stats(instance: Instance, is_seed: bool = False,
 
         mut_type = instance.mutation.type
         current_mutation_stats = instances.mut_stats[mut_type.name]
-        assert current_mutation_stats['changed_traces'] < current_mutation_stats['new_traces']
+        assert current_mutation_stats['changed_traces'] >= current_mutation_stats['new_traces'], \
+            'There are more unique traces than their changes'
 
     if heuristic in {'transitions', 'states'}:
         general_stats += instance.trace_stats
@@ -201,25 +208,24 @@ def analyze_check_exception(instance: Instance, err: Exception,
     """Log information about exceptions that occur during the check."""
     global counter
     group = instance.get_group()
+    if not message:
+        message = repr(err)
 
     if is_seed:
         if str(err) == 'timeout':
             counter['timeout'] += 1
             status = 'seed_timeout'
-        elif message:
-            counter['error'] += 1
-            status = 'error'
-        else:
+        elif instance.satis == unknown:
             counter['unknown'] += 1
             status = 'seed_unknown'
-            message = repr(err)
+        else:
+            counter['error'] += 1
+            status = 'error'
         log_run_info(status,
                      group,
                      message,
                      instance)
     else:
-        if not message:
-            message = repr(err)
         if str(err) == 'timeout' or isinstance(err, TimeoutError):
             counter['timeout'] += 1
             status = 'mutant_timeout' if mut_instance \
@@ -241,7 +247,7 @@ def analyze_check_exception(instance: Instance, err: Exception,
                          message,
                          instance,
                          mut_instance)
-        if status == 'unknown':
+        if status == 'mutant_unknown':
             mut_instance.dump('output/unknown',
                               group.filename,
                               message=message,
@@ -372,14 +378,16 @@ def run_seeds(files: set):
 
 def handle_bug(instance: Instance, mut_instance: Instance = None,
                message: str = None):
-    global counter
+    global counter, without_bug_counter
 
+    group = instance.get_group()
     counter['bug'] += 1
+    without_bug_counter[group.filename] = 0
+
     model_state = mut_instance.model_info[0] \
         if mut_instance \
         else instance.model_info[0]
     status = 'bug' if model_state == sat else 'wrong_model'
-    group = instance.get_group()
     log_run_info(status,
                  group,
                  message,
@@ -434,7 +442,7 @@ def ensure_current_context_is_deletable():
 
 
 def fuzz(files: set):
-    global queue, current_ctx, counter
+    global queue, current_ctx, counter, without_bug_counter
 
     run_seeds(files)
     logging.info(json.dumps({'seed_number': seed_number,
@@ -476,6 +484,7 @@ def fuzz(files: set):
                 i += 1
                 if with_weights:
                     runs_before_weight_update -= 1
+                without_bug_counter[group.filename] += 1
 
                 mut_instance = Instance()
                 mut = mut_instance.mutation
