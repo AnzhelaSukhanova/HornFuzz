@@ -285,7 +285,7 @@ def analyze(log_names: list, stats: list, select: list, options: list):
         times.savefig('stats/runs.png', bbox_inches='tight')
 
     if 'bugs' in stats:
-        times.legend(slegend)
+        times.legend(legend)
         times.savefig('stats/bugs.png', bbox_inches='tight')
 
     count_dict = dict(sorted(count_dict.items(),
