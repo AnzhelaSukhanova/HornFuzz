@@ -1,6 +1,7 @@
 import hashlib
 import json
 import random
+import difflib
 from collections import defaultdict
 from copy import deepcopy
 from typing import List
@@ -8,8 +9,7 @@ from typing import List
 import numpy as np
 from scipy.sparse import dok_matrix
 from from_z3 import *
-
-TRACE_FILE = '.z3-trace'
+from constants import *
 
 trace_states = defaultdict(int)
 start_state_number = 50
@@ -81,6 +81,7 @@ class ClauseInfo(object):
 class TraceStats(object):
 
     def __init__(self, size: int = start_state_number):
+        self.states = None
         self.hash = 0
 
         if heuristic == 'transitions':
@@ -136,6 +137,23 @@ class TraceStats(object):
         self.load_states(states)
         if is_seed:
             self.states = states
+        else:
+            with open('last-trace.txt', 'r') as last_trace:
+                last_lines = last_trace.readlines()
+            if last_lines:
+                diff = difflib.unified_diff(last_lines, lines,
+                                            'last-trace.txt', TRACE_FILE)
+                num = 0
+                with open('trace-diff.txt', 'w') as trace_diff:
+                    for line in diff:
+                        trace_diff.write(line)
+                        if line[0] in {'-', '+'}:
+                            num += 1
+                print(num)
+                if 0 < num < len(last_lines)/10 or num > 3*len(last_lines):
+                    exit()
+            with open('last-trace.txt', 'w') as last_trace:
+                last_trace.writelines(lines)
 
     def reset_trace_offset(self):
         global trace_offset

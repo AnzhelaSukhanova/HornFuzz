@@ -1,26 +1,26 @@
 import time
 import re
 import utils
+from solvers import *
 from enum import Enum
 from utils import *
 
-MUT_APPLY_TIME_LIMIT = 10
-SEED_SOLVE_TIME_LIMIT_MS = int(2 * 1e3)
-MUT_SOLVE_TIME_LIMIT_MS = int(1e5)
-
-MODEL_CHECK_TIME_LIMIT = 100
-INSTANCE_ID = 0
-ONE_INST_MUT_LIMIT = 100
-
+instance_id = 0
 unique_traces = set()
 instance_groups = defaultdict()
 current_ctx = None
+solver = 'spacer'
 
 
 def set_ctx(ctx):
     global current_ctx
     current_ctx = ctx
     utils.set_ctx(ctx)
+
+
+def set_solver(cur_solver: str):
+    global solver
+    solver = cur_solver
 
 
 class Family(Enum):
@@ -125,7 +125,7 @@ class InstanceGroup(object):
                 self.roll_back()
                 return 0
 
-    def restore(self, id: int, mutations):
+    def restore(self, mutations):
         seed = parse_smt2_file(self.filename, ctx=current_ctx)
         instance = Instance(seed)
         self.push(instance)
@@ -201,9 +201,9 @@ def copy_chc(chc_system: AstVector) -> AstVector:
 class Instance(object):
 
     def __init__(self, chc: AstVector = None):
-        global INSTANCE_ID
-        self.id = INSTANCE_ID
-        INSTANCE_ID += 1
+        global instance_id
+        self.id = instance_id
+        instance_id += 1
         self.group_id = -1
         self.chc = None
         if chc is not None:
@@ -263,23 +263,39 @@ class Instance(object):
         self.chc = None
         self.model = None
 
-    def check(self, solver: Solver, is_seed: bool = False):
+    def check(self, group: InstanceGroup, is_seed: bool = False):
         """Check the satisfiability of the instance."""
-        solver.reset()
-        self.trace_stats.reset_trace_offset()
-        if is_seed:
-            solver.set('timeout', SEED_SOLVE_TIME_LIMIT_MS)
-        else:
-            solver.set('timeout', MUT_SOLVE_TIME_LIMIT_MS)
+        timeout = SEED_SOLVE_TIME_LIMIT_MS if is_seed else MUT_SOLVE_TIME_LIMIT_MS
 
-        chc_system = self.get_chc(is_seed)
-        solver.add(chc_system)
+        if solver == 'spacer':
+            cur_solver = SolverFor('HORN', ctx=current_ctx)
+            cur_solver.set('engine', 'spacer')
+            for param in self.params:
+                value = self.params[param]
+                cur_solver.set(param, value)
+            self.trace_stats.reset_trace_offset()
+            cur_solver.set('timeout', timeout)
+            chc_system = self.get_chc(is_seed)
+            cur_solver.add(chc_system)
 
-        self.satis = solver.check()
-        if self.satis == sat:
-            self.model = solver.model()
+            self.satis = cur_solver.check()
+            if self.satis == sat:
+                self.model = cur_solver.model()
+            reason_unknown = cur_solver.reason_unknown()
 
-        assert self.satis != unknown, solver.reason_unknown()
+        elif solver == 'eldarica':
+            if not is_seed:
+                self.dump('output/last_mutants/',
+                          group.filename,
+                          clear=False)
+                filename = 'output/last_mutants/' + group.filename
+            else:
+                filename = group.filename
+
+            state, reason_unknown = eldarica_check(filename, timeout)
+            self.satis = CheckSatResult(state)
+
+        assert self.satis != unknown, reason_unknown
 
     def check_model(self):
         if self.satis != sat:
@@ -440,7 +456,7 @@ def init_mut_types(options: list = None, mutations: list = None):
     if 'without_mutation_weights' in options:
         with_weights = False
 
-    if not mutations or 'own' in mutations:
+    if 'own' in mutations:
         mut_groups.append(MutTypeGroup.OWN)
         for name in {'SWAP_AND',
                      'DUP_AND',
@@ -452,7 +468,7 @@ def init_mut_types(options: list = None, mutations: list = None):
                      'ADD_NONLIN_RULE'}:
             mut_types[name] = MutType(name, MutTypeGroup.OWN)
 
-    if not mutations or 'solving_parameters' in mutations:
+    if solver == 'spacer' and 'spacer_parameters' in mutations:
         mut_groups.append(MutTypeGroup.PARAMETERS)
         for name in {'SPACER.GLOBAL',
                      'SPACER.P3.SHARE_INVARIANTS',
@@ -515,7 +531,7 @@ def init_mut_types(options: list = None, mutations: list = None):
                     default_value=0,
                     upper_limit=sys.maxsize)
 
-    if not mutations or 'simplifications' in mutations:
+    if 'simplifications' in mutations:
         mut_groups.append(MutTypeGroup.SIMPLIFICATIONS)
         name = 'EMPTY_SIMPLIFY'
         mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
@@ -688,17 +704,15 @@ def update_mutation_weights():
         current_mut_stats = mut_stats.get(mut_name)
         if current_mut_stats is None or mut_name == 'ID':
             continue
-        trace_discover_probability = current_mut_stats['new_traces'] / \
-                                     current_mut_stats['applications']
         trace_change_probability = current_mut_stats['changed_traces'] / \
                                    current_mut_stats['applications']
-        new_transition_probability = current_mut_stats['new_transitions'] / \
-                                     utils.all_new_transitions \
-            if utils.all_new_transitions else 0
-        mut_types[mut_name].weight = 0.7 * mut_types[mut_name].weight + \
-                                     0.1 * trace_change_probability + \
-                                     0.1 * trace_discover_probability + \
-                                     0.1 * new_transition_probability
+        # trace_discover_probability = current_mut_stats['new_traces'] / \
+        #                              current_mut_stats['applications']
+        # new_transition_probability = current_mut_stats['new_transitions'] / \
+        #                              utils.all_new_transitions \
+        #     if utils.all_new_transitions else 0
+        mut_types[mut_name].weight = 0.62 * mut_types[mut_name].weight + \
+                                     0.38 * trace_change_probability
 
 
 class Mutation(object):
@@ -831,6 +845,7 @@ class Mutation(object):
             else:
                 mut_name = random.choice(types_to_choose) if types_to_choose else 'ID'
             self.type = mut_types[mut_name]
+            print(mut_name)
 
         if mut_name in own_mutations and self.kind is None:
             if mut_name == 'ADD_INEQ':
