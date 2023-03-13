@@ -6,6 +6,7 @@ from enum import Enum
 from utils import *
 
 instance_id = 0
+new_trace_number = 0
 unique_traces = set()
 instance_groups = defaultdict()
 current_ctx = None
@@ -41,6 +42,7 @@ class InstanceGroup(object):
         self.is_linear = True
         self.upred_num = 0
         self.family = Family.UNKNOWN
+        self.trace_number = 0
 
     def __getitem__(self, index: int):
         index = index % len(self.instances)
@@ -66,6 +68,7 @@ class InstanceGroup(object):
     def push(self, instance):
         """Add an instance to the group."""
         instance.group_id = self.id
+        self.trace_number += new_trace_number
 
         if self.upred_num == 0:
             instance.find_pred_info()
@@ -144,6 +147,7 @@ class InstanceGroup(object):
 
     def reset(self, start_ind: int = None):
         length = len(self.instances)
+        self.trace_number = 0
         if start_ind is None:
             start_ind = 0
         for i in range(length - 1, start_ind - 1, -1):
@@ -317,12 +321,14 @@ class Instance(object):
         return None
 
     def update_traces_info(self, is_seed: bool = False):
+        global new_trace_number
+
         prev_trace_number = len(unique_traces)
         unique_traces.add(self.trace_stats.hash)
         if not is_seed:
             cur_trace_number = len(unique_traces)
-            growth = cur_trace_number - prev_trace_number
-            self.inc_mutation_stats('new_traces', growth)
+            new_trace_number = cur_trace_number - prev_trace_number
+            self.inc_mutation_stats('new_traces', new_trace_number)
 
     def get_group(self):
         """Return the group of the instance."""
@@ -706,13 +712,14 @@ def update_mutation_weights():
             continue
         trace_change_probability = current_mut_stats['changed_traces'] / \
                                    current_mut_stats['applications']
-        # trace_discover_probability = current_mut_stats['new_traces'] / \
-        #                              current_mut_stats['applications']
+        trace_discover_probability = current_mut_stats['new_traces'] / \
+                                     current_mut_stats['applications']
         # new_transition_probability = current_mut_stats['new_transitions'] / \
         #                              utils.all_new_transitions \
         #     if utils.all_new_transitions else 0
-        mut_types[mut_name].weight = 0.62 * mut_types[mut_name].weight + \
-                                     0.38 * trace_change_probability
+        coef = 0.62 if trace_change_probability < 0.9 else 0.8
+        mut_types[mut_name].weight = coef * mut_types[mut_name].weight + \
+                                     (1 - coef) * trace_discover_probability
 
 
 class Mutation(object):
@@ -845,7 +852,6 @@ class Mutation(object):
             else:
                 mut_name = random.choice(types_to_choose) if types_to_choose else 'ID'
             self.type = mut_types[mut_name]
-            print(mut_name)
 
         if mut_name in own_mutations and self.kind is None:
             if mut_name == 'ADD_INEQ':

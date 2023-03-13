@@ -41,14 +41,17 @@ def calculate_weights() -> list:
         group = instance.get_group()
         filename = group.filename
         stats = instance.trace_stats
-        if without_bug_counter[filename] >= WITHOUT_BUG_LIMIT:
-            weight = 0.1
-        elif heuristic == 'transitions':
+        # if without_bug_counter[filename] >= WITHOUT_BUG_LIMIT:
+        #     weight = 0.1
+        if heuristic == 'transitions':
             prob_matrix = stats.get_probability()
             size = stats.matrix.shape[0]
             weight_matrix_part = weighted_stats[:size, :size]
             trans_matrix = stats.matrix
             weight = np.sum(prob_matrix * trans_matrix * weight_matrix_part)
+            group_len = len(group.instances)
+            if group_len > 1 and group.trace_number/group_len >= 0.8:
+                weight *= 0.8
         elif heuristic == 'states':
             states_prob = stats.get_probability()
             weight = sum(states_prob[state] * weighted_stats[state]
@@ -368,8 +371,8 @@ def handle_bug(instance: Instance, mut_instance: Instance = None,
         if mut_instance \
         else instance.model_info[0]
     status = 'bug' if model_state == sat else 'wrong_model'
-    if model_state != 'unknown':
-        without_bug_counter[group.filename] = 0
+    # if model_state != 'unknown':
+    #     without_bug_counter[group.filename] = 0
     log_run_info(status,
                  group,
                  message,
@@ -446,7 +449,7 @@ def fuzz(files: set):
                 i += 1
                 if with_weights:
                     runs_before_weight_update -= 1
-                without_bug_counter[group.filename] += 1
+                # without_bug_counter[group.filename] += 1
 
                 mut_instance = Instance()
                 mut = mut_instance.mutation
