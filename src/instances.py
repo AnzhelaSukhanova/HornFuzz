@@ -43,6 +43,7 @@ class InstanceGroup(object):
         self.upred_num = 0
         self.family = Family.UNKNOWN
         self.trace_number = 0
+        self.mutation_number = 0
 
     def __getitem__(self, index: int):
         index = index % len(self.instances)
@@ -69,6 +70,7 @@ class InstanceGroup(object):
         """Add an instance to the group."""
         instance.group_id = self.id
         self.trace_number += new_trace_number
+        self.mutation_number += 1
 
         if self.upred_num == 0:
             instance.find_pred_info()
@@ -147,7 +149,6 @@ class InstanceGroup(object):
 
     def reset(self, start_ind: int = None):
         length = len(self.instances)
-        self.trace_number = 0
         if start_ind is None:
             start_ind = 0
         for i in range(length - 1, start_ind - 1, -1):
@@ -717,7 +718,7 @@ def update_mutation_weights():
         # new_transition_probability = current_mut_stats['new_transitions'] / \
         #                              utils.all_new_transitions \
         #     if utils.all_new_transitions else 0
-        coef = 0.62 if trace_change_probability < 0.9 else 0.8
+        coef = 0.62 # if trace_change_probability < 0.9 else 0.9
         mut_types[mut_name].weight = coef * mut_types[mut_name].weight + \
                                      (1 - coef) * trace_discover_probability
 
@@ -732,7 +733,8 @@ class Mutation(object):
         self.prev_mutation = None
         self.applied = False
         self.trans_num = None
-        self.simplify_changed = True
+        self.changed = False
+        self.is_timeout = False
         self.exceptions = set()
 
     def add_after(self, prev_mutation):
@@ -747,10 +749,7 @@ class Mutation(object):
 
     def apply(self, instance: Instance, new_instance: Instance):
         """Mutate instances."""
-        timeout = False
-        changed = True
         new_instance.params = deepcopy(instance.params)
-
         self.next_mutation(instance)
         mut_name = self.type.name
 
@@ -764,7 +763,6 @@ class Mutation(object):
         if self.type.is_solving_param():
             new_instance.set_chc(instance.chc)
             new_instance.add_param(self.type)
-            return timeout, changed
 
         st_time = time.perf_counter()
         if mut_name == 'ADD_LIN_RULE':
@@ -774,7 +772,7 @@ class Mutation(object):
             new_instance.set_chc(self.add_nonlin_rule(instance))
 
         elif mut_name == 'EMPTY_SIMPLIFY':
-            new_instance.set_chc(empty_simplify(instance.chc))
+            new_instance.set_chc(self.empty_simplify(instance.chc))
 
         elif mut_name in own_mutations:
             new_instance.set_chc(self.transform(instance))
@@ -783,14 +781,10 @@ class Mutation(object):
             new_instance.set_chc(self.simplify_by_one(instance.chc))
 
         if time.perf_counter() - st_time >= MUT_APPLY_TIME_LIMIT:
-            timeout = True
+            self.is_timeout = True
 
-        if not self.simplify_changed or \
-                instance.chc.sexpr() == new_instance.chc.sexpr():
-            self.simplify_changed = True
-            changed = False
-
-        return timeout, changed
+        if instance.chc.sexpr() != new_instance.chc.sexpr():
+            self.changed = True
 
     def set_remove_mutation(self, trans_num):
         self.type = mut_types['REMOVE_EXPR']
@@ -874,16 +868,30 @@ class Mutation(object):
             if i in ind:
                 cur_clause = AstVector(ctx=current_ctx)
                 cur_clause.push(chc_system[i])
-                rewritten_clause = empty_simplify(cur_clause)[0]
+                rewritten_clause = self.empty_simplify(cur_clause)[0]
 
                 clause = simplify(rewritten_clause, *params)
-
-                if rewritten_clause.sexpr() == clause.sexpr():
-                    self.simplify_changed = False
 
                 del cur_clause, rewritten_clause
             else:
                 clause = chc_system[i]
+            mut_system.push(clause)
+
+        return mut_system
+
+    def empty_simplify(self, chc_system: AstVector) -> AstVector:
+        mut_system = AstVector(ctx=current_ctx)
+
+        for i in range(len(chc_system)):
+            clause = simplify(chc_system[i],
+                              algebraic_number_evaluator=False,
+                              bit2bool=False,
+                              elim_ite=False,
+                              elim_sign_ext=False,
+                              flat=False,
+                              hi_div0=False,
+                              ignore_patterns_on_ground_qbody=False,
+                              push_to_real=False)
             mut_system.push(clause)
 
         return mut_system
@@ -1115,24 +1123,6 @@ class Mutation(object):
                 self.trans_num = int(mut_info[2])
         else:
             assert False, 'Incorrect mutation entry'
-
-
-def empty_simplify(chc_system: AstVector) -> AstVector:
-    mut_system = AstVector(ctx=current_ctx)
-
-    for i in range(len(chc_system)):
-        clause = simplify(chc_system[i],
-                          algebraic_number_evaluator=False,
-                          bit2bool=False,
-                          elim_ite=False,
-                          elim_sign_ext=False,
-                          flat=False,
-                          hi_div0=False,
-                          ignore_patterns_on_ground_qbody=False,
-                          push_to_real=False)
-        mut_system.push(clause)
-
-    return mut_system
 
 
 def mut_break(children):

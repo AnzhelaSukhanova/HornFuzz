@@ -49,9 +49,8 @@ def calculate_weights() -> list:
             weight_matrix_part = weighted_stats[:size, :size]
             trans_matrix = stats.matrix
             weight = np.sum(prob_matrix * trans_matrix * weight_matrix_part)
-            group_len = len(group.instances)
-            if group_len > 1 and group.trace_number/group_len >= 0.8:
-                weight *= 0.8
+            # if group.mutation_number and group.trace_number/group.mutation_number >= 0.8:
+            #     weight *= 0.8
         elif heuristic == 'states':
             states_prob = stats.get_probability()
             weight = sum(states_prob[state] * weighted_stats[state]
@@ -456,14 +455,14 @@ def fuzz(files: set):
                 if mut_types_exc:
                     mut.exceptions = mut_types_exc
                 mut_time = time.perf_counter()
-                timeout, changed = mut.apply(instance, mut_instance)
+                mut.apply(instance, mut_instance)
                 mut_time = time.perf_counter() - mut_time
                 mut_instance.dump('output/mutants',
                                   group.filename,
                                   to_name=mut_instance.id,
                                   clear=False)
 
-                if changed:
+                if mut.changed:
                     mut_types_exc = set()
                     try:
                         st_time = time.perf_counter()
@@ -489,7 +488,7 @@ def fuzz(files: set):
                         handle_bug(instance, mut_instance)
                         problems_num += 1
 
-                    elif timeout:
+                    elif mut.is_timeout:
                         counter['timeout'] += 1
                         log_run_info('mutant_timeout',
                                      group,
@@ -522,6 +521,7 @@ def fuzz(files: set):
                                        trace_changed)
 
                 else:
+                    instance.inc_mutation_stats('applications')
                     exc_type = instance.mutation.type
                     mut_types_exc.add(exc_type)
                     log_run_info('without_change',
