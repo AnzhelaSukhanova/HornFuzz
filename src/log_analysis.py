@@ -4,6 +4,7 @@ import math
 import os
 from constants import *
 from collections import defaultdict
+from statistics import mean
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -27,12 +28,24 @@ class Stats:
         self.df = None
         self.seed_num = 0
 
-    def create_time_graph(self, fig: plt.Figure, y: str, with_mut_type_times: bool, graph_i: int):
+    def create_time_graph(self, fig1: plt.Figure, fig2: plt.Figure,
+                          y: str = 'runs', with_mut_type_times: bool = False):
+        def get_time(entry, times: list, key: str = 'solve_time'):
+            if not math.isnan(entry[key]):
+                times.append(entry[key] / SEC_IN_HOUR)
+                return entry[key] / SEC_IN_HOUR
+            else:
+                return 0
         num_axis = []
         time_axis = []
-        total_mut_time = 0
+        ratio_axis = []
         total_solve_time = 0
-        ax = fig.gca()
+        total_mut_time = 0
+        total_trace_time = 0
+        total_model_time = 0
+        total_select_time = 0
+        ax1 = fig1.gca()
+        ax2 = fig2.gca()
         num = 0
         time_ind = self.df['current_time'].notnull()
         status_ind = self.df['status'].notnull()
@@ -40,6 +53,9 @@ class Stats:
 
         solve_times = []
         mut_times = []
+        trace_times = []
+        model_times = []
+        select_times = []
 
         if with_mut_type_times:
             mut_type_times = defaultdict(float)
@@ -50,29 +66,37 @@ class Stats:
         k = -self.seed_num
         entry = self.df[time_ind].iloc[0]
         fst_time = entry['current_time']
+        last_time = fst_time
         last_entry = self.df[time_ind].iloc[-1]
-        if last_entry['current_time'] - fst_time < DAY * SEC_IN_HOUR:
-            return
+        # if last_entry['current_time'] - fst_time < DAY * SEC_IN_HOUR:
+        #     return
 
         for i, entry in self.df[time_ind].iterrows():
-            if not math.isnan(entry['solve_time']):
+            if entry['status'] == 'seed':
+                continue
+            total_solve_time += get_time(entry, solve_times, 'solve_time')
+            total_mut_time += get_time(entry, mut_times, 'mut_time')
+            total_trace_time += get_time(entry, trace_times, 'trace_time')
+            total_model_time += get_time(entry, model_times, 'model_time')
+            total_select_time += get_time(entry, select_times, 'select_time')
 
-                if with_mut_type_times and not math.isnan(entry['mut_type']):
-                    j += 1
-                    mut_type = mut_type_rows.iloc[j]['mut_type']
-                    mut_type = mut_type.split('(')[0]
-                    mut_type_times[mut_type] += entry['mut_time'] / SEC_IN_HOUR
+            if with_mut_type_times and not math.isnan(entry['mut_type']):
+                j += 1
+                mut_type = mut_type_rows.iloc[j]['mut_type']
+                mut_type = mut_type.split('(')[0]
+                mut_type_times[mut_type] += entry['mut_time'] / SEC_IN_HOUR
 
-                if not math.isnan(entry['mut_time']):
-                    mut_times.append(entry['mut_time'] / SEC_IN_HOUR)
-                    total_mut_time += entry['mut_time'] / SEC_IN_HOUR
-                solve_times.append(entry['solve_time'] / SEC_IN_HOUR)
-                total_solve_time += entry['solve_time'] / SEC_IN_HOUR
             time = (entry['current_time'] - fst_time) / SEC_IN_HOUR
-            if time > DAY:
-                break
-
             time_axis.append(time)
+
+            if not math.isnan(entry['solve_time']):
+                time = (entry['current_time'] - last_time)/entry['solve_time']
+            else:
+                time = 0
+            if time > 5000:
+                print(entry['filename'])
+            ratio_axis.append(time)
+
             if y == 'bugs':
                 k += 1
                 if 0 < k and status_rows.iloc[k]['status'] in {'bug', 'wrong_model'}:
@@ -80,27 +104,37 @@ class Stats:
             else:
                 num = entry[y]
             num_axis.append(num)
-
-        entry = self.df[time_ind].iloc[-1]
-        last_time = entry['current_time']
+            last_time = entry['current_time']
         total_time = (last_time - fst_time) / SEC_IN_HOUR
 
-        ax.set_xlabel('Time, h')
+        ax1.set_xlabel('Time, h')
         if y == 'bugs':
-            ax.set_ylabel('Bugs')
+            ax1.set_ylabel('Bugs')
         else:
-            ax.set_ylabel('Inputs solved')
+            ax1.set_ylabel('Inputs solved')
+            ax2.set_xlabel('Inputs')
+            ax2.set_ylabel('Solving time to total time')
+            ax2.plot(num_axis, ratio_axis)
 
-        ax.plot(time_axis, num_axis)
+        ax1.plot(time_axis, num_axis)
 
-        # print('Mutation time to total time:',
-        #       round(total_mut_time / total_time, ROUND_NUM))
-        # print("Mutation time:", round(total_mut_time, ROUND_NUM))
-        # print('Solving time to total time:',
-        #       round(total_solve_time / total_time, ROUND_NUM))
-        # print("Solving time:", round(total_solve_time, ROUND_NUM))
-        # print("Mean solving time:", round(mean(solve_times), ROUND_NUM))
-        # print("Total time:", round(total_time, ROUND_NUM))
+        print("Total time:", round(total_time, ROUND_NUM))
+        print("Solving time:", round(total_solve_time, ROUND_NUM))
+        print("Solving time to total time:",
+              round(total_solve_time / total_time, ROUND_NUM))
+        print("Mean solving time:", round(mean(solve_times), ROUND_NUM))
+        print("Mutation time:", round(total_mut_time, ROUND_NUM))
+        print("Mutation time to total time:",
+              round(total_mut_time / total_time, ROUND_NUM))
+        print("Trace processing time:", round(total_trace_time, ROUND_NUM))
+        print("Trace processing time to total time:",
+              round(total_trace_time / total_time, ROUND_NUM))
+        print("Model check time:", round(total_model_time, ROUND_NUM))
+        print("Model check time to total time:",
+              round(total_model_time / total_time, ROUND_NUM))
+        print("Instance selection time:", round(total_select_time, ROUND_NUM))
+        print("Instance selection time to total time:",
+              round(total_select_time / total_time, ROUND_NUM))
 
         if with_mut_type_times:
             sorted_mut_type_times = dict(sorted(mut_type_times.items(),
@@ -123,8 +157,8 @@ class Stats:
         last_entry = self.df[ind].iloc[-1]
         last_time = last_entry['current_time']
         total_time = (last_time - fst_time) / SEC_IN_HOUR
-        if total_time < DAY:
-            return
+        # if total_time < DAY:
+        #     return
         print("Total time:", round(total_time, ROUND_NUM))
 
         cur_trace = 0
@@ -155,28 +189,6 @@ class Stats:
         # lin_coef = mean(coef)
         # ax.plot(time_axis, [item * lin_coef for item in time_axis], c='black', linestyle='--')
         ax.plot(time_axis, unique_traces_axis, marker=markers[graph_i], fillstyle='none')
-        graph_i += 1
-
-    def create_traces_runs_graph(self, fig: plt.Figure):
-        global graph_i
-
-        time_axis = []
-        unique_traces_axis = []
-        ax = fig.gca()
-        ind = self.df['unique_traces'].notnull()
-        last_trace = 0
-        j = 0
-        for i, entry in self.df[ind].iterrows():
-            if i >= self.seed_num and \
-                    (entry['unique_traces'] - last_trace > 2000):
-                last_trace = entry['unique_traces']
-                unique_traces_axis.append(last_trace)
-                time_axis.append(entry['runs'])
-            j += 1
-        ax.set_ylabel('Количество уникальных трасс')
-        ax.set_xlabel('Количество прогонов')
-        ax.plot(time_axis, unique_traces_axis, marker=markers[graph_i], fillstyle='none')
-        # c=colors[graph_i],  fillstyle='none')
         graph_i += 1
 
     def get_mutation_weights(self):
@@ -210,7 +222,6 @@ class Stats:
 
         global count_dict, add_count_dict, chain_lengths
 
-        # ind = self.df['status'] == status
         ind = self.df['filename'].notnull()
         num = 0
         status_num = 0
@@ -220,8 +231,8 @@ class Stats:
             # mutation = entry['mut_type'].split('(')[0]
             add_to_count_dict(count_dict, filename)
             if entry['status'] == status:
-                # if status == 'wrong_model' and entry['model_state'] != -1:
-                #     continue
+                if status != 'wrong_model' or entry['model_state'] != -1:
+                    continue
                 status_num += 1
                 add_to_count_dict(add_count_dict, filename)
         count_dict[''].append(num)
@@ -238,8 +249,10 @@ def prepare_data(name: str):
             if not stats.seed_num and 'seed_number' in entry:
                 info = entry
                 stats.seed_num = info['seed_number']
-            elif 'context_deletion_error' not in entry:
+            elif 'general_info' in entry or 'run_info' in entry:
                 entries.append(list(entry.values())[0])
+            elif 'context_deletion_error' not in entry:
+                entries.append(entry)
 
         except Exception:
             print('Can\'t read the line:', line)
@@ -255,6 +268,7 @@ def analyze(log_names: list, stats: list, select: list, options: list):
 
     traces = plt.figure()
     times = plt.figure()
+    time_ratio = plt.figure()
     legend = []
 
     for i, name in enumerate(log_names):
@@ -265,12 +279,11 @@ def analyze(log_names: list, stats: list, select: list, options: list):
 
         if 'traces' in stats:
             cur_stats.create_traces_time_graph(traces)
-            # cur_stats.create_traces_runs_graph(traces)
         with_mut_type_times = True if 'with_mut_type_times' in options else False
         if 'runs' in stats:
-            cur_stats.create_time_graph(times, 'runs', with_mut_type_times, i)
+            cur_stats.create_time_graph(times, time_ratio, 'runs', with_mut_type_times)
         if 'bugs' in stats:
-            cur_stats.create_time_graph(times, 'bugs', with_mut_type_times, i)
+            cur_stats.create_time_graph(times, time_ratio, 'bugs', with_mut_type_times)
         if 'mutations' in stats:
             cur_stats.get_mutation_weights()
 
@@ -283,6 +296,8 @@ def analyze(log_names: list, stats: list, select: list, options: list):
     if 'runs' in stats:
         times.legend(legend) # (0.9, 0.28))
         times.savefig('stats/runs.png', bbox_inches='tight')
+        time_ratio.legend(legend)  # (0.9, 0.28))
+        time_ratio.savefig('stats/ratio.png', bbox_inches='tight')
 
     if 'bugs' in stats:
         times.legend(legend)
@@ -292,7 +307,7 @@ def analyze(log_names: list, stats: list, select: list, options: list):
                              key=lambda item: item[1][0],
                              reverse=True))
     for key in count_dict:
-        if count_dict[key][0] > 1:
+        if key == '':
             print(key, count_dict[key], add_count_dict[key])
 
 
@@ -313,7 +328,7 @@ def main():
                                  'mutant_unknown', 'error', 'bug',
                                  'wrong_model', 'model_timeout', 'pass',
                                  'timeout_before_check', 'without_change'],
-                        default=[],
+                        default=[''],
                         help='what kind of log entries do you want to see')
     parser.add_argument('-options', '-opt',
                         nargs='*',

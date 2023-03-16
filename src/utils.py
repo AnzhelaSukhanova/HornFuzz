@@ -137,23 +137,6 @@ class TraceStats(object):
         self.load_states(states)
         if is_seed:
             self.states = states
-        # else:
-        #     with open('last-trace.txt', 'r') as last_trace:
-        #         last_lines = last_trace.readlines()
-        #     if last_lines:
-        #         diff = difflib.unified_diff(last_lines, lines,
-        #                                     'last-trace.txt', TRACE_FILE)
-        #         num = 0
-        #         with open('trace-diff.txt', 'w') as trace_diff:
-        #             for line in diff:
-        #                 trace_diff.write(line)
-        #                 if line[0] in {'-', '+'}:
-        #                     num += 1
-        #         print(num)
-        #         if 0 < num < len(last_lines)/10 or num > 3*len(last_lines):
-        #             exit()
-        #     with open('last-trace.txt', 'w') as last_trace:
-        #         last_trace.writelines(lines)
 
     def reset_trace_offset(self):
         global trace_offset

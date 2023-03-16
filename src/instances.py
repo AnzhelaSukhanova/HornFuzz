@@ -369,8 +369,7 @@ class Instance(object):
         Find whether the chc-system is linear, the number of
         uninterpreted predicates and their set.
         """
-        if mut_groups[0] != MutTypeGroup.OWN and \
-                utils.heuristic not in {'difficulty', 'simplicity'}:
+        if utils.heuristic not in {'difficulty', 'simplicity'}:
             return
         group = self.get_group()
         chc_system = self.chc
@@ -470,9 +469,7 @@ def init_mut_types(options: list = None, mutations: list = None):
                      'BREAK_AND',
                      'SWAP_OR',
                      'MIX_BOUND_VARS',
-                     'ADD_INEQ',
-                     'ADD_LIN_RULE',
-                     'ADD_NONLIN_RULE'}:
+                     'ADD_INEQ'}:
             mut_types[name] = MutType(name, MutTypeGroup.OWN)
 
     if solver == 'spacer' and 'spacer_parameters' in mutations:
@@ -690,9 +687,7 @@ def init_mut_types(options: list = None, mutations: list = None):
 own_mutations = {'SWAP_AND': Z3_OP_AND, 'DUP_AND': Z3_OP_AND,
                  'BREAK_AND': Z3_OP_AND, 'SWAP_OR': Z3_OP_OR,
                  'MIX_BOUND_VARS': Z3_QUANTIFIER_AST,
-                 'ADD_INEQ': {Z3_OP_LE, Z3_OP_GE, Z3_OP_LT, Z3_OP_GT},
-                 'ADD_LIN_RULE': Z3_OP_UNINTERPRETED,
-                 'ADD_NONLIN_RULE': Z3_OP_UNINTERPRETED}
+                 'ADD_INEQ': {Z3_OP_LE, Z3_OP_GE, Z3_OP_LT, Z3_OP_GT}}
 
 default_simplify_options = {'algebraic_number_evaluator', 'bit2bool',
                             'elim_ite', 'elim_sign_ext', 'flat', 'hi_div0',
@@ -718,7 +713,7 @@ def update_mutation_weights():
         # new_transition_probability = current_mut_stats['new_transitions'] / \
         #                              utils.all_new_transitions \
         #     if utils.all_new_transitions else 0
-        coef = 0.62 # if trace_change_probability < 0.9 else 0.9
+        coef = 0.62
         mut_types[mut_name].weight = coef * mut_types[mut_name].weight + \
                                      (1 - coef) * trace_discover_probability
 
@@ -765,13 +760,7 @@ class Mutation(object):
             new_instance.add_param(self.type)
 
         st_time = time.perf_counter()
-        if mut_name == 'ADD_LIN_RULE':
-            new_instance.set_chc(self.add_lin_rule(instance))
-
-        elif mut_name == 'ADD_NONLIN_RULE':
-            new_instance.set_chc(self.add_nonlin_rule(instance))
-
-        elif mut_name == 'EMPTY_SIMPLIFY':
+        if mut_name == 'EMPTY_SIMPLIFY':
             new_instance.set_chc(self.empty_simplify(instance.chc))
 
         elif mut_name in own_mutations:
