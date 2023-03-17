@@ -483,9 +483,11 @@ def fuzz(files: set):
                         problems_num += 1
                         if problems_num == PROBLEMS_LIMIT:
                             i = ONE_INST_MUT_LIMIT
-                        print_general_info(mut_time)
                         instance = group[0]
                         mut_instance.reset_chc()
+                        print_general_info(mut_time=mut_time,
+                                           trace_time=trace_time,
+                                           select_time=select_time)
                         continue
 
                     if not res:
@@ -522,12 +524,12 @@ def fuzz(files: set):
                                          mut_instance=mut_instance)
                             instance = mut_instance
 
-                    print_general_info(solve_time,
-                                       mut_time,
-                                       trace_time,
-                                       model_time,
-                                       select_time,
-                                       trace_changed)
+                    print_general_info(solve_time=solve_time,
+                                       mut_time=mut_time,
+                                       trace_time=trace_time,
+                                       model_time=model_time,
+                                       select_time=select_time,
+                                       trace_changed=trace_changed)
                     if select_time:
                         select_time = 0
 
@@ -559,7 +561,7 @@ def fuzz(files: set):
                                     message=message)
             print(group.filename)
             print(message)
-            print_general_info()
+            print_general_info(select_time=select_time)
 
 
 def set_arg_parameters(argv: argparse.Namespace):

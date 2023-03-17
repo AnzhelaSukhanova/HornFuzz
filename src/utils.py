@@ -1,7 +1,6 @@
 import hashlib
 import json
 import random
-import difflib
 from collections import defaultdict
 from copy import deepcopy
 from typing import List

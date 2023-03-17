@@ -1,9 +1,13 @@
 import time
 import re
+
+import z3
+
 import utils
 from solvers import *
 from enum import Enum
 from utils import *
+from profilehooks import profile, timecall
 
 instance_id = 0
 new_trace_number = 0
@@ -343,26 +347,30 @@ class Instance(object):
             log['mut_type'] = self.mutation.get_name()
         return log
 
+    # @profile(immediate=True)
     def find_system_info(self):
-        """
-        Get information about the number of subexpressions of kind
-        from info_kinds in the system and clauses.
-        """
         if self.chc is None or mut_groups[0] != MutTypeGroup.OWN:
             return
 
         info = self.info
         info.expr_num = count_expr(self.chc, info_kinds)
 
+    def find_clause_info(self, kind):
+        info = self.info
+        chc_len = len(self.chc)
+        ind = list(range(chc_len))
+        random.shuffle(ind)
         info_len = len(info.clause_expr_num[Z3_OP_UNINTERPRETED])
         if info_len < len(self.chc):
-            for kind in info_kinds:
-                info.clause_expr_num[kind].resize(len(self.chc))
+            info.clause_expr_num[kind].resize(chc_len)
 
-        for i, clause in enumerate(self.chc):
+        while ind:
+            i = ind.pop()
+            clause = self.chc[i]
             expr_num = count_expr(clause, info_kinds)
-            for kind in info_kinds:
-                info.clause_expr_num[kind][i] = expr_num[kind]
+            info.clause_expr_num[kind][i] = expr_num[kind]
+            if expr_num[kind]:
+                return i
 
     def find_pred_info(self):
         """
@@ -841,6 +849,7 @@ class Mutation(object):
                 self.kind = random.choices(mult_kinds[mut_name])[0]
             else:
                 self.kind = own_mutations[mut_name]
+            self.clause_i = instance.find_clause_info(self.kind)
 
     def simplify_by_one(self, chc_system: AstVector) -> AstVector:
         """Simplify instance with arith_ineq_lhs, arith_lhs and eq2ineq."""
@@ -944,14 +953,11 @@ class Mutation(object):
         info = instance.info
         chc_system = instance.chc
 
-        if self.trans_num is None and self.clause_i is None:
-            ind = np.where(info.clause_expr_num[self.kind] > 0)[0]
-            i = int(random.choice(ind))
+        i = self.clause_i
+        if self.trans_num is None:
             expr_num = info.clause_expr_num[self.kind][i]
             self.trans_num = random.randint(0, expr_num - 1) \
                 if expr_num > 1 else 0
-        else:
-            i = self.clause_i
 
         system_length = len(chc_system)
         if i < system_length:
