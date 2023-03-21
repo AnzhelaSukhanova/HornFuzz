@@ -18,9 +18,7 @@ Add `-heuristic <heuristic>` (or `-heur`) to change default instance selection t
 * the probability of states (`states`);  
 * chc-difficulty (`difficulty`).  
 
-You can add `-options <option1> <option2> ...` (or `-opt`) to:  
-* choose mutations equally likely (`without_mutation_weights`);  
-* use Eldarica (`with_oracles`).  
+You can add `-options without_mutation_weights` (or `-opt`) to choose mutations equiprobably.  
 
 To choose mutation groups add `-mutations <group1> <group2> ...` (or `-mut`). Available mutation groups:  
 * `own`;  

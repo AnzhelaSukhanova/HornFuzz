@@ -1,11 +1,16 @@
 import time
 import re
+
+import z3
+
 import utils
 from solvers import *
 from enum import Enum
 from utils import *
+from profilehooks import profile, timecall
 
 instance_id = 0
+new_trace_number = 0
 unique_traces = set()
 instance_groups = defaultdict()
 current_ctx = None
@@ -41,6 +46,8 @@ class InstanceGroup(object):
         self.is_linear = True
         self.upred_num = 0
         self.family = Family.UNKNOWN
+        self.trace_number = 0
+        self.mutation_number = 0
 
     def __getitem__(self, index: int):
         index = index % len(self.instances)
@@ -66,6 +73,8 @@ class InstanceGroup(object):
     def push(self, instance):
         """Add an instance to the group."""
         instance.group_id = self.id
+        self.trace_number += new_trace_number
+        self.mutation_number += 1
 
         if self.upred_num == 0:
             instance.find_pred_info()
@@ -317,12 +326,14 @@ class Instance(object):
         return None
 
     def update_traces_info(self, is_seed: bool = False):
+        global new_trace_number
+
         prev_trace_number = len(unique_traces)
         unique_traces.add(self.trace_stats.hash)
         if not is_seed:
             cur_trace_number = len(unique_traces)
-            growth = cur_trace_number - prev_trace_number
-            self.inc_mutation_stats('new_traces', growth)
+            new_trace_number = cur_trace_number - prev_trace_number
+            self.inc_mutation_stats('new_traces', new_trace_number)
 
     def get_group(self):
         """Return the group of the instance."""
@@ -336,34 +347,37 @@ class Instance(object):
             log['mut_type'] = self.mutation.get_name()
         return log
 
+    # @profile(immediate=True)
     def find_system_info(self):
-        """
-        Get information about the number of subexpressions of kind
-        from info_kinds in the system and clauses.
-        """
         if self.chc is None or mut_groups[0] != MutTypeGroup.OWN:
             return
 
         info = self.info
         info.expr_num = count_expr(self.chc, info_kinds)
 
+    def find_clause_info(self, kind):
+        info = self.info
+        chc_len = len(self.chc)
+        ind = list(range(chc_len))
+        random.shuffle(ind)
         info_len = len(info.clause_expr_num[Z3_OP_UNINTERPRETED])
         if info_len < len(self.chc):
-            for kind in info_kinds:
-                info.clause_expr_num[kind].resize(len(self.chc))
+            info.clause_expr_num[kind].resize(chc_len)
 
-        for i, clause in enumerate(self.chc):
+        while ind:
+            i = ind.pop()
+            clause = self.chc[i]
             expr_num = count_expr(clause, info_kinds)
-            for kind in info_kinds:
-                info.clause_expr_num[kind][i] = expr_num[kind]
+            info.clause_expr_num[kind][i] = expr_num[kind]
+            if expr_num[kind]:
+                return i
 
     def find_pred_info(self):
         """
         Find whether the chc-system is linear, the number of
         uninterpreted predicates and their set.
         """
-        if mut_groups[0] != MutTypeGroup.OWN and \
-                utils.heuristic not in {'difficulty', 'simplicity'}:
+        if utils.heuristic not in {'difficulty', 'simplicity'}:
             return
         group = self.get_group()
         chc_system = self.chc
@@ -463,9 +477,7 @@ def init_mut_types(options: list = None, mutations: list = None):
                      'BREAK_AND',
                      'SWAP_OR',
                      'MIX_BOUND_VARS',
-                     'ADD_INEQ',
-                     'ADD_LIN_RULE',
-                     'ADD_NONLIN_RULE'}:
+                     'ADD_INEQ'}:
             mut_types[name] = MutType(name, MutTypeGroup.OWN)
 
     if solver == 'spacer' and 'spacer_parameters' in mutations:
@@ -683,9 +695,7 @@ def init_mut_types(options: list = None, mutations: list = None):
 own_mutations = {'SWAP_AND': Z3_OP_AND, 'DUP_AND': Z3_OP_AND,
                  'BREAK_AND': Z3_OP_AND, 'SWAP_OR': Z3_OP_OR,
                  'MIX_BOUND_VARS': Z3_QUANTIFIER_AST,
-                 'ADD_INEQ': {Z3_OP_LE, Z3_OP_GE, Z3_OP_LT, Z3_OP_GT},
-                 'ADD_LIN_RULE': Z3_OP_UNINTERPRETED,
-                 'ADD_NONLIN_RULE': Z3_OP_UNINTERPRETED}
+                 'ADD_INEQ': {Z3_OP_LE, Z3_OP_GE, Z3_OP_LT, Z3_OP_GT}}
 
 default_simplify_options = {'algebraic_number_evaluator', 'bit2bool',
                             'elim_ite', 'elim_sign_ext', 'flat', 'hi_div0',
@@ -706,13 +716,14 @@ def update_mutation_weights():
             continue
         trace_change_probability = current_mut_stats['changed_traces'] / \
                                    current_mut_stats['applications']
-        # trace_discover_probability = current_mut_stats['new_traces'] / \
-        #                              current_mut_stats['applications']
+        trace_discover_probability = current_mut_stats['new_traces'] / \
+                                     current_mut_stats['applications']
         # new_transition_probability = current_mut_stats['new_transitions'] / \
         #                              utils.all_new_transitions \
         #     if utils.all_new_transitions else 0
-        mut_types[mut_name].weight = 0.62 * mut_types[mut_name].weight + \
-                                     0.38 * trace_change_probability
+        coef = 0.62
+        mut_types[mut_name].weight = coef * mut_types[mut_name].weight + \
+                                     (1 - coef) * trace_discover_probability
 
 
 class Mutation(object):
@@ -725,7 +736,8 @@ class Mutation(object):
         self.prev_mutation = None
         self.applied = False
         self.trans_num = None
-        self.simplify_changed = True
+        self.changed = False
+        self.is_timeout = False
         self.exceptions = set()
 
     def add_after(self, prev_mutation):
@@ -740,10 +752,7 @@ class Mutation(object):
 
     def apply(self, instance: Instance, new_instance: Instance):
         """Mutate instances."""
-        timeout = False
-        changed = True
         new_instance.params = deepcopy(instance.params)
-
         self.next_mutation(instance)
         mut_name = self.type.name
 
@@ -757,17 +766,10 @@ class Mutation(object):
         if self.type.is_solving_param():
             new_instance.set_chc(instance.chc)
             new_instance.add_param(self.type)
-            return timeout, changed
 
         st_time = time.perf_counter()
-        if mut_name == 'ADD_LIN_RULE':
-            new_instance.set_chc(self.add_lin_rule(instance))
-
-        elif mut_name == 'ADD_NONLIN_RULE':
-            new_instance.set_chc(self.add_nonlin_rule(instance))
-
-        elif mut_name == 'EMPTY_SIMPLIFY':
-            new_instance.set_chc(empty_simplify(instance.chc))
+        if mut_name == 'EMPTY_SIMPLIFY':
+            new_instance.set_chc(self.empty_simplify(instance.chc))
 
         elif mut_name in own_mutations:
             new_instance.set_chc(self.transform(instance))
@@ -776,14 +778,10 @@ class Mutation(object):
             new_instance.set_chc(self.simplify_by_one(instance.chc))
 
         if time.perf_counter() - st_time >= MUT_APPLY_TIME_LIMIT:
-            timeout = True
+            self.is_timeout = True
 
-        if not self.simplify_changed or \
-                instance.chc.sexpr() == new_instance.chc.sexpr():
-            self.simplify_changed = True
-            changed = False
-
-        return timeout, changed
+        if instance.chc.sexpr() != new_instance.chc.sexpr():
+            self.changed = True
 
     def set_remove_mutation(self, trans_num):
         self.type = mut_types['REMOVE_EXPR']
@@ -845,13 +843,13 @@ class Mutation(object):
             else:
                 mut_name = random.choice(types_to_choose) if types_to_choose else 'ID'
             self.type = mut_types[mut_name]
-            print(mut_name)
 
         if mut_name in own_mutations and self.kind is None:
             if mut_name == 'ADD_INEQ':
                 self.kind = random.choices(mult_kinds[mut_name])[0]
             else:
                 self.kind = own_mutations[mut_name]
+            self.clause_i = instance.find_clause_info(self.kind)
 
     def simplify_by_one(self, chc_system: AstVector) -> AstVector:
         """Simplify instance with arith_ineq_lhs, arith_lhs and eq2ineq."""
@@ -868,16 +866,30 @@ class Mutation(object):
             if i in ind:
                 cur_clause = AstVector(ctx=current_ctx)
                 cur_clause.push(chc_system[i])
-                rewritten_clause = empty_simplify(cur_clause)[0]
+                rewritten_clause = self.empty_simplify(cur_clause)[0]
 
                 clause = simplify(rewritten_clause, *params)
-
-                if rewritten_clause.sexpr() == clause.sexpr():
-                    self.simplify_changed = False
 
                 del cur_clause, rewritten_clause
             else:
                 clause = chc_system[i]
+            mut_system.push(clause)
+
+        return mut_system
+
+    def empty_simplify(self, chc_system: AstVector) -> AstVector:
+        mut_system = AstVector(ctx=current_ctx)
+
+        for i in range(len(chc_system)):
+            clause = simplify(chc_system[i],
+                              algebraic_number_evaluator=False,
+                              bit2bool=False,
+                              elim_ite=False,
+                              elim_sign_ext=False,
+                              flat=False,
+                              hi_div0=False,
+                              ignore_patterns_on_ground_qbody=False,
+                              push_to_real=False)
             mut_system.push(clause)
 
         return mut_system
@@ -941,14 +953,11 @@ class Mutation(object):
         info = instance.info
         chc_system = instance.chc
 
-        if self.trans_num is None and self.clause_i is None:
-            ind = np.where(info.clause_expr_num[self.kind] > 0)[0]
-            i = int(random.choice(ind))
+        i = self.clause_i
+        if self.trans_num is None:
             expr_num = info.clause_expr_num[self.kind][i]
             self.trans_num = random.randint(0, expr_num - 1) \
                 if expr_num > 1 else 0
-        else:
-            i = self.clause_i
 
         system_length = len(chc_system)
         if i < system_length:
@@ -1109,24 +1118,6 @@ class Mutation(object):
                 self.trans_num = int(mut_info[2])
         else:
             assert False, 'Incorrect mutation entry'
-
-
-def empty_simplify(chc_system: AstVector) -> AstVector:
-    mut_system = AstVector(ctx=current_ctx)
-
-    for i in range(len(chc_system)):
-        clause = simplify(chc_system[i],
-                          algebraic_number_evaluator=False,
-                          bit2bool=False,
-                          elim_ite=False,
-                          elim_sign_ext=False,
-                          flat=False,
-                          hi_div0=False,
-                          ignore_patterns_on_ground_qbody=False,
-                          push_to_real=False)
-        mut_system.push(clause)
-
-    return mut_system
 
 
 def mut_break(children):

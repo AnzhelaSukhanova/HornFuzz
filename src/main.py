@@ -29,6 +29,7 @@ current_ctx = None
 general_stats = None
 counter = defaultdict(int)
 without_bug_counter = defaultdict(int)
+log = dict()
 
 
 def calculate_weights() -> list:
@@ -41,9 +42,9 @@ def calculate_weights() -> list:
         group = instance.get_group()
         filename = group.filename
         stats = instance.trace_stats
-        if without_bug_counter[filename] >= WITHOUT_BUG_LIMIT:
-            weight = 0.1
-        elif heuristic == 'transitions':
+        # if without_bug_counter[filename] >= WITHOUT_BUG_LIMIT:
+        #     weight = 0.1
+        if heuristic == 'transitions':
             prob_matrix = stats.get_probability()
             size = stats.matrix.shape[0]
             weight_matrix_part = weighted_stats[:size, :size]
@@ -103,14 +104,14 @@ def check_satis(instance: Instance, group: InstanceGroup = None,
     return instance.satis == satis
 
 
-def sort_queue():
+def next_instance() -> Instance:
     global queue
     weights = calculate_weights()
     if heuristic == 'simplicity':
         weights = reversed(weights)
     next_instance = random.choices(queue, weights, k=1)[0]
     queue.remove(next_instance)
-    queue.append(next_instance)
+    return next_instance
 
 
 def update_mutation_weights():
@@ -120,20 +121,20 @@ def update_mutation_weights():
                             cls=MutTypeEncoder))
 
 
-def print_general_info(solve_time: time = None, mut_time: time = None,
+def print_general_info(solve_time: time = None, mut_time: time = None, trace_time: time = None,
+                       model_time: time = None, select_time: time = None,
                        trace_changed: bool = None):
     """Print and log information about runs."""
-    global counter
+    global counter, log
 
     traces_num = len(unique_traces)
-    log = {'runs': counter['runs'],
-           'current_time': time.perf_counter()}
-    if solve_time:
-        log['solve_time'] = solve_time
-    if mut_time:
-        log['mut_time'] = mut_time
-    if trace_changed is not None:
-        log['trace_changed'] = trace_changed
+    log['runs'] = counter['runs']
+    log['current_time'] = time.perf_counter()
+    for time_name in {'solve_time', 'mut_time', 'trace_time',
+                      'model_time', 'select_time'}:
+        time_value = locals()[time_name]
+        if time_value:
+            log[time_name] = time_value
     if counter['runs']:
         print('Total:', counter['runs'],
               'Bugs:', counter['bug'],
@@ -145,14 +146,16 @@ def print_general_info(solve_time: time = None, mut_time: time = None,
         print('Unique traces:', traces_num, '\n')
     else:
         print()
-    logging.info(json.dumps({'general_info': log}))
+    logging.info(json.dumps(log))
+    log = defaultdict()
 
 
 def log_run_info(status: str, group: InstanceGroup, message: str = None,
                  instance: Instance = None, mut_instance: Instance = None):
     """Create a log entry with information about the run."""
+    global log
 
-    log = {'status': status}
+    log['status'] = status
     if message:
         log['message'] = message
     if instance:
@@ -179,8 +182,6 @@ def log_run_info(status: str, group: InstanceGroup, message: str = None,
                     if status == 'wrong_model':
                         log['model_state'] = mut_instance.model_info[0].r
                         log['bug_clause'] = str(mut_instance.model_info[1])
-
-    logging.info(json.dumps({'run_info': log}))
 
 
 def analyze_check_exception(instance: Instance, err: Exception,
@@ -368,8 +369,8 @@ def handle_bug(instance: Instance, mut_instance: Instance = None,
         if mut_instance \
         else instance.model_info[0]
     status = 'bug' if model_state == sat else 'wrong_model'
-    if model_state != 'unknown':
-        without_bug_counter[group.filename] = 0
+    # if model_state != 'unknown':
+    #     without_bug_counter[group.filename] = 0
     log_run_info(status,
                  group,
                  message,
@@ -417,9 +418,10 @@ def fuzz(files: set):
     while queue:
         assert len(queue) == seed_number - counter['error']
 
-        sort_queue()
+        select_time = time.perf_counter()
+        instance = next_instance()
+        select_time = time.perf_counter() - select_time
 
-        instance = queue.pop()
         counter['runs'] += 1
         group = instance.get_group()
         try:
@@ -441,34 +443,38 @@ def fuzz(files: set):
             mut_types_exc = set()
 
             while i < ONE_INST_MUT_LIMIT:
+                trace_time = 0
+                model_time = 0
                 if i > 0:
                     counter['runs'] += 1
                 i += 1
                 if with_weights:
                     runs_before_weight_update -= 1
-                without_bug_counter[group.filename] += 1
+                # without_bug_counter[group.filename] += 1
 
                 mut_instance = Instance()
                 mut = mut_instance.mutation
                 if mut_types_exc:
                     mut.exceptions = mut_types_exc
                 mut_time = time.perf_counter()
-                timeout, changed = mut.apply(instance, mut_instance)
+                mut.apply(instance, mut_instance)
                 mut_time = time.perf_counter() - mut_time
                 mut_instance.dump('output/mutants',
                                   group.filename,
                                   to_name=mut_instance.id,
                                   clear=False)
 
-                if changed:
+                if mut.changed:
                     mut_types_exc = set()
                     try:
-                        st_time = time.perf_counter()
+                        solve_time = time.perf_counter()
                         res = check_satis(mut_instance, group)
-                        solve_time = time.perf_counter() - st_time
+                        solve_time = time.perf_counter() - solve_time
                         trace_changed = (instance.trace_stats.hash !=
                                          mut_instance.trace_stats.hash)
+                        trace_time = time.perf_counter()
                         get_trace_stats(mut_instance, trace_changed=trace_changed)
+                        trace_time = time.perf_counter() - trace_time
                     except AssertionError as err:
                         analyze_check_exception(instance,
                                                 err,
@@ -477,16 +483,18 @@ def fuzz(files: set):
                         problems_num += 1
                         if problems_num == PROBLEMS_LIMIT:
                             i = ONE_INST_MUT_LIMIT
-                        print_general_info(mut_time)
                         instance = group[0]
                         mut_instance.reset_chc()
+                        print_general_info(mut_time=mut_time,
+                                           trace_time=trace_time,
+                                           select_time=select_time)
                         continue
 
                     if not res:
                         handle_bug(instance, mut_instance)
                         problems_num += 1
 
-                    elif timeout:
+                    elif mut.is_timeout:
                         counter['timeout'] += 1
                         log_run_info('mutant_timeout',
                                      group,
@@ -499,7 +507,9 @@ def fuzz(files: set):
                         mut_instance.reset_chc()
 
                     else:
+                        model_time = time.perf_counter()
                         message = mut_instance.check_model()
+                        model_time = time.perf_counter() - model_time
                         if mut_instance.model_info[0] != sat and message != 'timeout':
                             handle_bug(instance, mut_instance, message)
                             problems_num += 1
@@ -514,18 +524,25 @@ def fuzz(files: set):
                                          mut_instance=mut_instance)
                             instance = mut_instance
 
-                    print_general_info(solve_time,
-                                       mut_time,
-                                       trace_changed)
+                    print_general_info(solve_time=solve_time,
+                                       mut_time=mut_time,
+                                       trace_time=trace_time,
+                                       model_time=model_time,
+                                       select_time=select_time,
+                                       trace_changed=trace_changed)
+                    if select_time:
+                        select_time = 0
 
                 else:
+                    instance.inc_mutation_stats('applications')
                     exc_type = instance.mutation.type
                     mut_types_exc.add(exc_type)
                     log_run_info('without_change',
                                  group,
                                  instance=instance,
                                  mut_instance=mut_instance)
-                    print_general_info()
+                    print_general_info(mut_time=mut_time,
+                                       select_time=select_time)
 
                     mut_instance.reset_chc()
 
@@ -544,7 +561,7 @@ def fuzz(files: set):
                                     message=message)
             print(group.filename)
             print(message)
-            print_general_info()
+            print_general_info(select_time=select_time)
 
 
 def set_arg_parameters(argv: argparse.Namespace):
