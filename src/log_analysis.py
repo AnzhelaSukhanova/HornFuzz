@@ -2,19 +2,15 @@ import argparse
 import json
 import math
 import os
+from constants import *
 from collections import defaultdict
 
 import matplotlib.pyplot as plt
 import pandas as pd
-from prettytable import PrettyTable
-
-INPUTS_GROUP_NUM = 1
-SEC_IN_HOUR = 3600
-DAY = 24
-ROUND_NUM = 5
 
 unique_traces = 0
 count_dict = defaultdict(list)
+add_count_dict = defaultdict(list)
 colors = ['crimson', 'teal', 'darkorange', 'darkblue']
 markers = ['d', 's', '^', 'o', '+', '*', '1', 'x', 'h', '.', '2', '3', '4', 'D', 'H', 'X']
 graph_i = 0
@@ -55,8 +51,8 @@ class Stats:
         entry = self.df[time_ind].iloc[0]
         fst_time = entry['current_time']
         last_entry = self.df[time_ind].iloc[-1]
-        #if last_entry['current_time'] - fst_time < DAY * SEC_IN_HOUR:
-        #   return
+        if last_entry['current_time'] - fst_time < DAY * SEC_IN_HOUR:
+            return
 
         for i, entry in self.df[time_ind].iterrows():
             if not math.isnan(entry['solve_time']):
@@ -106,7 +102,6 @@ class Stats:
         # print("Mean solving time:", round(mean(solve_times), ROUND_NUM))
         # print("Total time:", round(total_time, ROUND_NUM))
 
-
         if with_mut_type_times:
             sorted_mut_type_times = dict(sorted(mut_type_times.items(),
                                            key=lambda item: item[1],
@@ -128,8 +123,8 @@ class Stats:
         last_entry = self.df[ind].iloc[-1]
         last_time = last_entry['current_time']
         total_time = (last_time - fst_time) / SEC_IN_HOUR
-        # if total_time < DAY:
-        #      return
+        if total_time < DAY:
+            return
         print("Total time:", round(total_time, ROUND_NUM))
 
         cur_trace = 0
@@ -205,28 +200,32 @@ class Stats:
                                  '\n'])
 
     def analyze_entries(self, status: str, log_i: int):
-        global count_dict, chain_lengths
+        def add_to_count_dict(cur_dict: defaultdict, filename: str):
+            if len(cur_dict[filename]) > log_i:
+                cur_dict[filename][log_i] += 1
+            else:
+                while len(cur_dict[filename]) < log_i:
+                    cur_dict[filename].append(0)
+                cur_dict[filename].append(1)
 
-        # print('_______________' + status +
-        #       '_______________', end='\n')
-        ind = self.df['status'] == status
-        # ind = self.df['filename'].notnull()
+        global count_dict, add_count_dict, chain_lengths
+
+        # ind = self.df['status'] == status
+        ind = self.df['filename'].notnull()
         num = 0
+        status_num = 0
         for i, entry in self.df.loc[ind].iterrows():
-            if status == 'wrong_model' and entry['model_state'] != -1:
-                continue
             filename = entry['filename']
             num += 1
-            mutation = entry['mut_type'].split('(')[0]
-            #chain_len = len(entry['mut_chain'].split('->'))
-            #chain_lengths.append(chain_len)
-            if len(count_dict[mutation]) > log_i:
-                count_dict[mutation][log_i] += 1
-            else:
-                while len(count_dict[mutation]) < log_i:
-                    count_dict[mutation].append(0)
-                count_dict[mutation].append(1)
+            # mutation = entry['mut_type'].split('(')[0]
+            add_to_count_dict(count_dict, filename)
+            if entry['status'] == status:
+                # if status == 'wrong_model' and entry['model_state'] != -1:
+                #     continue
+                status_num += 1
+                add_to_count_dict(add_count_dict, filename)
         count_dict[''].append(num)
+        add_count_dict[''].append(status_num)
 
 
 def prepare_data(name: str):
@@ -276,24 +275,25 @@ def analyze(log_names: list, stats: list, select: list, options: list):
             cur_stats.get_mutation_weights()
 
         legend.append(name.split('/')[-1])
-    # legend.append('Random order')
-    # legend.append('Simple instance heuristic')
-    # legend.append('Complex instance heuristic')
-    # legend.append('Rare transition heuristic')
-    # legend.append('Linear approximation')
 
     if 'traces' in stats:
         traces.legend(legend)  # (0.49, 0.88)
         traces.savefig('stats/traces.png', bbox_inches='tight')
 
-    if 'runs' in stats or 'bugs' in stats:
+    if 'runs' in stats:
         times.legend(legend) # (0.9, 0.28))
-        times.savefig('stats/times.png', bbox_inches='tight')
+        times.savefig('stats/runs.png', bbox_inches='tight')
+
+    if 'bugs' in stats:
+        times.legend(legend)
+        times.savefig('stats/bugs.png', bbox_inches='tight')
 
     count_dict = dict(sorted(count_dict.items(),
                              key=lambda item: item[1][0],
                              reverse=True))
-    print(count_dict)
+    for key in count_dict:
+        if count_dict[key][0] > 1:
+            print(key, count_dict[key], add_count_dict[key])
 
 
 def main():

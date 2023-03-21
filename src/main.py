@@ -10,7 +10,6 @@ from typing import Optional
 from sklearn.preprocessing import normalize
 
 import instances
-import oracles
 
 import z3_api_mods
 from instances import *
@@ -23,19 +22,13 @@ enable_trace('dl_rule_transf')
 
 heuristic = 'default'
 mutations = []
-options = []
 
 seed_number = 0
 queue = []
 current_ctx = None
 general_stats = None
 counter = defaultdict(int)
-
-PROBLEMS_LIMIT = 10
-MUT_WEIGHT_UPDATE_RUNS = 10*ONE_INST_MUT_LIMIT
-
-with_oracles = False
-oracles_names = {'Eldarica'}
+without_bug_counter = defaultdict(int)
 
 
 def calculate_weights() -> list:
@@ -45,8 +38,12 @@ def calculate_weights() -> list:
     weights = []
 
     for instance in queue:
+        group = instance.get_group()
+        filename = group.filename
         stats = instance.trace_stats
-        if heuristic == 'transitions':
+        if without_bug_counter[filename] >= WITHOUT_BUG_LIMIT:
+            weight = 0.1
+        elif heuristic == 'transitions':
             prob_matrix = stats.get_probability()
             size = stats.matrix.shape[0]
             weight_matrix_part = weighted_stats[:size, :size]
@@ -70,30 +67,38 @@ def calculate_weights() -> list:
     return weights
 
 
-def check_satis(instance: Instance, group: InstanceGroup = None,
-                is_seed: bool = False, get_stats: bool = True):
+def get_trace_stats(instance: Instance, is_seed: bool = False,
+                    trace_changed: bool = False):
     global general_stats
 
-    solver = SolverFor('HORN',
-                       ctx=instances.current_ctx)
-    solver.set('engine', 'spacer')
+    instance.trace_stats.read_from_trace(is_seed)
+    instance.update_traces_info(is_seed=is_seed)
 
+    if not is_seed:
+        instance.inc_mutation_stats('applications')
+        instance.inc_mutation_stats('changed_traces', int(trace_changed))
+        instance.inc_mutation_stats('new_transitions', utils.new_transitions)
+
+        mut_type = instance.mutation.type
+        current_mutation_stats = instances.mut_stats[mut_type.name]
+        assert current_mutation_stats['changed_traces'] >= current_mutation_stats['new_traces'], \
+            'There are more unique traces than their changes'
+
+    if heuristic in {'transitions', 'states'}:
+        general_stats += instance.trace_stats
+
+
+def check_satis(instance: Instance, group: InstanceGroup = None,
+                is_seed: bool = False):
     if not is_seed:
         seed = group[0]
         if seed.satis == unknown:
-            seed.check(solver, is_seed=True, get_stats=get_stats)
+            seed.check(group, is_seed=True)
         satis = seed.satis
 
-    for param in instance.params:
-        value = instance.params[param]
-        solver.set(param, value)
-
-    instance.check(solver, is_seed, get_stats)
+    instance.check(group, is_seed)
     if is_seed:
         satis = instance.satis
-
-    if get_stats and (heuristic in {'transitions', 'states'}):
-        general_stats += instance.trace_stats
 
     return instance.satis == satis
 
@@ -135,8 +140,6 @@ def print_general_info(solve_time: time = None, mut_time: time = None,
               'Timeout:', counter['timeout'],
               'Unknown:', counter['unknown'],
               'Errors:', counter['error'])
-        if with_oracles and counter['runs'] > seed_number:
-            print('Solver conflicts:', counter['conflict'])
     log['unique_traces'] = traces_num
     if traces_num:
         print('Unique traces:', traces_num, '\n')
@@ -159,8 +162,7 @@ def log_run_info(status: str, group: InstanceGroup, message: str = None,
             if status == 'error':
                 if instance.chc:
                     log['chc'] = instance.chc.sexpr()
-                chain = instance.mutation.get_chain()
-                log['mut_chain'] = chain
+                log['mut_chain'] = instance.mutation.get_chain()
             else:
                 log['satis'] = instance.satis.r
 
@@ -168,8 +170,9 @@ def log_run_info(status: str, group: InstanceGroup, message: str = None,
             mutant_info = mut_instance.get_log(group)
             log.update(mutant_info)
             if status not in {'pass', 'without_change'}:
-                chain = mut_instance.mutation.get_chain()
-                log['mut_chain'] = chain
+                log['mut_chain'] = instance.mutation.get_chain()
+                last_mutation = mut_instance.mutation
+                log['mut_chain'].append(last_mutation.get_name())
                 if status in {'bug', 'wrong_model',
                               'mutant_unknown', 'error'}:
                     log['satis'] = mut_instance.satis.r
@@ -186,25 +189,24 @@ def analyze_check_exception(instance: Instance, err: Exception,
     """Log information about exceptions that occur during the check."""
     global counter
     group = instance.get_group()
+    if not message:
+        message = repr(err)
 
     if is_seed:
         if str(err) == 'timeout':
             counter['timeout'] += 1
             status = 'seed_timeout'
-        elif message:
-            counter['error'] += 1
-            status = 'error'
-        else:
+        elif instance.satis == unknown:
             counter['unknown'] += 1
             status = 'seed_unknown'
-            message = repr(err)
+        else:
+            counter['error'] += 1
+            status = 'error'
         log_run_info(status,
                      group,
                      message,
                      instance)
     else:
-        if not message:
-            message = repr(err)
         if str(err) == 'timeout' or isinstance(err, TimeoutError):
             counter['timeout'] += 1
             status = 'mutant_timeout' if mut_instance \
@@ -226,7 +228,7 @@ def analyze_check_exception(instance: Instance, err: Exception,
                          message,
                          instance,
                          mut_instance)
-        if status == 'unknown':
+        if status == 'mutant_unknown':
             mut_instance.dump('output/unknown',
                               group.filename,
                               message=message,
@@ -307,6 +309,7 @@ def new_seeds_processor(files: set, base_idx: int, seed_info_index):
         try:
             st_time = time.perf_counter()
             check_satis(instance, is_seed=True)
+            get_trace_stats(instance, is_seed=True)
             message = instance.check_model()
             if instance.model_info[0] != sat:
                 handle_bug(instance,
@@ -356,14 +359,17 @@ def run_seeds(files: set):
 
 def handle_bug(instance: Instance, mut_instance: Instance = None,
                message: str = None):
-    global counter
+    global counter, without_bug_counter
 
+    group = instance.get_group()
     counter['bug'] += 1
+
     model_state = mut_instance.model_info[0] \
         if mut_instance \
         else instance.model_info[0]
     status = 'bug' if model_state == sat else 'wrong_model'
-    group = instance.get_group()
+    if model_state != 'unknown':
+        without_bug_counter[group.filename] = 0
     log_run_info(status,
                  group,
                  message,
@@ -379,26 +385,6 @@ def handle_bug(instance: Instance, mut_instance: Instance = None,
                       group.filename,
                       to_name=0)
         group.reset()
-
-
-def compare_satis(instance: Instance, is_seed: bool = False):
-    group = instance.get_group()
-    states = defaultdict()
-    found_problem = False
-
-    if not is_seed:
-        instance.dump('output/last_mutants/',
-                      group.filename,
-                      clear=False)
-        filename = 'output/last_mutants/' + group.filename
-    else:
-        filename = group.filename
-    for name in oracles_names:
-        state = oracles.solve(name, filename)
-        states[name] = state
-        if state != instance.satis.r and state in {'sat', 'unsat'}:
-            found_problem = True
-    return found_problem, states
 
 
 def ensure_current_context_is_deletable():
@@ -418,7 +404,7 @@ def ensure_current_context_is_deletable():
 
 
 def fuzz(files: set):
-    global queue, current_ctx, counter
+    global queue, current_ctx, counter, without_bug_counter
 
     run_seeds(files)
     logging.info(json.dumps({'seed_number': seed_number,
@@ -460,6 +446,7 @@ def fuzz(files: set):
                 i += 1
                 if with_weights:
                     runs_before_weight_update -= 1
+                without_bug_counter[group.filename] += 1
 
                 mut_instance = Instance()
                 mut = mut_instance.mutation
@@ -468,7 +455,6 @@ def fuzz(files: set):
                 mut_time = time.perf_counter()
                 timeout, changed = mut.apply(instance, mut_instance)
                 mut_time = time.perf_counter() - mut_time
-                mut_instance.inc_mutation_stats('applications')
                 mut_instance.dump('output/mutants',
                                   group.filename,
                                   to_name=mut_instance.id,
@@ -480,6 +466,9 @@ def fuzz(files: set):
                         st_time = time.perf_counter()
                         res = check_satis(mut_instance, group)
                         solve_time = time.perf_counter() - st_time
+                        trace_changed = (instance.trace_stats.hash !=
+                                         mut_instance.trace_stats.hash)
+                        get_trace_stats(mut_instance, trace_changed=trace_changed)
                     except AssertionError as err:
                         analyze_check_exception(instance,
                                                 err,
@@ -492,11 +481,6 @@ def fuzz(files: set):
                         instance = group[0]
                         mut_instance.reset_chc()
                         continue
-
-                    trace_changed = (instance.trace_stats.hash !=
-                                     mut_instance.trace_stats.hash)
-                    if trace_changed:
-                        mut_instance.inc_mutation_stats('new_traces')
 
                     if not res:
                         handle_bug(instance, mut_instance)
@@ -521,27 +505,13 @@ def fuzz(files: set):
                             problems_num += 1
                         else:
                             status = 'model_timeout' if message == 'timeout' else 'pass'
-
-                            if with_oracles:
-                                found_problem, states = compare_satis(mut_instance)
-                            else:
-                                found_problem = False
                             group.push(mut_instance)
                             if heuristic != 'default':
                                 group.check_stats()
-
-                            if found_problem:
-                                log_run_info('oracle_bug',
-                                             group,
-                                             message=str(states),
-                                             instance=instance,
-                                             mut_instance=mut_instance)
-                                counter['conflict'] += 1
-                            else:
-                                log_run_info(status,
-                                             group,
-                                             instance=instance,
-                                             mut_instance=mut_instance)
+                            log_run_info(status,
+                                         group,
+                                         instance=instance,
+                                         mut_instance=mut_instance)
                             instance = mut_instance
 
                     print_general_info(solve_time,
@@ -577,9 +547,20 @@ def fuzz(files: set):
             print_general_info()
 
 
+def set_arg_parameters(argv: argparse.Namespace):
+    global mutations, heuristic, options
+    set_solver(argv.solver)
+
+    heuristic = argv.heuristic
+    set_heuristic(heuristic)
+
+    mutations = argv.mutations
+    options = argv.options
+    init_mut_types(options, mutations)
+
+
 def main():
-    global general_stats, mutations, heuristic,\
-        options, seed_number, with_oracles
+    global general_stats, seed_number
 
     parser = argparse.ArgumentParser()
     parser.add_argument('seeds',
@@ -588,19 +569,24 @@ def main():
                         help='directory with seeds or keyword \'all\'')
     parser.add_argument('-heuristic', '-heur',
                         nargs='?',
-                        choices=['transitions', 'states',
+                        choices=['default', 'transitions', 'states',
                                  'difficulty', 'simplicity'],
                         default='default',
                         help='trace data which will be used to '
                              'select an instance for mutation')
+    parser.add_argument('-solver', '-s',
+                        nargs='?',
+                        choices=['spacer', 'eldarica'],
+                        default='spacer')
     parser.add_argument('-mutations', '-mut',
                         nargs='*',
-                        choices=['simplifications', 'solving_parameters',
+                        choices=['simplifications', 'spacer_parameters',
                                  'own'],
-                        default=[])
+                        default=['simplifications', 'spacer_parameters',
+                                 'own'])
     parser.add_argument('-options', '-opt',
                         nargs='*',
-                        choices=['without_mutation_weights', 'with_oracles'],
+                        choices=['without_mutation_weights'],
                         default=[])
     argv = parser.parse_args()
 
@@ -614,21 +600,16 @@ def main():
     set_option(max_args=int(1e6), max_lines=int(1e6),
                max_depth=int(1e6), max_visited=int(1e6))
 
-    heuristic = argv.heuristic
-    set_heuristic(heuristic)
+    set_arg_parameters(argv)
     if heuristic in {'transitions', 'states'}:
         general_stats = TraceStats()
-        
-    options = argv.options
-    with_oracles = 'with_oracles' in options
-    mutations = argv.mutations
+        assert solver == 'spacer'
 
     directory = os.path.dirname(os.path.dirname(parser.prog))
     if directory:
         directory += '/'
     files = get_seeds(argv.seeds, directory)
     create_output_dirs()
-    init_mut_types(options, mutations)
 
     seed_number = len(files)
     assert seed_number > 0, 'Seeds not found'

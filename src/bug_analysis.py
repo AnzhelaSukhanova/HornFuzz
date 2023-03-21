@@ -191,7 +191,7 @@ def reduce(filename: str = None, reduce_chain: bool = False, reduce_inst: bool =
     group_id = len(instance_groups)
     group = InstanceGroup(group_id, seed_name)
     if reduce_chain:
-        group.restore(group_id, mutations)
+        group.restore(mutations)
         mut_instance = group[-1]
         try:
             assert is_same_res(mut_instance, message=message), \
@@ -201,7 +201,7 @@ def reduce(filename: str = None, reduce_chain: bool = False, reduce_inst: bool =
             return None
         mut_instance = reduce_mut_chain(group, message)
     else:
-        group.restore(group_id, {})
+        group.restore({})
         mut_system = parse_smt2_file(filename,
                                      ctx=instances.current_ctx)
         mut_instance = Instance(group_id, mut_system)
@@ -251,15 +251,10 @@ def get_bug_info(filename: str):
         message = file.readline()
         message = message[2:] if message[0] == ';' else None
 
+    mutations = []
     if mut_line:
         if mut_line[0] == '[':
             mutations = json.loads(mut_line)
-        else:
-            mutations = mut_line.split('->')
-            if len(mutations) == 1:
-                mutations = []
-    else:
-        mutations = []
 
     if filename.startswith('out'):
         filename = '/'.join(filename.split('/')[2:])
@@ -275,7 +270,7 @@ def redo_mutations(filename: str):
     mutations, message, seed_name = get_bug_info(filename)
     id = 0
     group = InstanceGroup(id, seed_name)
-    group.restore(id, mutations)
+    group.restore(mutations)
     instance = group[-1]
     if is_same_res(instance, message=message):
         instance.dump('output/bugs',
@@ -322,7 +317,7 @@ def deduplicate(bug_files: str, logfile: str) -> dict:
         mutations, message, seed_name = get_bug_info(file)
         group_id = len(instance_groups)
         group = InstanceGroup(group_id, seed_name)
-        group.restore(group_id, mutations)
+        group.restore(mutations)
         instance = group[-1]
         if instance is None:
             continue
