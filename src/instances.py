@@ -7,7 +7,6 @@ import utils
 from solvers import *
 from enum import Enum
 from utils import *
-from profilehooks import profile, timecall
 
 instance_id = 0
 new_trace_number = 0
@@ -223,6 +222,7 @@ class Instance(object):
         self.model = None
         self.model_info = (sat, 0)
         self.mutation = Mutation()
+        self.solve_time = 0
 
     def set_chc(self, chc: AstVector):
         """Set the chc-system of the instance."""
@@ -272,6 +272,7 @@ class Instance(object):
         self.chc = None
         self.model = None
 
+    # @profile(immediate=True)
     def check(self, group: InstanceGroup, is_seed: bool = False):
         """Check the satisfiability of the instance."""
         timeout = SEED_SOLVE_TIME_LIMIT_MS if is_seed else MUT_SOLVE_TIME_LIMIT_MS
@@ -347,7 +348,6 @@ class Instance(object):
             log['mut_type'] = self.mutation.get_name()
         return log
 
-    # @profile(immediate=True)
     def find_system_info(self):
         if self.chc is None or mut_groups[0] != MutTypeGroup.OWN:
             return
