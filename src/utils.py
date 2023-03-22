@@ -9,6 +9,7 @@ import numpy as np
 from scipy.sparse import dok_matrix
 from from_z3 import *
 from constants import *
+from profilehooks import profile, timecall
 
 trace_states = defaultdict(int)
 start_state_number = 50

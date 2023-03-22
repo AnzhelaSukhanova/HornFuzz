@@ -37,6 +37,7 @@ def calculate_weights() -> list:
         if heuristic in {'transitions', 'states'} \
         else None
     weights = []
+    rev_times = []
 
     for instance in queue:
         group = instance.get_group()
@@ -64,7 +65,13 @@ def calculate_weights() -> list:
         if weight == 0:
             weight += 0.1
         weights.append(weight)
+        rev_time = 1/instance.solve_time if instance.solve_time else 0
+        rev_times.append(rev_time)
     weights = normalize([weights])[0]
+    rev_times = normalize([rev_times])[0]
+    coef = 0.8
+    for i, weight in enumerate(weights):
+        weights[i] = coef * weight + (1 - coef) * rev_times[i]
     return weights
 
 
@@ -281,6 +288,7 @@ def known_seeds_processor(files: set, base_idx: int, seed_info_index):
             return None
         counter['runs'] += 1
         solve_time = instance.process_seed_info(seed_info)
+        instance.solve_time = solve_time
         instance.update_traces_info()
         if heuristic in {'transitions', 'states'}:
             general_stats += instance.trace_stats
@@ -308,14 +316,15 @@ def new_seeds_processor(files: set, base_idx: int, seed_info_index):
             continue
         counter['runs'] += 1
         try:
-            st_time = time.perf_counter()
+            solve_time = time.perf_counter()
             check_satis(instance, is_seed=True)
+            solve_time = time.perf_counter() - solve_time
+            instance.solve_time = solve_time
             get_trace_stats(instance, is_seed=True)
             message = instance.check_model()
             if instance.model_info[0] != sat:
                 handle_bug(instance,
                            message=message)
-            solve_time = time.perf_counter() - st_time
             seed_info[seed] = {
                 'satis': instance.satis.r,
                 'time': solve_time,
@@ -459,10 +468,10 @@ def fuzz(files: set):
                 mut_time = time.perf_counter()
                 mut.apply(instance, mut_instance)
                 mut_time = time.perf_counter() - mut_time
-                mut_instance.dump('output/mutants',
-                                  group.filename,
-                                  to_name=mut_instance.id,
-                                  clear=False)
+                # mut_instance.dump('output/mutants',
+                #                   group.filename,
+                #                   to_name=mut_instance.id,
+                #                   clear=False)
 
                 if mut.changed:
                     mut_types_exc = set()
@@ -470,6 +479,7 @@ def fuzz(files: set):
                         solve_time = time.perf_counter()
                         res = check_satis(mut_instance, group)
                         solve_time = time.perf_counter() - solve_time
+                        instance.solve_time = solve_time
                         trace_changed = (instance.trace_stats.hash !=
                                          mut_instance.trace_stats.hash)
                         trace_time = time.perf_counter()
