@@ -28,7 +28,6 @@ queue = []
 current_ctx = None
 general_stats = None
 counter = defaultdict(int)
-without_bug_counter = defaultdict(int)
 log = dict()
 
 
@@ -40,38 +39,37 @@ def calculate_weights() -> list:
     rev_times = []
 
     for instance in queue:
-        group = instance.get_group()
-        filename = group.filename
         stats = instance.trace_stats
-        # if without_bug_counter[filename] >= WITHOUT_BUG_LIMIT:
-        #     weight = 0.1
-        if heuristic == 'transitions':
-            prob_matrix = stats.get_probability()
-            size = stats.matrix.shape[0]
-            weight_matrix_part = weighted_stats[:size, :size]
-            trans_matrix = stats.matrix
-            weight = np.sum(prob_matrix * trans_matrix * weight_matrix_part)
-        elif heuristic == 'states':
-            states_prob = stats.get_probability()
-            weight = sum(states_prob[state] * weighted_stats[state]
-                         for state in stats.states_num)
-        elif heuristic in {'difficulty', 'simplicity'}:
-            group = instance.get_group()
-            is_nonlinear = not group.is_linear
-            upred_num = group.upred_num
-            weight = (is_nonlinear, upred_num)
+        if heuristic == 'default':
+            weight = 1
         else:
-            weight = 0.1
+            rev_time = 1 / instance.solve_time if instance.solve_time else 0
+            rev_times.append(rev_time)
+            if heuristic == 'transitions':
+                prob_matrix = stats.get_probability()
+                size = stats.matrix.shape[0]
+                weight_matrix_part = weighted_stats[:size, :size]
+                trans_matrix = stats.matrix
+                weight = np.sum(prob_matrix * trans_matrix * weight_matrix_part)
+            elif heuristic == 'states':
+                states_prob = stats.get_probability()
+                weight = sum(states_prob[state] * weighted_stats[state]
+                             for state in stats.states_num)
+            else:
+                group = instance.get_group()
+                is_nonlinear = not group.is_linear
+                upred_num = group.upred_num
+                weight = (is_nonlinear, upred_num)
         if weight == 0:
             weight += 0.1
         weights.append(weight)
-        rev_time = 1/instance.solve_time if instance.solve_time else 0
-        rev_times.append(rev_time)
+
     weights = normalize([weights])[0]
-    rev_times = normalize([rev_times])[0]
-    coef = 0.8
-    for i, weight in enumerate(weights):
-        weights[i] = coef * weight + (1 - coef) * rev_times[i]
+    if heuristic != 'default':
+        rev_times = normalize([rev_times])[0]
+        coef = 0.8
+        for i, weight in enumerate(weights):
+            weights[i] = coef * weight + (1 - coef) * rev_times[i]
     return weights
 
 
@@ -369,7 +367,7 @@ def run_seeds(files: set):
 
 def handle_bug(instance: Instance, mut_instance: Instance = None,
                message: str = None):
-    global counter, without_bug_counter
+    global counter
 
     group = instance.get_group()
     counter['bug'] += 1
@@ -378,8 +376,6 @@ def handle_bug(instance: Instance, mut_instance: Instance = None,
         if mut_instance \
         else instance.model_info[0]
     status = 'bug' if model_state == sat else 'wrong_model'
-    # if model_state != 'unknown':
-    #     without_bug_counter[group.filename] = 0
     log_run_info(status,
                  group,
                  message,
@@ -414,7 +410,7 @@ def ensure_current_context_is_deletable():
 
 
 def fuzz(files: set):
-    global queue, current_ctx, counter, without_bug_counter
+    global queue, current_ctx, counter
 
     run_seeds(files)
     logging.info(json.dumps({'seed_number': seed_number,
@@ -459,7 +455,6 @@ def fuzz(files: set):
                 i += 1
                 if with_weights:
                     runs_before_weight_update -= 1
-                # without_bug_counter[group.filename] += 1
 
                 mut_instance = Instance()
                 mut = mut_instance.mutation
