@@ -9,6 +9,7 @@ RUN pacman -Syy \
                     git \
                     python \
                     python-pip \
+                    python-setuptools \
                     make \
                     gcc \
                     libffi \
@@ -36,7 +37,7 @@ RUN pip install -r requirements.txt
 # download and edit Z3-sourses
 RUN git clone https://github.com/AnzhelaSukhanova/z3.git \
  && cd z3 \
- && git checkout 5822106 \
+ && git checkout 95e183c \
  && python scripts/mk_make.py --python \
  && sed -i -e 's, -D_MP_INTERNAL, -D_TRACE -D_MP_INTERNAL,g' build/config.mk
  
