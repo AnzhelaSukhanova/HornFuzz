@@ -7,6 +7,7 @@ import os.path
 import traceback
 from typing import Optional
 
+import numpy as np
 from sklearn.preprocessing import normalize
 
 import instances
@@ -37,20 +38,21 @@ def calculate_weights() -> list:
         else None
     weights = []
     rev_times = []
+    shape = weighted_stats.shape
 
     for instance in queue:
         stats = instance.trace_stats
-        if heuristic == 'default':
-            weight = 1
-        else:
+        weight = 0
+        if heuristic != 'default':
             rev_time = 1 / instance.solve_time if instance.solve_time else 0
             rev_times.append(rev_time)
             if heuristic == 'transitions':
                 prob_matrix = stats.get_probability()
-                size = stats.matrix.shape[0]
-                weight_matrix_part = weighted_stats[:size, :size]
                 trans_matrix = stats.matrix
-                weight = np.sum(prob_matrix * trans_matrix * weight_matrix_part)
+                prob_matrix *= trans_matrix
+                weight = prob_matrix * trans_matrix
+                weight.resize(shape)
+                weight = weight.toarray()
             elif heuristic == 'states':
                 states_prob = stats.get_probability()
                 weight = sum(states_prob[state] * weighted_stats[state]
@@ -60,16 +62,20 @@ def calculate_weights() -> list:
                 is_nonlinear = not group.is_linear
                 upred_num = group.upred_num
                 weight = (is_nonlinear, upred_num)
-        if weight == 0:
-            weight += 0.1
         weights.append(weight)
 
-    weights = normalize([weights])[0]
+    if heuristic == 'transitions':
+        weights = np.stack(weights)
+        weights = weights * weighted_stats.toarray()
+        weights = np.sum(weights, axis=(1, 2))
+
+    weights = normalize([weights], 'max')[0]
     if heuristic != 'default':
-        rev_times = normalize([rev_times])[0]
-        coef = 0.8
-        for i, weight in enumerate(weights):
-            weights[i] = coef * weight + (1 - coef) * rev_times[i]
+        rev_times = normalize([rev_times], 'max')[0]
+        coef = 0.7
+        weights = np.multiply(weights, coef)
+        rev_times = np.multiply(rev_times, 1 - coef)
+        weights = np.sum([weights, rev_times], axis=0)
     return weights
 
 
