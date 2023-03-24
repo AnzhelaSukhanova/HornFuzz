@@ -49,7 +49,6 @@ def calculate_weights() -> list:
             if heuristic == 'transitions':
                 prob_matrix = stats.get_probability()
                 trans_matrix = stats.matrix
-                prob_matrix *= trans_matrix
                 weight = prob_matrix * trans_matrix
                 weight.resize(shape)
                 weight = weight.toarray()
@@ -66,15 +65,15 @@ def calculate_weights() -> list:
 
     if heuristic == 'transitions':
         weights = np.stack(weights)
-        weights = weights * weighted_stats.toarray()
+        weights = np.matmul(weights, weighted_stats.toarray())
         weights = np.sum(weights, axis=(1, 2))
 
     weights = normalize([weights], 'max')[0]
     if heuristic != 'default':
         rev_times = normalize([rev_times], 'max')[0]
-        coef = 0.7
-        weights = np.multiply(weights, coef)
-        rev_times = np.multiply(rev_times, 1 - coef)
+        coef = 0.8
+        weights = weights * coef
+        rev_times = rev_times * (1 - coef)
         weights = np.sum([weights, rev_times], axis=0)
     return weights
 
