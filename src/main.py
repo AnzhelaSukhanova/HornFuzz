@@ -38,11 +38,12 @@ def calculate_weights() -> list:
         else None
     weights = []
     rev_times = []
-    shape = weighted_stats.shape
+    if weighted_stats:
+        shape = weighted_stats.shape
 
     for instance in queue:
         stats = instance.trace_stats
-        weight = 0
+        weight = 1e-5
         if heuristic != 'default':
             rev_time = 1 / instance.solve_time if instance.solve_time else 0
             rev_times.append(rev_time)
