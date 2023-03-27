@@ -33,13 +33,11 @@ log = dict()
 
 
 def calculate_weights() -> list:
-    weighted_stats = general_stats.get_weighted_stats() \
-        if heuristic in {'transitions', 'states'} \
-        else None
+    if heuristic in {'transitions', 'states'}:
+        weighted_stats = general_stats.get_weighted_stats()
+        shape = weighted_stats.shape
     weights = []
     rev_times = []
-    if weighted_stats:
-        shape = weighted_stats.shape
 
     for instance in queue:
         stats = instance.trace_stats
@@ -48,9 +46,7 @@ def calculate_weights() -> list:
             rev_time = 1 / instance.solve_time if instance.solve_time else 0
             rev_times.append(rev_time)
             if heuristic == 'transitions':
-                prob_matrix = stats.get_probability()
-                trans_matrix = stats.matrix
-                weight = prob_matrix * trans_matrix
+                weight = stats.get_probability()
                 weight.resize(shape)
                 weight = weight.toarray()
             elif heuristic == 'states':
