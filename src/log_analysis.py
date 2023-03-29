@@ -10,8 +10,8 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 unique_traces = 0
+num_dict = defaultdict(list)
 count_dict = defaultdict(list)
-add_count_dict = defaultdict(list)
 colors = ['crimson', 'teal', 'darkorange', 'darkblue']
 markers = ['d', 's', '^', 'o', '+', '*', '1', 'x', 'h', '.', '2', '3', '4', 'D', 'H', 'X']
 graph_i = 0
@@ -34,6 +34,7 @@ class Stats:
             if not math.isnan(entry[key]):
                 time = entry[key] / SEC_IN_HOUR
                 times.append(time)
+                # print(entry['filename'], time * SEC_IN_HOUR)
                 return time
             else:
                 return 0
@@ -108,11 +109,12 @@ class Stats:
             ax1.set_ylabel('Bugs')
         else:
             ax1.set_ylabel('Inputs solved')
-            ax2.set_xlabel('Inputs')
-            ax2.set_ylabel('Solving time to total time')
-            ax2.plot(num_axis, ratio_axis)
+            # ax2.set_xlabel('Inputs')
+            # ax2.set_ylabel('Solving time to total time')
+            # ax2.plot(num_axis, ratio_axis)
 
         ax1.plot(time_axis, num_axis)
+        ax1.grid()
 
         print("Total time:", round(total_time, ROUND_NUM))
         print("Mean solving time:", round(mean(solve_times), ROUND_NUM))
@@ -140,7 +142,7 @@ class Stats:
 
         time_axis = []
         unique_traces_axis = []
-        coef = []
+        # coef = []
         ax = fig.gca()
         ind = self.df['unique_traces'].notnull()
 
@@ -149,8 +151,6 @@ class Stats:
         last_entry = self.df[ind].iloc[-1]
         last_time = last_entry['current_time']
         total_time = (last_time - fst_time) / SEC_IN_HOUR
-        # if total_time < DAY:
-        #     return
         print("Total time:", round(total_time, ROUND_NUM))
 
         cur_trace = 0
@@ -181,6 +181,7 @@ class Stats:
         # lin_coef = mean(coef)
         # ax.plot(time_axis, [item * lin_coef for item in time_axis], c='black', linestyle='--')
         ax.plot(time_axis, unique_traces_axis, marker=markers[graph_i], fillstyle='none')
+        ax.grid()
         graph_i += 1
 
     def get_mutation_weights(self):
@@ -212,7 +213,7 @@ class Stats:
                     cur_dict[filename].append(0)
                 cur_dict[filename].append(1)
 
-        global count_dict, add_count_dict, chain_lengths
+        global num_dict, count_dict, chain_lengths
 
         ind = self.df['filename'].notnull()
         num = 0
@@ -221,14 +222,14 @@ class Stats:
             filename = entry['filename']
             num += 1
             # mutation = entry['mut_type'].split('(')[0]
-            add_to_count_dict(count_dict, filename)
+            add_to_count_dict(num_dict, filename)
             if entry['status'] == status:
                 if status != 'wrong_model' or entry['model_state'] != -1:
                     continue
                 status_num += 1
-                add_to_count_dict(add_count_dict, filename)
-        count_dict[''].append(num)
-        add_count_dict[''].append(status_num)
+                add_to_count_dict(count_dict, filename)
+        num_dict[''].append(num)
+        count_dict[''].append(status_num)
 
 
 def prepare_data(name: str):
@@ -241,7 +242,8 @@ def prepare_data(name: str):
             if not stats.seed_num and 'seed_number' in entry:
                 info = entry
                 stats.seed_num = info['seed_number']
-            elif 'general_info' in entry or 'run_info' in entry:
+            elif 'general_info' in entry or 'run_info' in entry \
+                    or 'update_mutation_weights' in entry:
                 entries.append(list(entry.values())[0])
             elif 'context_deletion_error' not in entry:
                 entries.append(entry)
@@ -254,7 +256,7 @@ def prepare_data(name: str):
 
 
 def analyze(log_names: list, stats: list, select: list, options: list):
-    global count_dict
+    global num_dict
 
     if not os.path.exists('stats'):
         os.makedirs('stats')
@@ -283,22 +285,26 @@ def analyze(log_names: list, stats: list, select: list, options: list):
         legend.append(name.split('/')[-1])
 
     if 'traces' in stats:
-        traces.legend(legend)
+        traces.legend(legend, loc='upper left')
         traces.savefig('stats/traces.png', bbox_inches='tight')
 
     if 'runs' in stats:
-        times.legend(legend)
+        times.legend(legend, loc='upper left')
         times.savefig('stats/runs.png', bbox_inches='tight')
-        time_ratio.legend(legend)
-        time_ratio.savefig('stats/ratio.png', bbox_inches='tight')
+        # time_ratio.legend(legend)
+        # time_ratio.savefig('stats/ratio.png', bbox_inches='tight')
 
     if 'bugs' in stats:
-        times.legend(legend)
+        times.legend(legend, loc='upper left')
         times.savefig('stats/bugs.png', bbox_inches='tight')
 
-    count_dict = dict(sorted(count_dict.items(),
-                             key=lambda item: item[1][0],
-                             reverse=True))
+    num_dict = dict(sorted(num_dict.items(),
+                           key=lambda item: item[1][0],
+                           reverse=True))
+    for key in num_dict:
+        if num_dict[key][0] > 1:
+            print(key, num_dict[key])
+
 
 def main():
     parser = argparse.ArgumentParser()

@@ -3,12 +3,12 @@ import faulthandler
 import gc
 import itertools
 import logging
+import math
 import os.path
 import traceback
 from typing import Optional
 
 import numpy as np
-from sklearn.preprocessing import normalize
 
 import instances
 
@@ -43,7 +43,8 @@ def calculate_weights() -> list:
         stats = instance.trace_stats
         weight = 1e-5
         if heuristic != 'default':
-            rev_time = 1 / instance.solve_time if instance.solve_time else 0
+            rev_time = (2 / math.pi) * math.atan(math.pi / 4 * (1 / instance.solve_time - 1)) + 1 \
+                if instance.solve_time else 0.5
             rev_times.append(rev_time)
             if heuristic == 'transitions':
                 weight = stats.get_probability()
@@ -65,13 +66,15 @@ def calculate_weights() -> list:
         weights = np.matmul(weights, weighted_stats.toarray())
         weights = np.sum(weights, axis=(1, 2))
 
+        weights *= np.array(rev_times)
+
     weights = normalize([weights], 'max')[0]
-    if heuristic != 'default':
-        rev_times = normalize([rev_times], 'max')[0]
-        coef = 0.8
-        weights = weights * coef
-        rev_times = rev_times * (1 - coef)
-        weights = np.sum([weights, rev_times], axis=0)
+    # if heuristic != 'default':
+    #     rev_times = normalize([rev_times], 'max')[0]
+    #     coef = 0.9
+    #     weights = weights * coef
+    #     rev_times = rev_times * (1 - coef)
+    #     weights = np.sum([weights, rev_times], axis=0)
     return weights
 
 
@@ -85,7 +88,7 @@ def get_trace_stats(instance: Instance, is_seed: bool = False,
     if not is_seed:
         instance.inc_mutation_stats('applications')
         instance.inc_mutation_stats('changed_traces', int(trace_changed))
-        instance.inc_mutation_stats('new_transitions', utils.new_transitions)
+        instance.inc_mutation_stats('new_transitions', instance.trace_stats.new_transitions)
 
         mut_type = instance.mutation.type
         current_mutation_stats = instances.mut_stats[mut_type.name]
@@ -123,8 +126,7 @@ def next_instance() -> Instance:
 
 def update_mutation_weights():
     instances.update_mutation_weights()
-    logging.info(json.dumps({'update_mutation_weights':
-                                 instances.get_mut_weights_dict()},
+    logging.info(json.dumps(instances.get_mut_weights_dict(),
                             cls=MutTypeEncoder))
 
 

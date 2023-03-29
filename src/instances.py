@@ -1,7 +1,8 @@
 import time
 import re
-
 import z3
+
+from sklearn.preprocessing import normalize
 
 import utils
 from solvers import *
@@ -710,20 +711,22 @@ array_mutations = {'BLAST_SELECT_STORE', 'EXPAND_SELECT_STORE',
 def update_mutation_weights():
     global mut_types, mut_stats
 
+    weights = []
     for mut_name in mut_types:
         current_mut_stats = mut_stats.get(mut_name)
         if current_mut_stats is None or mut_name == 'ID':
             continue
-        trace_change_probability = current_mut_stats['changed_traces'] / \
-                                   current_mut_stats['applications']
-        trace_discover_probability = current_mut_stats['new_traces'] / \
-                                     current_mut_stats['applications']
-        # new_transition_probability = current_mut_stats['new_transitions'] / \
-        #                              utils.all_new_transitions \
-        #     if utils.all_new_transitions else 0
+        trace_change_probability = current_mut_stats['changed_traces'] / current_mut_stats['applications']
+        trace_discover_probability = current_mut_stats['new_traces'] / current_mut_stats['applications']
+        new_transitions = current_mut_stats['new_transitions']
         coef = 0.62
         mut_types[mut_name].weight = coef * mut_types[mut_name].weight + \
                                      (1 - coef) * trace_discover_probability
+        # weights.append(mut_types[mut_name].weight)
+
+    # factor = 1 / sum(weights)
+    # for key in mut_types:
+    #     mut_types[key].weight = mut_types[key].weight * factor
 
 
 class Mutation(object):

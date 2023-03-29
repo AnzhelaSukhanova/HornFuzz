@@ -14,8 +14,6 @@ from profilehooks import profile, timecall
 trace_states = defaultdict(int)
 start_state_number = 50
 transition_matrix = np.zeros((start_state_number, start_state_number), dtype=int)
-all_new_transitions = 0
-new_transitions = 0
 trace_offset = 0
 info_kinds = {Z3_OP_AND: '(declare-fun and *)',
               Z3_OP_OR: '(declare-fun or *)',
@@ -83,6 +81,7 @@ class TraceStats(object):
     def __init__(self, size: int = start_state_number):
         self.states = None
         self.hash = 0
+        self.new_transitions = 0
 
         if heuristic == 'transitions':
             self.matrix = dok_matrix((size, size), dtype=int)
@@ -112,8 +111,7 @@ class TraceStats(object):
 
     def add_trans(self, i: State, j: State):
         """Add transition to matrix."""
-        global trace_states, transition_matrix, \
-            new_transitions, all_new_transitions
+        global trace_states, transition_matrix
 
         i_ind = trace_states[i]
         j_ind = trace_states[j]
@@ -122,11 +120,9 @@ class TraceStats(object):
             size = max(i_ind, j_ind) + 1
             self.resize(size)
             transition_matrix = np.resize(transition_matrix, (size, size))
-        self.matrix[i_ind, j_ind] += 1
         if not transition_matrix[i_ind, j_ind]:
-            transition_matrix[i_ind, j_ind] = 1
-            new_transitions += 1
-            all_new_transitions += 1
+            self.new_transitions += 1
+        self.matrix[i_ind, j_ind] += 1
 
     def read_from_trace(self, is_seed: bool = False):
         """Read z3-trace from last read line."""
@@ -144,8 +140,7 @@ class TraceStats(object):
             trace_offset = trace.seek(0, io.SEEK_END)
 
     def load_states(self, states: List[State]):
-        global new_transitions
-        new_transitions = 0
+        self.new_transitions = 0
         hash_builder = hashlib.sha512()
         prev_state = None
 
@@ -172,8 +167,7 @@ class TraceStats(object):
         if heuristic == 'transitions':
             prob = dok_matrix(self.matrix.shape, dtype=float)
             trans_num = self.matrix.sum(axis=1)
-            not_zero_ind = [tuple(item)
-                            for item in np.transpose(self.matrix.nonzero())]
+            not_zero_ind = [item for item in np.transpose(self.matrix.nonzero())]
             for i, j in not_zero_ind:
                 prob[i, j] = self.matrix[i, j] / trans_num[i]
         elif heuristic == 'states':
