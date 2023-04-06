@@ -13,14 +13,7 @@ instance_id = 0
 new_trace_number = 0
 unique_traces = set()
 instance_groups = defaultdict()
-current_ctx = None
 solver = 'spacer'
-
-
-def set_ctx(ctx):
-    global current_ctx
-    current_ctx = ctx
-    utils.set_ctx(ctx)
 
 
 def set_solver(cur_solver: str):
@@ -70,7 +63,7 @@ class InstanceGroup(object):
             if k not in {'id', 'filename', 'instances'}:
                 setattr(self, k, deepcopy(v))
 
-    def push(self, instance):
+    def push(self, instance, output_dir: str = 'output'):
         """Add an instance to the group."""
         instance.group_id = self.id
         self.trace_number += new_trace_number
@@ -83,15 +76,15 @@ class InstanceGroup(object):
 
         group_len = len(self.instances)
         if group_len == 0:
-            self.dump_declarations()
+            self.dump_declarations(output_dir)
         else:
             prev_instance = self[-1]
             instance.mutation.add_after(prev_instance.mutation)
 
         self.instances[group_len] = instance
 
-    def dump_declarations(self):
-        filename = 'output/decl/' + self.filename
+    def dump_declarations(self, output_dir: str = 'output'):
+        filename = output_dir + '/decl/' + self.filename
         with open(self.filename, 'r') as seed_file:
             file = seed_file.read()
             formula = re.sub(r"\(set-info.*\"\)", "",
@@ -134,17 +127,21 @@ class InstanceGroup(object):
                 self.roll_back()
                 return 0
 
-    def restore(self, mutations):
-        seed = parse_smt2_file(self.filename, ctx=current_ctx)
+    def restore_seed(self,output_dir: str = 'output'):
+        seed = parse_smt2_file(self.filename, ctx=ctx.current_ctx)
         instance = Instance(seed)
-        self.push(instance)
+        self.push(instance, output_dir)
+        return instance
+
+    def restore(self, mutations, output_dir: str = 'output'):
+        instance = self.restore_seed(output_dir)
 
         for mut in mutations:
             mut_instance = Instance()
             mut_instance.mutation.restore(mut)
             try:
                 mut_instance.mutation.apply(instance, mut_instance)
-                self.push(mut_instance)
+                self.push(mut_instance, output_dir)
                 instance = mut_instance
             except (AssertionError, Z3Exception):
                 message = traceback.format_exc()
@@ -201,7 +198,7 @@ class MutType(object):
 
 
 def copy_chc(chc_system: AstVector) -> AstVector:
-    new_chc_system = AstVector(ctx=current_ctx)
+    new_chc_system = AstVector(ctx=ctx.current_ctx)
     for clause in chc_system:
         new_chc_system.push(clause)
     return new_chc_system
@@ -279,7 +276,7 @@ class Instance(object):
         timeout = SEED_SOLVE_TIME_LIMIT_MS if is_seed else MUT_SOLVE_TIME_LIMIT_MS
 
         if solver == 'spacer':
-            cur_solver = SolverFor('HORN', ctx=current_ctx)
+            cur_solver = SolverFor('HORN', ctx=ctx.current_ctx)
             cur_solver.set('engine', 'spacer')
             for param in self.params:
                 value = self.params[param]
@@ -313,7 +310,7 @@ class Instance(object):
             return None
         assert self.model is not None, "Empty model"
 
-        solver = Solver(ctx=current_ctx)
+        solver = Solver(ctx=ctx.current_ctx)
         solver.set('timeout', MODEL_CHECK_TIME_LIMIT)
         for i, clause in enumerate(self.chc):
             inter_clause = self.model.eval(clause)
@@ -404,7 +401,7 @@ class Instance(object):
         group = self.get_group()
         filename = group.filename if is_seed else \
             'output/last_mutants/' + group.filename
-        self.set_chc(z3.parse_smt2_file(filename, ctx=current_ctx))
+        self.set_chc(z3.parse_smt2_file(filename, ctx=ctx.current_ctx))
         assert len(self.chc) > 0, "Empty chc-system"
 
     def dump(self, dir: str, filename: str, message: str = None,
@@ -856,7 +853,7 @@ class Mutation(object):
 
     def simplify_by_one(self, chc_system: AstVector) -> AstVector:
         """Simplify instance with arith_ineq_lhs, arith_lhs and eq2ineq."""
-        mut_system = AstVector(ctx=current_ctx)
+        mut_system = AstVector(ctx=ctx.current_ctx)
 
         mut_name = self.type.name.lower()
         params = [mut_name, True]
@@ -867,7 +864,7 @@ class Mutation(object):
         ind = range(0, len(chc_system)) if not self.clause_i else {self.clause_i}
         for i in range(len(chc_system)):
             if i in ind:
-                cur_clause = AstVector(ctx=current_ctx)
+                cur_clause = AstVector(ctx=ctx.current_ctx)
                 cur_clause.push(chc_system[i])
                 rewritten_clause = self.empty_simplify(cur_clause)[0]
 
@@ -881,7 +878,7 @@ class Mutation(object):
         return mut_system
 
     def empty_simplify(self, chc_system: AstVector) -> AstVector:
-        mut_system = AstVector(ctx=current_ctx)
+        mut_system = AstVector(ctx=ctx.current_ctx)
 
         for i in range(len(chc_system)):
             clause = simplify(chc_system[i],
@@ -905,8 +902,8 @@ class Mutation(object):
         body_files = os.listdir('false_formulas')
         body_files.remove('README.md')
         filename = 'false_formulas/' + random.choice(body_files)
-        body = parse_smt2_file(filename, ctx=current_ctx)[0]
-        implication = Implies(body, head, ctx=current_ctx)
+        body = parse_smt2_file(filename, ctx=ctx.current_ctx)[0]
+        implication = Implies(body, head, ctx=ctx.current_ctx)
         rule = ForAll(vars, implication) if vars else implication
         mut_system.push(rule)
 
@@ -923,12 +920,12 @@ class Mutation(object):
         body_vars = head_vars
         pred_vars_num = len(body_vars)
         num = random.randint(1, 10)
-        var = Int('v' + str(0), ctx=current_ctx)
+        var = Int('v' + str(0), ctx=ctx.current_ctx)
         body_vars.append(var)
         vars = [var]
         and_exprs = []
         for i in range(1, num + 1):
-            var = FreshConst(IntSort(ctx=current_ctx), prefix='v')
+            var = FreshConst(IntSort(ctx=ctx.current_ctx), prefix='v')
             vars.append(var)
             body_vars.append(var)
             shuffle_vars(body_vars)
@@ -943,7 +940,7 @@ class Mutation(object):
         and_exprs.append(And(head_upred, expr))
         body = And(and_exprs)
         body = Exists(vars, body)
-        implication = Implies(body, head_upred, ctx=current_ctx)
+        implication = Implies(body, head_upred, ctx=ctx.current_ctx)
         rule = ForAll(head_vars, implication) if head_vars else implication
 
         mut_system.push(rule)
@@ -976,7 +973,7 @@ class Mutation(object):
     def transform(self, instance: Instance) -> AstVector:
         """Transform an expression of the specific kind."""
         chc_system = instance.chc
-        mut_system = AstVector(ctx=current_ctx)
+        mut_system = AstVector(ctx=ctx.current_ctx)
 
         clause_i, clause = self.get_clause_info(instance)
         if self.type.name == 'ID':
@@ -1003,6 +1000,7 @@ class Mutation(object):
             expr, path = find_term(clause, Z3_OP_TRUE, self.trans_num, False, True)
         else:
             expr, path = find_term(clause, expr_kind, self.trans_num, self.type.is_remove(), False)
+        assert not is_false(expr), 'Mutation subexpression not found'
         mut_expr = None
         mut_name = self.type.name
         children = expr.children()

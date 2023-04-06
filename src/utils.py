@@ -1,6 +1,7 @@
 import hashlib
 import json
 import random
+import traceback
 from collections import defaultdict
 from copy import deepcopy
 from typing import List
@@ -9,6 +10,7 @@ import numpy as np
 from scipy.sparse import dok_matrix
 from from_z3 import *
 from constants import *
+import ctx
 from profilehooks import profile, timecall
 
 trace_states = defaultdict(int)
@@ -25,13 +27,7 @@ info_kinds = {Z3_OP_AND: '(declare-fun and *)',
               Z3_OP_UNINTERPRETED: 'uninterpreted-functions',
               None: None}
 
-current_ctx = None
 heuristic = 'default'
-
-
-def set_ctx(ctx):
-    global current_ctx
-    current_ctx = ctx
 
 
 def set_heuristic(heur: str):
@@ -198,7 +194,7 @@ class TraceStats(object):
 
 
 def find_term(clause: QuantifierRef, term_kind: int, trans_num: int, is_removing: bool, is_quantifier: bool):
-    ctx_ref = current_ctx.ref()
+    ctx_ref = ctx.current_ctx.ref()
     path = ctypes.c_ulonglong(Z3_mk_int_vector(ctx_ref))
     term = to_expr_ref(Z3_find_term(ctx_ref,
                                     clause.as_ast(),
@@ -207,17 +203,17 @@ def find_term(clause: QuantifierRef, term_kind: int, trans_num: int, is_removing
                                     is_removing,
                                     is_quantifier,
                                     path),
-                       current_ctx)
+                       ctx.current_ctx)
     return term, path
 
 
 def set_term(clause: QuantifierRef, new_term, path):
-    result = to_expr_ref(Z3_set_term(current_ctx.ref(),
+    result = to_expr_ref(Z3_set_term(ctx.current_ctx.ref(),
                                      clause.as_ast(),
                                      new_term.as_ast(),
                                      path),
-                         current_ctx)
-    Z3_free_int_vector(current_ctx.ref(), path)
+                         ctx.current_ctx)
+    Z3_free_int_vector(ctx.current_ctx.ref(), path)
     return result
 
 
@@ -242,9 +238,9 @@ def count_expr(chc, kinds: list, is_unique=False):
     assert chc is not None, "Empty chc-system"
     expr_num = defaultdict(int)
 
-    goal = Goal(ctx=current_ctx)
+    goal = Goal(ctx=ctx.current_ctx)
     goal.append(chc)
-    tactic = Tactic('collect-statistics', ctx=current_ctx)
+    tactic = Tactic('collect-statistics', ctx=ctx.current_ctx)
     tactic.apply(goal, 'to_file', True)
 
     with open(".collect_stats.json") as file:
@@ -261,7 +257,7 @@ def count_expr(chc, kinds: list, is_unique=False):
 
 
 def check_ast_kind(expr, kind) -> bool:
-    ctx_ref = current_ctx.ref()
+    ctx_ref = ctx.current_ctx.ref()
     ast = expr.as_ast()
     return Z3_get_ast_kind(ctx_ref, ast) == kind
 
@@ -287,7 +283,7 @@ def shuffle_vars(vars):
 
 def remove_clauses(chc_system: AstVector, ind) -> AstVector:
     """Remove the clauses from the chc-system at the given indices."""
-    new_system = AstVector(ctx=current_ctx)
+    new_system = AstVector(ctx=ctx.current_ctx)
     for i, clause in enumerate(chc_system):
         if i not in ind:
             new_system.push(clause)
@@ -327,12 +323,12 @@ def take_pred_from_clause(clause: AstVector, with_term=False):
 
 
 def equivalence_check(seed: AstVector, mutant: AstVector) -> bool:
-    solver = Solver(ctx=current_ctx)
+    solver = Solver(ctx=ctx.current_ctx)
 
     for i, clause in enumerate(seed):
         solver.reset()
         mut_clause = mutant[i]
-        expr = Xor(clause, mut_clause, ctx=current_ctx)
+        expr = Xor(clause, mut_clause, ctx=ctx.current_ctx)
         solver.add(expr)
         result = solver.check()
 
@@ -363,7 +359,7 @@ def get_vars_and_body(clause):
 
         elif is_not(expr):
             vars += get_vars(child)
-            expr = Not(child.body(), ctx=current_ctx)
+            expr = Not(child.body(), ctx=ctx.current_ctx)
         else:
             break
         child = expr.children()[0] if expr.children() else None
@@ -401,7 +397,7 @@ def get_chc_body(clause):
                 # and-subexpressions, since we are counting the
                 # number of predicates
                 body_expr.append(subexpr)
-        body = Or(body_expr, current_ctx)
+        body = Or(body_expr, ctx.current_ctx)
     elif (is_not(expr) and child.decl().kind() == Z3_OP_UNINTERPRETED) or \
             expr.decl().kind() == Z3_OP_UNINTERPRETED:
         body = None

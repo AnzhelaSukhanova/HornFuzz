@@ -1,21 +1,16 @@
 import argparse
 import faulthandler
-import gc
 import itertools
 import logging
-import math
 import os.path
-import traceback
 from typing import Optional
-
-import numpy as np
 
 import instances
 
 import z3_api_mods
 from instances import *
 from seed_info_utils import *
-from seeds import *
+from files import *
 
 faulthandler.enable()
 enable_trace('spacer')
@@ -26,7 +21,6 @@ mutations = []
 
 seed_number = 0
 queue = []
-current_ctx = None
 general_stats = None
 counter = defaultdict(int)
 log = dict()
@@ -43,13 +37,12 @@ def calculate_weights() -> list:
         stats = instance.trace_stats
         weight = 1e-5
         if heuristic != 'default':
-            rev_time = (2 / math.pi) * math.atan(math.pi / 4 * (1 / instance.solve_time - 1)) + 1 \
-                if instance.solve_time else 0.5
+            rev_time = (1/instance.solve_time - 1)/(1/abs(instance.solve_time) + 1) + 1 \
+                if instance.solve_time else 0.05
             rev_times.append(rev_time)
             if heuristic == 'transitions':
-                weight = stats.get_probability()
+                weight = stats.matrix.toarray()
                 weight.resize(shape)
-                weight = weight.toarray()
             elif heuristic == 'states':
                 states_prob = stats.get_probability()
                 weight = sum(states_prob[state] * weighted_stats[state]
@@ -65,16 +58,9 @@ def calculate_weights() -> list:
         weights = np.stack(weights)
         weights = np.matmul(weights, weighted_stats.toarray())
         weights = np.sum(weights, axis=(1, 2))
-
         weights *= np.array(rev_times)
 
     weights = normalize([weights], 'max')[0]
-    # if heuristic != 'default':
-    #     rev_times = normalize([rev_times], 'max')[0]
-    #     coef = 0.9
-    #     weights = weights * coef
-    #     rev_times = rev_times * (1 - coef)
-    #     weights = np.sum([weights, rev_times], axis=0)
     return weights
 
 
@@ -259,7 +245,7 @@ def mk_seed_instance(idx: int, seed_file_name: str, parse: bool = False) -> \
         if parse:
             parse_ctx = Context()
             seed = parse_smt2_file(seed_file_name, ctx=parse_ctx)
-            seed = seed.translate(current_ctx)
+            seed = seed.translate(ctx.current_ctx)
             if not seed:
                 return None
             instance.set_chc(seed)
@@ -349,10 +335,9 @@ def new_seeds_processor(files: set, base_idx: int, seed_info_index):
 
 def run_seeds(files: set):
     """Read and solve the seeds."""
-    global queue, seed_number, current_ctx
+    global queue, seed_number
 
-    current_ctx = Context()
-    instances.set_ctx(current_ctx)
+    ctx.set_ctx(Context())
     seed_info_index = build_seed_info_index()
     known_seed_files = files & set(seed_info_index.keys())
     other_seed_files = files - known_seed_files
@@ -397,24 +382,8 @@ def handle_bug(instance: Instance, mut_instance: Instance = None,
         group.reset()
 
 
-def ensure_current_context_is_deletable():
-    global current_ctx
-    refs = gc.get_referrers(current_ctx)
-    if len(refs) > 1:
-        # dot_file = io.StringIO()
-        # objgraph.show_backrefs([current_ctx],
-        #                        max_depth=7,
-        #                        output=dot_file)
-        # dot_file.seek(0)
-        logging.error(json.dumps({'context_deletion_error': {
-            # 'refs': str(refs),
-            # 'grapf': dot_file.read()
-        }}))
-        current_ctx.__del__()
-
-
 def fuzz(files: set):
-    global queue, current_ctx, counter
+    global queue, counter
 
     run_seeds(files)
     logging.info(json.dumps({'seed_number': seed_number,
@@ -434,10 +403,10 @@ def fuzz(files: set):
         counter['runs'] += 1
         group = instance.get_group()
         try:
-            instances.set_ctx(None)
-            ensure_current_context_is_deletable()
-            current_ctx = Context()
-            instances.set_ctx(current_ctx)
+            message = ctx.ensure_current_context_is_deletable()
+            if message:
+                logging.error(json.dumps(message))
+            ctx.set_ctx(Context())
 
             is_seed = len(group.instances) == 1
             instance.restore(is_seed=is_seed)
@@ -641,25 +610,6 @@ def main():
     assert seed_number > 0, 'Seeds not found'
 
     fuzz(files)
-
-
-def create_output_dirs():
-    """Create directories for storing instances"""
-
-    if not os.path.exists('output'):
-        os.mkdir('output')
-    for dir in {'output/last_mutants', 'output/decl',
-                'output/bugs', 'output/unknown', 'output/mutants'}:
-        if not os.path.exists(dir):
-            os.mkdir(dir)
-        if dir != 'output':
-            for benchmark_dir in {'spacer-benchmarks/',
-                                  'chc-comp21-benchmarks/',
-                                  'sv-benchmarks-clauses/'}:
-                for subdir in os.walk(benchmark_dir):
-                    dir_path = dir + '/' + subdir[0]
-                    if not os.path.exists(dir_path):
-                        os.mkdir(dir_path)
 
 
 if __name__ == '__main__':

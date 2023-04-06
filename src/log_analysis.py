@@ -3,6 +3,7 @@ import json
 import math
 import os
 from constants import *
+from files import get_filenames
 from collections import defaultdict
 from statistics import mean
 
@@ -302,8 +303,9 @@ def analyze(log_names: list, stats: list, select: list, options: list):
                            key=lambda item: item[1][0],
                            reverse=True))
     for key in num_dict:
-        if num_dict[key][0] > 1:
-            print(key, num_dict[key])
+        # if num_dict[key][0] > 1:
+        if count_dict[key]:
+            print(key, count_dict[key])
 
 
 def main():
@@ -332,15 +334,7 @@ def main():
     argv = parser.parse_args()
 
     plt.rc('font', size=11)
-    log_names = []
-    for item in argv.logfile:
-        if os.path.isdir(item):
-            for root, subdirs, files in os.walk(argv.logfile[0]):
-                for file in files:
-                    path = os.path.join(root, file)
-                    log_names.append(path)
-        else:
-            log_names.append(item)
+    log_names = get_filenames(argv.logfile)
     analyze(log_names, argv.stats, argv.select, argv.options)
 
 

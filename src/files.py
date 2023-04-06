@@ -1,6 +1,5 @@
 import json
-from os import walk
-from os.path import join
+import os
 
 
 def get_relational(directory: str) -> set:
@@ -48,14 +47,27 @@ def get_problem(directory: str) -> set:
     return seeds
 
 
-def get_filenames(dir_path: str) -> set:
+def get_filenames(files: list) -> list:
+    filenames = []
+    for item in files:
+        if os.path.isdir(item):
+            for root, subdirs, files in os.walk(item):
+                for file in files:
+                    path = os.path.join(root, file)
+                    filenames.append(path)
+        else:
+            filenames.append(item)
+    return filenames
+
+
+def get_instance_names(dir_path: str) -> set:
     """Return all seed-names from the directory with its subdirectories."""
 
     seeds = set()
-    for root, subdirs, files in walk(dir_path):
+    for root, subdirs, files in os.walk(dir_path):
         for file in files:
             if file.endswith('.smt2'):
-                path = join(root, file)
+                path = os.path.join(root, file)
                 seeds.add(path)
     return seeds
 
@@ -73,17 +85,37 @@ def get_seeds(argv, directory: str) -> set:
         seeds = get_problem(directory)
     elif argv[0] == 'all':
         dir_path = directory + 'spacer-benchmarks/'
-        seeds = get_filenames(dir_path)
+        seeds = get_instance_names(dir_path)
         dir_path = directory + 'chc-comp21-benchmarks/'
-        seeds.update(get_filenames(dir_path))
+        seeds.update(get_instance_names(dir_path))
         dir_path = directory + 'sv-benchmarks-clauses/'
-        seeds.update(get_filenames(dir_path))
+        seeds.update(get_instance_names(dir_path))
         seeds = exclude_unknown_seed(seeds)
     else:
         if argv[0].endswith('.smt2'):
             seeds = set(argv)
         else:
             dir_path = directory + argv[0] + '/'
-            seeds = get_filenames(dir_path)
+            seeds = get_instance_names(dir_path)
             seeds = exclude_unknown_seed(seeds)
     return seeds
+
+
+def create_output_dirs():
+    """Create directories for storing instances"""
+
+    if not os.path.exists('output'):
+        os.mkdir('output')
+    for dir in {'output/last_mutants', 'output/decl',
+                'output/bugs', 'output/unknown', 'output/mutants'}:
+        if not os.path.exists(dir):
+            os.mkdir(dir)
+        if dir != 'output':
+            for benchmark_dir in {'spacer-benchmarks/',
+                                  'chc-comp21-benchmarks/',
+                                  'sv-benchmarks-clauses/'}:
+                for subdir in os.walk(benchmark_dir):
+                    dir_path = dir + '/' + subdir[0]
+                    if not os.path.exists(dir_path):
+                        os.mkdir(dir_path)
+
