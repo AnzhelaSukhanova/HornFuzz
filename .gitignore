@@ -3,13 +3,21 @@
 logfile
 output/*
 .collect_stats.json
+stats/*
+
+# Results
+logs-*/*
+run-data/*
 
 # PyCharm files
 .idea/*
 src/__pycache__/*
 
 # Seeds
-chc-comp21-benchmarks/*
-spacer-benchmarks/*
-sv-benchmarks-clauses/*
+chc-comp21-benchmarks/
+spacer-benchmarks/
+sv-benchmarks-clauses/
 seed_info/*
+
+# Other solvers
+eldarica/

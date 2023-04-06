@@ -4,16 +4,18 @@ import random
 import traceback
 from collections import defaultdict
 from copy import deepcopy
-from enum import Enum
 from typing import List
 
 import numpy as np
 from scipy.sparse import dok_matrix
 from from_z3 import *
-
-TRACE_FILE = '.z3-trace'
+from constants import *
+import ctx
+from profilehooks import profile, timecall
 
 trace_states = defaultdict(int)
+start_state_number = 50
+transition_matrix = np.zeros((start_state_number, start_state_number), dtype=int)
 trace_offset = 0
 info_kinds = {Z3_OP_AND: '(declare-fun and *)',
               Z3_OP_OR: '(declare-fun or *)',
@@ -25,12 +27,12 @@ info_kinds = {Z3_OP_AND: '(declare-fun and *)',
               Z3_OP_UNINTERPRETED: 'uninterpreted-functions',
               None: None}
 
-current_ctx = None
+heuristic = 'default'
 
 
-def set_ctx(ctx):
-    global current_ctx
-    current_ctx = ctx
+def set_heuristic(heur: str):
+    global heuristic
+    heuristic = heur
 
 
 class State(object):
@@ -70,66 +72,52 @@ class ClauseInfo(object):
             self.clause_expr_num[kind] = np.zeros(number, dtype=int)
 
 
-class StatsType(Enum):
-    DEFAULT = 0
-    TRANSITIONS = 1
-    STATES = 2
-    ALL = 3
-
-
-stats_type = StatsType.DEFAULT
-with_formula_heur = False
-
-
-def set_stats_type(heuristics: defaultdict):
-    """Set the type of statistics based on heuristics."""
-    global stats_type, with_formula_heur
-
-    if heuristics['transitions'] and heuristics['states']:
-        stats_type = StatsType.ALL
-    elif heuristics['transitions']:
-        stats_type = StatsType.TRANSITIONS
-    elif heuristics['states']:
-        stats_type = StatsType.STATES
-
-    if heuristics['difficulty'] or heuristics['simplicity']:
-        with_formula_heur = True
-
-
 class TraceStats(object):
 
-    def __init__(self):
+    def __init__(self, size: int = start_state_number):
+        self.states = None
         self.hash = 0
+        self.new_transitions = 0
 
-        if stats_type in {StatsType.TRANSITIONS, StatsType.ALL}:
-            self.matrix = dok_matrix((1, 1), dtype=int)
-
-        if stats_type in {StatsType.STATES, StatsType.ALL}:
+        if heuristic == 'transitions':
+            self.matrix = dok_matrix((size, size), dtype=int)
+        elif heuristic == 'states':
             self.states_num = defaultdict(int)
 
     def __add__(self, other):
         """Return the sum of two transition matrices."""
         sum = TraceStats()
 
-        if stats_type in {StatsType.TRANSITIONS, StatsType.ALL}:
+        if heuristic == 'transitions':
             size = len(trace_states)
-            shape = (size, size)
-            self.matrix.resize(shape)
-            other.matrix.resize(shape)
+            self.resize(size)
+            other.resize(size)
             sum.matrix = self.matrix
             sum.matrix += other.matrix
 
-        if stats_type in {StatsType.STATES, StatsType.ALL}:
+        elif heuristic == 'states':
             sum.states_num = deepcopy(self.states_num)
             for state in other.states_num:
                 sum.states_num[state] += other.states_num[state]
         return sum
 
+    def resize(self, size: int):
+        shape = (size, size)
+        self.matrix.resize(shape)
+
     def add_trans(self, i: State, j: State):
         """Add transition to matrix."""
-        global trace_states
+        global trace_states, transition_matrix
+
         i_ind = trace_states[i]
         j_ind = trace_states[j]
+        shape = self.matrix.shape
+        if shape[0] <= i_ind or shape[1] <= j_ind:
+            size = max(i_ind, j_ind) + 1
+            self.resize(size)
+            transition_matrix = np.resize(transition_matrix, (size, size))
+        if not transition_matrix[i_ind, j_ind]:
+            self.new_transitions += 1
         self.matrix[i_ind, j_ind] += 1
 
     def read_from_trace(self, is_seed: bool = False):
@@ -148,39 +136,37 @@ class TraceStats(object):
             trace_offset = trace.seek(0, io.SEEK_END)
 
     def load_states(self, states: List[State]):
+        self.new_transitions = 0
         hash_builder = hashlib.sha512()
         prev_state = None
+
         for state in states:
             hash_builder.update(state.encode('utf-8'))
-            if stats_type.value > 0:
+            if heuristic in {'transitions', 'states'}:
                 if state not in trace_states:
                     trace_states[state] = len(trace_states)
 
-            if stats_type in {StatsType.STATES, StatsType.ALL}:
+            if heuristic == 'states':
                 self.states_num[state] += 1
 
-            if stats_type in {StatsType.TRANSITIONS, StatsType.ALL}:
-                size = len(trace_states)
-                self.matrix = dok_matrix((size, size), dtype=int)
+            if heuristic == 'transitions':
                 if prev_state:
                     self.add_trans(prev_state, state)
                 prev_state = state
-
         self.hash = hash_builder.digest()
 
-    def get_probability(self, type: StatsType):
+    def get_probability(self):
         """
         Return the transition matrix in probabilistic form
         or state probabilities.
         """
-        if type == StatsType.TRANSITIONS:
+        if heuristic == 'transitions':
             prob = dok_matrix(self.matrix.shape, dtype=float)
             trans_num = self.matrix.sum(axis=1)
-            not_zero_ind = [tuple(item)
-                            for item in np.transpose(self.matrix.nonzero())]
+            not_zero_ind = [item for item in np.transpose(self.matrix.nonzero())]
             for i, j in not_zero_ind:
                 prob[i, j] = self.matrix[i, j] / trans_num[i]
-        elif type == StatsType.STATES:
+        elif heuristic == 'states':
             total_states_num = sum(self.states_num.values())
             prob = {state: self.states_num[state] / total_states_num
                     for state in self.states_num}
@@ -189,16 +175,15 @@ class TraceStats(object):
                           'for this type of statistics'
         return prob
 
-    def get_weights(self, type: StatsType):
-        """Return the weights of trace transitions or states."""
-        if type == StatsType.TRANSITIONS:
-            prob_matrix = self.get_probability(type)
+    def get_weighted_stats(self):
+        if heuristic == 'transitions':
+            prob_matrix = self.get_probability()
             weights = dok_matrix(prob_matrix.shape, dtype=float)
             not_zero_ind = [tuple(item)
                             for item in np.transpose(prob_matrix.nonzero())]
             for i in not_zero_ind:
                 weights[i] = 1 / prob_matrix[i]
-        elif type == StatsType.STATES:
+        elif heuristic == 'states':
             total_states_num = sum(self.states_num.values())
             weights = {state: total_states_num / self.states_num[state]
                        for state in self.states_num}
@@ -209,7 +194,7 @@ class TraceStats(object):
 
 
 def find_term(clause: QuantifierRef, term_kind: int, trans_num: int, is_removing: bool, is_quantifier: bool):
-    ctx_ref = current_ctx.ref()
+    ctx_ref = ctx.current_ctx.ref()
     path = ctypes.c_ulonglong(Z3_mk_int_vector(ctx_ref))
     term = to_expr_ref(Z3_find_term(ctx_ref,
                                     clause.as_ast(),
@@ -218,17 +203,17 @@ def find_term(clause: QuantifierRef, term_kind: int, trans_num: int, is_removing
                                     is_removing,
                                     is_quantifier,
                                     path),
-                       current_ctx)
+                       ctx.current_ctx)
     return term, path
 
 
 def set_term(clause: QuantifierRef, new_term, path):
-    result = to_expr_ref(Z3_set_term(current_ctx.ref(),
+    result = to_expr_ref(Z3_set_term(ctx.current_ctx.ref(),
                                      clause.as_ast(),
                                      new_term.as_ast(),
                                      path),
-                         current_ctx)
-    Z3_free_int_vector(current_ctx.ref(), path)
+                         ctx.current_ctx)
+    Z3_free_int_vector(ctx.current_ctx.ref(), path)
     return result
 
 
@@ -253,9 +238,9 @@ def count_expr(chc, kinds: list, is_unique=False):
     assert chc is not None, "Empty chc-system"
     expr_num = defaultdict(int)
 
-    goal = Goal(ctx=current_ctx)
+    goal = Goal(ctx=ctx.current_ctx)
     goal.append(chc)
-    tactic = Tactic('collect-statistics', ctx=current_ctx)
+    tactic = Tactic('collect-statistics', ctx=ctx.current_ctx)
     tactic.apply(goal, 'to_file', True)
 
     with open(".collect_stats.json") as file:
@@ -272,7 +257,7 @@ def count_expr(chc, kinds: list, is_unique=False):
 
 
 def check_ast_kind(expr, kind) -> bool:
-    ctx_ref = current_ctx.ref()
+    ctx_ref = ctx.current_ctx.ref()
     ast = expr.as_ast()
     return Z3_get_ast_kind(ctx_ref, ast) == kind
 
@@ -298,7 +283,7 @@ def shuffle_vars(vars):
 
 def remove_clauses(chc_system: AstVector, ind) -> AstVector:
     """Remove the clauses from the chc-system at the given indices."""
-    new_system = AstVector(ctx=current_ctx)
+    new_system = AstVector(ctx=ctx.current_ctx)
     for i, clause in enumerate(chc_system):
         if i not in ind:
             new_system.push(clause)
@@ -338,12 +323,12 @@ def take_pred_from_clause(clause: AstVector, with_term=False):
 
 
 def equivalence_check(seed: AstVector, mutant: AstVector) -> bool:
-    solver = Solver(ctx=current_ctx)
+    solver = Solver(ctx=ctx.current_ctx)
 
     for i, clause in enumerate(seed):
         solver.reset()
         mut_clause = mutant[i]
-        expr = Xor(clause, mut_clause, ctx=current_ctx)
+        expr = Xor(clause, mut_clause, ctx=ctx.current_ctx)
         solver.add(expr)
         result = solver.check()
 
@@ -374,7 +359,7 @@ def get_vars_and_body(clause):
 
         elif is_not(expr):
             vars += get_vars(child)
-            expr = Not(child.body(), ctx=current_ctx)
+            expr = Not(child.body(), ctx=ctx.current_ctx)
         else:
             break
         child = expr.children()[0] if expr.children() else None
@@ -412,7 +397,7 @@ def get_chc_body(clause):
                 # and-subexpressions, since we are counting the
                 # number of predicates
                 body_expr.append(subexpr)
-        body = Or(body_expr, current_ctx)
+        body = Or(body_expr, ctx.current_ctx)
     elif (is_not(expr) and child.decl().kind() == Z3_OP_UNINTERPRETED) or \
             expr.decl().kind() == Z3_OP_UNINTERPRETED:
         body = None
@@ -432,3 +417,10 @@ def reverse_dict(initial_dict: dict):
             for v in value:
                 new_dict[v].add(key)
     return new_dict
+
+
+def print_matrix(matrix: dok_matrix):
+    for i in range(matrix.shape[0]):
+        for j in range(matrix.shape[1]):
+            print(matrix[i, j], end=' ')
+        print()

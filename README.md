@@ -13,14 +13,12 @@ Or you can use the Dockerfile (`docker build -t spacer-fuzzing .`).
 
 `docker run spacer-fuzzing` if you are using docker.  
 
-Add `-heuristics <priority1> <priority2> ...` (or `-heur`) to change default instance selection to the selection based on:  
+Add `-heuristic <heuristic>` (or `-heur`) to change default instance selection to the selection based on:  
 * the probability of transitions (`transitions`);  
 * the probability of states (`states`);  
 * chc-difficulty (`difficulty`).  
 
-You can add `-options <option1> <option2> ...` (or `-opt`) to:  
-* choose mutations equally likely (`without_mutation_weights`);  
-* use Eldarica (`with_oracles`).  
+You can add `-options without_mutation_weights` (or `-opt`) to choose mutations equiprobably.  
 
 To choose mutation groups add `-mutations <group1> <group2> ...` (or `-mut`). Available mutation groups:  
 * `own`;  

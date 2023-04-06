@@ -9,6 +9,7 @@ RUN pacman -Syy \
                     git \
                     python \
                     python-pip \
+                    python-setuptools \
                     make \
                     gcc \
                     libffi \
@@ -36,7 +37,7 @@ RUN pip install -r requirements.txt
 # download and edit Z3-sourses
 RUN git clone https://github.com/AnzhelaSukhanova/z3.git \
  && cd z3 \
- && git checkout ddd611d \
+ && git checkout 95e183c \
  && python scripts/mk_make.py --python \
  && sed -i -e 's, -D_MP_INTERNAL, -D_TRACE -D_MP_INTERNAL,g' build/config.mk
  
@@ -50,4 +51,4 @@ ADD false_formulas false_formulas
 ADD exclude_seed.json .
 
 # run fuzzing
-CMD ["python", "src/main.py", "all", "-heuristics", "transitions"]
+CMD ["python", "src/main.py", "all", "-heur", "transitions"]

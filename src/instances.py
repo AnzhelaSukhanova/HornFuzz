@@ -1,25 +1,24 @@
 import time
 import re
+import z3
+
+from sklearn.preprocessing import normalize
+
 import utils
+from solvers import *
+from enum import Enum
 from utils import *
 
-MUT_APPLY_TIME_LIMIT = 10
-SEED_SOLVE_TIME_LIMIT_MS = int(2 * 1e3)
-MUT_SOLVE_TIME_LIMIT_MS = int(1e5)
-
-MODEL_CHECK_TIME_LIMIT = 100
-INSTANCE_ID = 0
-ONE_INST_MUT_LIMIT = 1000
-
+instance_id = 0
+new_trace_number = 0
 unique_traces = set()
 instance_groups = defaultdict()
-current_ctx = None
+solver = 'spacer'
 
 
-def set_ctx(ctx):
-    global current_ctx
-    current_ctx = ctx
-    utils.set_ctx(ctx)
+def set_solver(cur_solver: str):
+    global solver
+    solver = cur_solver
 
 
 class Family(Enum):
@@ -40,6 +39,8 @@ class InstanceGroup(object):
         self.is_linear = True
         self.upred_num = 0
         self.family = Family.UNKNOWN
+        self.trace_number = 0
+        self.mutation_number = 0
 
     def __getitem__(self, index: int):
         index = index % len(self.instances)
@@ -62,9 +63,11 @@ class InstanceGroup(object):
             if k not in {'id', 'filename', 'instances'}:
                 setattr(self, k, deepcopy(v))
 
-    def push(self, instance):
+    def push(self, instance, output_dir: str = 'output'):
         """Add an instance to the group."""
         instance.group_id = self.id
+        self.trace_number += new_trace_number
+        self.mutation_number += 1
 
         if self.upred_num == 0:
             instance.find_pred_info()
@@ -73,15 +76,15 @@ class InstanceGroup(object):
 
         group_len = len(self.instances)
         if group_len == 0:
-            self.dump_declarations()
+            self.dump_declarations(output_dir)
         else:
             prev_instance = self[-1]
             instance.mutation.add_after(prev_instance.mutation)
 
         self.instances[group_len] = instance
 
-    def dump_declarations(self):
-        filename = 'output/decl/' + self.filename
+    def dump_declarations(self, output_dir: str = 'output'):
+        filename = output_dir + '/decl/' + self.filename
         with open(self.filename, 'r') as seed_file:
             file = seed_file.read()
             formula = re.sub(r"\(set-info.*\"\)", "",
@@ -124,17 +127,21 @@ class InstanceGroup(object):
                 self.roll_back()
                 return 0
 
-    def restore(self, id: int, mutations):
-        seed = parse_smt2_file(self.filename, ctx=current_ctx)
+    def restore_seed(self,output_dir: str = 'output'):
+        seed = parse_smt2_file(self.filename, ctx=ctx.current_ctx)
         instance = Instance(seed)
-        self.push(instance)
+        self.push(instance, output_dir)
+        return instance
+
+    def restore(self, mutations, output_dir: str = 'output'):
+        instance = self.restore_seed(output_dir)
 
         for mut in mutations:
             mut_instance = Instance()
             mut_instance.mutation.restore(mut)
             try:
                 mut_instance.mutation.apply(instance, mut_instance)
-                self.push(mut_instance)
+                self.push(mut_instance, output_dir)
                 instance = mut_instance
             except (AssertionError, Z3Exception):
                 message = traceback.format_exc()
@@ -191,7 +198,7 @@ class MutType(object):
 
 
 def copy_chc(chc_system: AstVector) -> AstVector:
-    new_chc_system = AstVector(ctx=current_ctx)
+    new_chc_system = AstVector(ctx=ctx.current_ctx)
     for clause in chc_system:
         new_chc_system.push(clause)
     return new_chc_system
@@ -200,20 +207,20 @@ def copy_chc(chc_system: AstVector) -> AstVector:
 class Instance(object):
 
     def __init__(self, chc: AstVector = None):
-        global INSTANCE_ID
-        self.id = INSTANCE_ID
-        INSTANCE_ID += 1
+        global instance_id
+        self.id = instance_id
+        instance_id += 1
         self.group_id = -1
         self.chc = None
         if chc is not None:
             self.set_chc(chc)
         self.satis = unknown
         self.trace_stats = TraceStats()
-        self.sort_key = 0
         self.params = {}
         self.model = None
         self.model_info = (sat, 0)
         self.mutation = Mutation()
+        self.solve_time = 0
 
     def set_chc(self, chc: AstVector):
         """Set the chc-system of the instance."""
@@ -263,35 +270,47 @@ class Instance(object):
         self.chc = None
         self.model = None
 
-    def check(self, solver: Solver, is_seed: bool = False,
-              get_stats: bool = True):
+    # @profile(immediate=True)
+    def check(self, group: InstanceGroup, is_seed: bool = False):
         """Check the satisfiability of the instance."""
-        solver.reset()
-        self.trace_stats.reset_trace_offset()
-        if is_seed:
-            solver.set('timeout', SEED_SOLVE_TIME_LIMIT_MS)
-        else:
-            solver.set('timeout', MUT_SOLVE_TIME_LIMIT_MS)
+        timeout = SEED_SOLVE_TIME_LIMIT_MS if is_seed else MUT_SOLVE_TIME_LIMIT_MS
 
-        chc_system = self.get_chc(is_seed)
-        solver.add(chc_system)
+        if solver == 'spacer':
+            cur_solver = SolverFor('HORN', ctx=ctx.current_ctx)
+            cur_solver.set('engine', 'spacer')
+            for param in self.params:
+                value = self.params[param]
+                cur_solver.set(param, value)
+            self.trace_stats.reset_trace_offset()
+            cur_solver.set('timeout', timeout)
+            chc_system = self.get_chc(is_seed)
+            cur_solver.add(chc_system)
 
-        self.satis = solver.check()
-        if self.satis == sat:
-            self.model = solver.model()
+            self.satis = cur_solver.check()
+            if self.satis == sat:
+                self.model = cur_solver.model()
+            reason_unknown = cur_solver.reason_unknown()
 
-        if get_stats:
-            self.trace_stats.read_from_trace(is_seed)
-            self.update_traces_info()
+        elif solver == 'eldarica':
+            if not is_seed:
+                self.dump('output/last_mutants/',
+                          group.filename,
+                          clear=False)
+                filename = 'output/last_mutants/' + group.filename
+            else:
+                filename = group.filename
 
-        assert self.satis != unknown, solver.reason_unknown()
+            state, reason_unknown = eldarica_check(filename, timeout)
+            self.satis = CheckSatResult(state)
+
+        assert self.satis != unknown, reason_unknown
 
     def check_model(self):
         if self.satis != sat:
             return None
         assert self.model is not None, "Empty model"
 
-        solver = Solver(ctx=current_ctx)
+        solver = Solver(ctx=ctx.current_ctx)
         solver.set('timeout', MODEL_CHECK_TIME_LIMIT)
         for i, clause in enumerate(self.chc):
             inter_clause = self.model.eval(clause)
@@ -305,8 +324,15 @@ class Instance(object):
             return solver.reason_unknown()
         return None
 
-    def update_traces_info(self):
+    def update_traces_info(self, is_seed: bool = False):
+        global new_trace_number
+
+        prev_trace_number = len(unique_traces)
         unique_traces.add(self.trace_stats.hash)
+        if not is_seed:
+            cur_trace_number = len(unique_traces)
+            new_trace_number = cur_trace_number - prev_trace_number
+            self.inc_mutation_stats('new_traces', new_trace_number)
 
     def get_group(self):
         """Return the group of the instance."""
@@ -321,32 +347,35 @@ class Instance(object):
         return log
 
     def find_system_info(self):
-        """
-        Get information about the number of subexpressions of kind
-        from info_kinds in the system and clauses.
-        """
         if self.chc is None or mut_groups[0] != MutTypeGroup.OWN:
             return
 
         info = self.info
         info.expr_num = count_expr(self.chc, info_kinds)
 
+    def find_clause_info(self, kind):
+        info = self.info
+        chc_len = len(self.chc)
+        ind = list(range(chc_len))
+        random.shuffle(ind)
         info_len = len(info.clause_expr_num[Z3_OP_UNINTERPRETED])
         if info_len < len(self.chc):
-            for kind in info_kinds:
-                info.clause_expr_num[kind].resize(len(self.chc))
+            info.clause_expr_num[kind].resize(chc_len)
 
-        for i, clause in enumerate(self.chc):
+        while ind:
+            i = ind.pop()
+            clause = self.chc[i]
             expr_num = count_expr(clause, info_kinds)
-            for kind in info_kinds:
-                info.clause_expr_num[kind][i] = expr_num[kind]
+            info.clause_expr_num[kind][i] = expr_num[kind]
+            if expr_num[kind]:
+                return i
 
     def find_pred_info(self):
         """
         Find whether the chc-system is linear, the number of
         uninterpreted predicates and their set.
         """
-        if mut_groups[0] != MutTypeGroup.OWN and not with_formula_heur:
+        if utils.heuristic not in {'difficulty', 'simplicity'}:
             return
         group = self.get_group()
         chc_system = self.chc
@@ -372,7 +401,7 @@ class Instance(object):
         group = self.get_group()
         filename = group.filename if is_seed else \
             'output/last_mutants/' + group.filename
-        self.set_chc(z3.parse_smt2_file(filename, ctx=current_ctx))
+        self.set_chc(z3.parse_smt2_file(filename, ctx=ctx.current_ctx))
         assert len(self.chc) > 0, "Empty chc-system"
 
     def dump(self, dir: str, filename: str, message: str = None,
@@ -398,15 +427,17 @@ class Instance(object):
         if clear:
             self.reset_chc()
 
-    def update_mutation_stats(self, new_application: bool = False, new_trace_found: bool = False):
+    def inc_mutation_stats(self, stats_name: str, value: int = 1):
         global mut_stats
 
         mut_name = self.mutation.type.name
         current_mutation_stats = \
             mut_stats.setdefault(mut_name,
-                                 {'applications': 0.0, 'new_traces': 0.0})
-        current_mutation_stats['applications'] += int(new_application)
-        current_mutation_stats['new_traces'] += int(new_trace_found)
+                                 {'applications': 0.0,
+                                  'new_traces': 0.0,
+                                  'new_transitions': 0.0,
+                                  'changed_traces': 0.0})
+        current_mutation_stats[stats_name] += value
 
 
 class MutTypeEncoder(json.JSONEncoder):
@@ -437,21 +468,20 @@ def init_mut_types(options: list = None, mutations: list = None):
     if 'without_mutation_weights' in options:
         with_weights = False
 
-    if not mutations or 'own' in mutations:
+    if 'own' in mutations:
         mut_groups.append(MutTypeGroup.OWN)
         for name in {'SWAP_AND',
                      'DUP_AND',
                      'BREAK_AND',
                      'SWAP_OR',
                      'MIX_BOUND_VARS',
-                     'ADD_INEQ',
-                     'ADD_LIN_RULE',
-                     'ADD_NONLIN_RULE'}:
+                     'ADD_INEQ'}:
             mut_types[name] = MutType(name, MutTypeGroup.OWN)
 
-    if not mutations or 'solving_parameters' in mutations:
+    if solver == 'spacer' and 'spacer_parameters' in mutations:
         mut_groups.append(MutTypeGroup.PARAMETERS)
-        for name in {'SPACER.P3.SHARE_INVARIANTS',
+        for name in {'SPACER.GLOBAL',
+                     'SPACER.P3.SHARE_INVARIANTS',
                      'SPACER.P3.SHARE_LEMMAS',
                      # 'SPACER.PUSH_POB', -- takes a long time
                      'SPACER.USE_LIM_NUM_GEN',
@@ -479,6 +509,9 @@ def init_mut_types(options: list = None, mutations: list = None):
         for name in {'SPACER.CTP',
                      'SPACER.ELIM_AUX',
                      'SPACER.EQ_PROP',
+                     'SPACER.GG.CONCRETIZE',
+                     'SPACER.GG.CONJECTURE',
+                     'SPACER.GG.SUBSUME',
                      'SPACER.GROUND_POBS',
                      'SPACER.KEEP_PROXY',
                      'SPACER.MBQI',
@@ -508,7 +541,7 @@ def init_mut_types(options: list = None, mutations: list = None):
                     default_value=0,
                     upper_limit=sys.maxsize)
 
-    if not mutations or 'simplifications' in mutations:
+    if 'simplifications' in mutations:
         mut_groups.append(MutTypeGroup.SIMPLIFICATIONS)
         name = 'EMPTY_SIMPLIFY'
         mut_types[name] = MutType(name, MutTypeGroup.SIMPLIFICATIONS)
@@ -658,11 +691,9 @@ def init_mut_types(options: list = None, mutations: list = None):
 
 
 own_mutations = {'SWAP_AND': Z3_OP_AND, 'DUP_AND': Z3_OP_AND,
-                        'BREAK_AND': Z3_OP_AND, 'SWAP_OR': Z3_OP_OR,
-                        'MIX_BOUND_VARS': Z3_QUANTIFIER_AST,
-                        'ADD_INEQ': {Z3_OP_LE, Z3_OP_GE, Z3_OP_LT, Z3_OP_GT},
-                        'ADD_LIN_RULE': Z3_OP_UNINTERPRETED,
-                        'ADD_NONLIN_RULE': Z3_OP_UNINTERPRETED}
+                 'BREAK_AND': Z3_OP_AND, 'SWAP_OR': Z3_OP_OR,
+                 'MIX_BOUND_VARS': Z3_QUANTIFIER_AST,
+                 'ADD_INEQ': {Z3_OP_LE, Z3_OP_GE, Z3_OP_LT, Z3_OP_GT}}
 
 default_simplify_options = {'algebraic_number_evaluator', 'bit2bool',
                             'elim_ite', 'elim_sign_ext', 'flat', 'hi_div0',
@@ -677,14 +708,22 @@ array_mutations = {'BLAST_SELECT_STORE', 'EXPAND_SELECT_STORE',
 def update_mutation_weights():
     global mut_types, mut_stats
 
+    weights = []
     for mut_name in mut_types:
         current_mut_stats = mut_stats.get(mut_name)
         if current_mut_stats is None or mut_name == 'ID':
             continue
-        trace_discover_probability = current_mut_stats['new_traces'] / \
-                                     current_mut_stats['applications']
-        mut_types[mut_name].weight = 0.62 * mut_types[mut_name].weight + \
-                                     0.38 * trace_discover_probability
+        trace_change_probability = current_mut_stats['changed_traces'] / current_mut_stats['applications']
+        trace_discover_probability = current_mut_stats['new_traces'] / current_mut_stats['applications']
+        new_transitions = current_mut_stats['new_transitions']
+        coef = 0.62
+        mut_types[mut_name].weight = coef * mut_types[mut_name].weight + \
+                                     (1 - coef) * trace_discover_probability
+        # weights.append(mut_types[mut_name].weight)
+
+    # factor = 1 / sum(weights)
+    # for key in mut_types:
+    #     mut_types[key].weight = mut_types[key].weight * factor
 
 
 class Mutation(object):
@@ -697,7 +736,8 @@ class Mutation(object):
         self.prev_mutation = None
         self.applied = False
         self.trans_num = None
-        self.simplify_changed = True
+        self.changed = False
+        self.is_timeout = False
         self.exceptions = set()
 
     def add_after(self, prev_mutation):
@@ -712,10 +752,7 @@ class Mutation(object):
 
     def apply(self, instance: Instance, new_instance: Instance):
         """Mutate instances."""
-        timeout = False
-        changed = True
         new_instance.params = deepcopy(instance.params)
-
         self.next_mutation(instance)
         mut_name = self.type.name
 
@@ -729,16 +766,9 @@ class Mutation(object):
         if self.type.is_solving_param():
             new_instance.set_chc(instance.chc)
             new_instance.add_param(self.type)
-            return timeout, changed
 
         st_time = time.perf_counter()
-        if mut_name == 'ADD_LIN_RULE':
-            new_instance.set_chc(self.add_lin_rule(instance))
-
-        elif mut_name == 'ADD_NONLIN_RULE':
-            new_instance.set_chc(self.add_nonlin_rule(instance))
-
-        elif mut_name == 'EMPTY_SIMPLIFY':
+        if mut_name == 'EMPTY_SIMPLIFY':
             new_instance.set_chc(self.empty_simplify(instance.chc))
 
         elif mut_name in own_mutations:
@@ -748,14 +778,10 @@ class Mutation(object):
             new_instance.set_chc(self.simplify_by_one(instance.chc))
 
         if time.perf_counter() - st_time >= MUT_APPLY_TIME_LIMIT:
-            timeout = True
+            self.is_timeout = True
 
-        if not self.simplify_changed or \
-                instance.chc.sexpr() == new_instance.chc.sexpr():
-            self.simplify_changed = True
-            changed = False
-
-        return timeout, changed
+        if instance.chc.sexpr() != new_instance.chc.sexpr():
+            self.changed = True
 
     def set_remove_mutation(self, trans_num):
         self.type = mut_types['REMOVE_EXPR']
@@ -804,7 +830,7 @@ class Mutation(object):
 
             if with_weights:
                 reverse_weights = random.choice([True, False]) \
-                    if self.number > 0.9 * ONE_INST_MUT_LIMIT \
+                    if instance.mutation.number + 1 > 0.5 * ONE_INST_MUT_LIMIT \
                     else False
                 weights = []
                 for name in types_to_choose:
@@ -823,10 +849,11 @@ class Mutation(object):
                 self.kind = random.choices(mult_kinds[mut_name])[0]
             else:
                 self.kind = own_mutations[mut_name]
+            self.clause_i = instance.find_clause_info(self.kind)
 
     def simplify_by_one(self, chc_system: AstVector) -> AstVector:
         """Simplify instance with arith_ineq_lhs, arith_lhs and eq2ineq."""
-        mut_system = AstVector(ctx=current_ctx)
+        mut_system = AstVector(ctx=ctx.current_ctx)
 
         mut_name = self.type.name.lower()
         params = [mut_name, True]
@@ -837,14 +864,11 @@ class Mutation(object):
         ind = range(0, len(chc_system)) if not self.clause_i else {self.clause_i}
         for i in range(len(chc_system)):
             if i in ind:
-                cur_clause = AstVector(ctx=current_ctx)
+                cur_clause = AstVector(ctx=ctx.current_ctx)
                 cur_clause.push(chc_system[i])
                 rewritten_clause = self.empty_simplify(cur_clause)[0]
 
                 clause = simplify(rewritten_clause, *params)
-
-                if rewritten_clause.sexpr() == clause.sexpr():
-                    self.simplify_changed = False
 
                 del cur_clause, rewritten_clause
             else:
@@ -854,7 +878,7 @@ class Mutation(object):
         return mut_system
 
     def empty_simplify(self, chc_system: AstVector) -> AstVector:
-        mut_system = AstVector(ctx=current_ctx)
+        mut_system = AstVector(ctx=ctx.current_ctx)
 
         for i in range(len(chc_system)):
             clause = simplify(chc_system[i],
@@ -878,8 +902,8 @@ class Mutation(object):
         body_files = os.listdir('false_formulas')
         body_files.remove('README.md')
         filename = 'false_formulas/' + random.choice(body_files)
-        body = parse_smt2_file(filename, ctx=current_ctx)[0]
-        implication = Implies(body, head, ctx=current_ctx)
+        body = parse_smt2_file(filename, ctx=ctx.current_ctx)[0]
+        implication = Implies(body, head, ctx=ctx.current_ctx)
         rule = ForAll(vars, implication) if vars else implication
         mut_system.push(rule)
 
@@ -896,12 +920,12 @@ class Mutation(object):
         body_vars = head_vars
         pred_vars_num = len(body_vars)
         num = random.randint(1, 10)
-        var = Int('v' + str(0), ctx=current_ctx)
+        var = Int('v' + str(0), ctx=ctx.current_ctx)
         body_vars.append(var)
         vars = [var]
         and_exprs = []
         for i in range(1, num + 1):
-            var = FreshConst(IntSort(ctx=current_ctx), prefix='v')
+            var = FreshConst(IntSort(ctx=ctx.current_ctx), prefix='v')
             vars.append(var)
             body_vars.append(var)
             shuffle_vars(body_vars)
@@ -916,7 +940,7 @@ class Mutation(object):
         and_exprs.append(And(head_upred, expr))
         body = And(and_exprs)
         body = Exists(vars, body)
-        implication = Implies(body, head_upred, ctx=current_ctx)
+        implication = Implies(body, head_upred, ctx=ctx.current_ctx)
         rule = ForAll(head_vars, implication) if head_vars else implication
 
         mut_system.push(rule)
@@ -929,14 +953,11 @@ class Mutation(object):
         info = instance.info
         chc_system = instance.chc
 
-        if self.trans_num is None and self.clause_i is None:
-            ind = np.where(info.clause_expr_num[self.kind] > 0)[0]
-            i = int(random.choice(ind))
+        i = self.clause_i
+        if self.trans_num is None:
             expr_num = info.clause_expr_num[self.kind][i]
             self.trans_num = random.randint(0, expr_num - 1) \
                 if expr_num > 1 else 0
-        else:
-            i = self.clause_i
 
         system_length = len(chc_system)
         if i < system_length:
@@ -952,7 +973,7 @@ class Mutation(object):
     def transform(self, instance: Instance) -> AstVector:
         """Transform an expression of the specific kind."""
         chc_system = instance.chc
-        mut_system = AstVector(ctx=current_ctx)
+        mut_system = AstVector(ctx=ctx.current_ctx)
 
         clause_i, clause = self.get_clause_info(instance)
         if self.type.name == 'ID':
@@ -979,6 +1000,7 @@ class Mutation(object):
             expr, path = find_term(clause, Z3_OP_TRUE, self.trans_num, False, True)
         else:
             expr, path = find_term(clause, expr_kind, self.trans_num, self.type.is_remove(), False)
+        assert not is_false(expr), 'Mutation subexpression not found'
         mut_expr = None
         mut_name = self.type.name
         children = expr.children()
@@ -1011,11 +1033,9 @@ class Mutation(object):
         self.applied = True
         return mut_clause
 
-    def get_chain(self, format='pp'):
+    def get_chain(self, format='list'):
         """Return the full mutation chain."""
-        if format == 'pp':
-            chain = self.get_name()
-        elif format == 'log':
+        if format == 'log':
             chain = [self.get_log()]
         elif format == 'list':
             chain = [self.get_name()]
@@ -1024,10 +1044,7 @@ class Mutation(object):
         cur_mutation = self
         for i in range(self.number, 1, -1):
             cur_mutation = cur_mutation.prev_mutation
-            if format == 'pp':
-                mut_name = cur_mutation.get_name()
-                chain = mut_name + '->' + chain
-            elif format == 'log':
+            if format == 'log':
                 cur_log = [cur_mutation.get_log()]
                 chain = cur_log + chain
             elif format == 'list':
@@ -1038,8 +1055,8 @@ class Mutation(object):
         return chain
 
     def same_chain_start(self, other) -> bool:
-        fst_chain = self.get_chain(format='list')
-        snd_chain = other.get_chain(format='list')
+        fst_chain = self.get_chain()
+        snd_chain = other.get_chain()
         fst_len = len(fst_chain)
         snd_len = len(snd_chain)
         length = fst_len if fst_len < snd_len else snd_len
@@ -1054,14 +1071,14 @@ class Mutation(object):
 
         if mut_name == 'ADD_INEQ':
             return mut_name + '(' + \
-                   str(self.kind) + ', ' + \
-                   str(self.clause_i) + ', ' + \
-                   str(self.trans_num) + ')'
+                str(self.kind) + ', ' + \
+                str(self.clause_i) + ', ' + \
+                str(self.trans_num) + ')'
 
         elif mut_name in own_mutations:
             return mut_name + '(' + \
-                   str(self.clause_i) + ', ' + \
-                   str(self.trans_num) + ')'
+                str(self.clause_i) + ', ' + \
+                str(self.trans_num) + ')'
 
         else:
             return mut_name
