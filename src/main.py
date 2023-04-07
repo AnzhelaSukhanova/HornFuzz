@@ -225,12 +225,12 @@ def analyze_check_exception(instance: Instance, err: Exception,
                          instance,
                          mut_instance)
         if status == 'mutant_unknown':
-            mut_instance.dump('output/unknown',
+            mut_instance.dump(output_dir + 'unknown/',
                               group.filename,
                               message=message,
                               to_name=mut_instance.id)
         elif status == 'timeout_before_check':
-            group[0].dump('output/last_mutants',
+            group[0].dump(output_dir + 'last_mutants/',
                           group.filename)
 
         if status != 'error':
@@ -372,11 +372,11 @@ def handle_bug(instance: Instance, mut_instance: Instance = None,
                  mut_instance)
 
     if mut_instance:
-        mut_instance.dump('output/bugs',
+        mut_instance.dump(output_dir + 'bugs/',
                           group.filename,
                           to_name=mut_instance.id)
     else:
-        instance.dump('output/bugs',
+        instance.dump(output_dir + 'bugs/',
                       group.filename,
                       to_name=0)
         group.reset()
@@ -436,7 +436,7 @@ def fuzz(files: set):
                 mut_time = time.perf_counter()
                 mut.apply(instance, mut_instance)
                 mut_time = time.perf_counter() - mut_time
-                # mut_instance.dump('output/mutants',
+                # mut_instance.dump(output_dir + 'mutants/',
                 #                   group.filename,
                 #                   to_name=mut_instance.id,
                 #                   clear=False)
@@ -527,7 +527,7 @@ def fuzz(files: set):
                 if problems_num == PROBLEMS_LIMIT:
                     i = ONE_INST_MUT_LIMIT
 
-            instance.dump('output/last_mutants',
+            instance.dump(output_dir + 'last_mutants/',
                           group.filename)
             group.reset()
             queue.append(instance)

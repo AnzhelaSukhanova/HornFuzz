@@ -14,11 +14,17 @@ new_trace_number = 0
 unique_traces = set()
 instance_groups = defaultdict()
 solver = 'spacer'
+output_dir = 'output/'
 
 
 def set_solver(cur_solver: str):
     global solver
     solver = cur_solver
+
+
+def set_output_dir(cur_output_dir: str):
+    global output_dir
+    output_dir = cur_output_dir
 
 
 class Family(Enum):
@@ -63,7 +69,7 @@ class InstanceGroup(object):
             if k not in {'id', 'filename', 'instances'}:
                 setattr(self, k, deepcopy(v))
 
-    def push(self, instance, output_dir: str = 'output'):
+    def push(self, instance):
         """Add an instance to the group."""
         instance.group_id = self.id
         self.trace_number += new_trace_number
@@ -76,15 +82,15 @@ class InstanceGroup(object):
 
         group_len = len(self.instances)
         if group_len == 0:
-            self.dump_declarations(output_dir)
+            self.dump_declarations()
         else:
             prev_instance = self[-1]
             instance.mutation.add_after(prev_instance.mutation)
 
         self.instances[group_len] = instance
 
-    def dump_declarations(self, output_dir: str = 'output'):
-        filename = output_dir + '/decl/' + self.filename
+    def dump_declarations(self):
+        filename = output_dir + 'decl/' + self.filename
         with open(self.filename, 'r') as seed_file:
             file = seed_file.read()
             formula = re.sub(r"\(set-info.*\"\)", "",
@@ -127,21 +133,21 @@ class InstanceGroup(object):
                 self.roll_back()
                 return 0
 
-    def restore_seed(self,output_dir: str = 'output'):
+    def restore_seed(self):
         seed = parse_smt2_file(self.filename, ctx=ctx.current_ctx)
         instance = Instance(seed)
-        self.push(instance, output_dir)
+        self.push(instance)
         return instance
 
-    def restore(self, mutations, output_dir: str = 'output'):
-        instance = self.restore_seed(output_dir)
+    def restore(self, mutations):
+        instance = self.restore_seed()
 
         for mut in mutations:
             mut_instance = Instance()
             mut_instance.mutation.restore(mut)
             try:
                 mut_instance.mutation.apply(instance, mut_instance)
-                self.push(mut_instance, output_dir)
+                self.push(mut_instance)
                 instance = mut_instance
             except (AssertionError, Z3Exception):
                 message = traceback.format_exc()
@@ -293,10 +299,10 @@ class Instance(object):
 
         elif solver == 'eldarica':
             if not is_seed:
-                self.dump('output/last_mutants/',
+                self.dump(output_dir + 'last_mutants/',
                           group.filename,
                           clear=False)
-                filename = 'output/last_mutants/' + group.filename
+                filename = output_dir + 'last_mutants/' + group.filename
             else:
                 filename = group.filename
 
@@ -397,10 +403,9 @@ class Instance(object):
                                      is_unique=True)[0]
 
     def restore(self, is_seed: bool = False):
-        """Restore the instance from output/last_mutants/."""
         group = self.get_group()
         filename = group.filename if is_seed else \
-            'output/last_mutants/' + group.filename
+            output_dir + 'last_mutants/' + group.filename
         self.set_chc(z3.parse_smt2_file(filename, ctx=ctx.current_ctx))
         assert len(self.chc) > 0, "Empty chc-system"
 
@@ -408,7 +413,7 @@ class Instance(object):
              declarations: str = None, to_name=None, clear: bool = True):
         """Dump the instance to the specified directory."""
         if not declarations:
-            decl_path = 'output/decl/' + filename
+            decl_path = output_dir + 'decl/' + filename
             with open(decl_path, 'r') as decl_file:
                 declarations = decl_file.read()
         cur_path = dir + '/' + filename
