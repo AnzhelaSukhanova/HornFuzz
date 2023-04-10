@@ -417,10 +417,3 @@ def reverse_dict(initial_dict: dict):
             for v in value:
                 new_dict[v].add(key)
     return new_dict
-
-
-def print_matrix(matrix: dok_matrix):
-    for i in range(matrix.shape[0]):
-        for j in range(matrix.shape[1]):
-            print(matrix[i, j], end=' ')
-        print()

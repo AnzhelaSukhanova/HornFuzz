@@ -484,7 +484,7 @@ def fuzz(files: set):
 
                         mut_instance.reset_chc()
 
-                    else:
+                    elif instances.solver == 'spacer':
                         model_time = time.perf_counter()
                         message = mut_instance.check_model()
                         model_time = time.perf_counter() - model_time

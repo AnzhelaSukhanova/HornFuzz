@@ -168,6 +168,7 @@ def reduce(filename: str = None, group_id: int = 0,
             assert is_same_res(mut_instance)
         except AssertionError:
             print('Bug isn\'t reproduced:', filename)
+            print(mutations)
             return None
         mut_instance = reduce_mut_chain(group)
     if reduce_inst:
@@ -222,8 +223,7 @@ def get_bug_info(filename: str):
 
     mutations = []
     if mut_line:
-        if mut_line[0] == '[':
-            mutations = json.loads(mut_line)
+        mutations = json.loads(mut_line)
     out_dir = ''
     if not filename.startswith(tuple(SEED_DIRS)):
         chunks = filename.split('/')
@@ -255,20 +255,22 @@ def redo_mutations(filename: str):
         print('Bug not found')
 
 
-def deduplicate(bug_files=None, logfile: str = 'logfile') -> int:
+def deduplicate(bug_files=None, logfile: str = 'logfile') -> defaultdict:
+    def with_transformations(params: dict, transformation_group: set) -> bool:
+        for param in params:
+            if param in transformation_group:
+                return True
+        return False
+
     if bug_files is None:
         bug_files = []
     bug_groups = defaultdict(set)
     if not bug_files:
         stats = log_analysis.prepare_data(logfile)
-        ind = stats.df['status'] in {'bug', 'wrong_model'}
+        ind = stats.df['status'].isin(['bug', 'wrong_model'])
         for i, entry in stats.df.loc[ind].iterrows():
-            if entry['status'] == 'bug' or entry['model_state'] == -1:
-                filename = entry['filename']
-                bug_id = str(int(entry['id']))
-                bug_name = output_dir + 'bugs/' + filename[:-5] + \
-                           '_' + bug_id + '.smt2'
-                bug_files.append(bug_name)
+            if entry['model_state'] != 0:
+                bug_files.append(entry)
 
     for file in bug_files:
         group = restore_group(file)
@@ -293,21 +295,32 @@ def deduplicate(bug_files=None, logfile: str = 'logfile') -> int:
                 bug_groups['inline_linear'].add(instance)
             elif 'xform.inline_eager' in params:
                 bug_groups['inline_eager'].add(instance)
+            elif with_transformations(params, DISABLED_SPACER_CORE_PARAMETERS):
+                bug_groups['disable_space_core_transformations'].add(instance)
+            elif with_transformations(params, ENABLED_SPACER_CORE_PARAMETERS):
+                bug_groups['enable_space_core_transformations'].add(instance)
+            elif with_transformations(params, DISABLED_PARAMETERS):
+                bug_groups['disable_other_transformations'].add(instance)
+            elif with_transformations(params, ENABLED_PARAMETERS):
+                bug_groups['enable_other_transformations'].add(instance)
             elif last_mutation.number <= 1 and reproduce:
                 bug_groups[last_mutation.type.name.lower()].add(instance)
             else:
                 bug_groups['other'].add(instance)
+                print(mutations)
 
-    for key in sorted(bug_groups):
-        print(key, len(bug_groups[key]))
-
-    return len(bug_groups)
+    return bug_groups
 
 
-def restore_group(filename: str, with_mutations: bool = True) -> InstanceGroup:
+def restore_group(entry, with_mutations: bool = True) -> InstanceGroup:
     global mutations, message
-    mutations, message, seed_name, out_dir = get_bug_info(filename)
-    set_output_dir(out_dir)
+    if isinstance(entry, str):
+        mutations, message, seed_name, out_dir = get_bug_info(entry)
+        set_output_dir(out_dir)
+    else:
+        mutations = entry['mut_chain']
+        message = entry['message']
+        seed_name = entry['filename']
     group_id = len(instance_groups)
     group = InstanceGroup(group_id, seed_name)
     if with_mutations:
@@ -323,19 +336,18 @@ def main():
     parser.add_argument('seed_file',
                         nargs='?',
                         default=None)
-    parser.add_argument('-logfile',
-                        nargs='?',
+    parser.add_argument('-logfiles',
+                        nargs='*',
                         default=None)
     parser.add_argument('-reduce_chain', action='store_true')
     parser.add_argument('-reduce_instance', action='store_true')
     parser.add_argument('-reproduce', action='store_true')
-    parser.add_argument('-deduplicate', action='store_true')
     argv = parser.parse_args()
     ctx.set_ctx(Context())
 
     init_mut_types([], ['simplifications', 'spacer_parameters', 'own'])
     if not argv.seed_file:
-        filenames = files.get_filenames([argv.bug_file])
+        filenames = files.get_filenames([argv.bug_file]) if argv.bug_file else None
         if argv.reduce_chain or argv.reduce_instance:
             for filename in filenames:
                 with_mutations = True if argv.reduce_chain else False
@@ -346,8 +358,17 @@ def main():
         elif argv.reproduce:
             for filename in filenames:
                 redo_mutations(filename)
+        elif argv.logfiles:
+            bug_groups = defaultdict()
+            for log in argv.logfiles:
+                bug_groups[log] = deduplicate(filenames, log)
+            for log in bug_groups:
+                print(log, len(bug_groups[log]))
+                for key in bug_groups[log]:
+                    print(key, len(bug_groups[log][key]))
+                print()
         else:
-            deduplicate(filenames, argv.logfile)
+            deduplicate(filenames)
     else:
         seed = parse_smt2_file(argv.seed_file,
                                ctx=ctx.current_ctx)

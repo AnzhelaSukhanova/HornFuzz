@@ -150,6 +150,7 @@ class InstanceGroup(object):
                 self.push(mut_instance)
                 instance = mut_instance
             except (AssertionError, Z3Exception):
+                print(self.filename)
                 message = traceback.format_exc()
                 print(message)
                 continue
@@ -307,7 +308,7 @@ class Instance(object):
                 filename = group.filename
 
             state, reason_unknown = eldarica_check(filename, timeout)
-            self.satis = CheckSatResult(state)
+            self.satis = globals()[state]
 
         assert self.satis != unknown, reason_unknown
 
@@ -485,54 +486,13 @@ def init_mut_types(options: list = None, mutations: list = None):
 
     if solver == 'spacer' and 'spacer_parameters' in mutations:
         mut_groups.append(MutTypeGroup.PARAMETERS)
-        for name in {'SPACER.GLOBAL',
-                     'SPACER.P3.SHARE_INVARIANTS',
-                     'SPACER.P3.SHARE_LEMMAS',
-                     # 'SPACER.PUSH_POB', -- takes a long time
-                     'SPACER.USE_LIM_NUM_GEN',
-                     'SPACER.RESET_POB_QUEUE',
-                     'SPACER.SIMPLIFY_LEMMAS_POST',
-                     'SPACER.SIMPLIFY_LEMMAS_PRE',
-                     'SPACER.SIMPLIFY_POB',
-                     'SPACER.USE_BG_INVS',
-                     'SPACER.USE_EUF_GEN',
-                     'SPACER.USE_LEMMA_AS_CTI',
-                     'XFORM.ARRAY_BLAST_FULL',
-                     'XFORM.COALESCE_RULES',
-                     'XFORM.ELIM_TERM_ITE',
-                     # 'XFORM.FIX_UNBOUND_VARS', -- often causes unknown
-                     'XFORM.INLINE_LINEAR_BRANCH',
-                     'XFORM.INSTANTIATE_ARRAYS',
-                     'XFORM.INSTANTIATE_ARRAYS.ENFORCE',
-                     'XFORM.INSTANTIATE_QUANTIFIERS',
-                     # 'XFORM.MAGIC', -- often causes unknown
-                     # 'XFORM.SCALE', -- often causes unknown
-                     'XFORM.QUANTIFY_ARRAYS',
-                     'XFORM.TRANSFORM_ARRAYS'}:
-            mut_types[name] = MutType(name, MutTypeGroup.PARAMETERS, default_value=False)
+        for name in DISABLED_SPACER_CORE_PARAMETERS | DISABLED_PARAMETERS:
+            upper_name = name.upper()
+            mut_types[upper_name] = MutType(upper_name, MutTypeGroup.PARAMETERS, default_value=False)
 
-        for name in {'SPACER.CTP',
-                     'SPACER.ELIM_AUX',
-                     'SPACER.EQ_PROP',
-                     'SPACER.GG.CONCRETIZE',
-                     'SPACER.GG.CONJECTURE',
-                     'SPACER.GG.SUBSUME',
-                     'SPACER.GROUND_POBS',
-                     'SPACER.KEEP_PROXY',
-                     'SPACER.MBQI',
-                     'SPACER.PROPAGATE',
-                     'SPACER.REACH_DNF',
-                     'SPACER.USE_ARRAY_EQ_GENERALIZER',
-                     'SPACER.USE_DERIVATIONS',
-                     'SPACER.USE_INC_CLAUSE',
-                     'SPACER.USE_INDUCTIVE_GENERALIZER',
-                     'XFORM.COI',
-                     'XFORM.COMPRESS_UNBOUND',
-                     'XFORM.INLINE_EAGER',
-                     'XFORM.INLINE_LINEAR',
-                     'XFORM.SLICE',
-                     'XFORM.TAIL_SIMPLIFIER_PVE'}:
-            mut_types[name] = MutType(name, MutTypeGroup.PARAMETERS, default_value=True)
+        for name in ENABLED_SPACER_CORE_PARAMETERS | ENABLED_PARAMETERS:
+            upper_name = name.upper()
+            mut_types[upper_name] = MutType(upper_name, MutTypeGroup.PARAMETERS, default_value=True)
 
         mut_types['SPACER.ORDER_CHILDREN'] = \
             MutType('SPACER.ORDER_CHILDREN',
@@ -1005,7 +965,7 @@ class Mutation(object):
             expr, path = find_term(clause, Z3_OP_TRUE, self.trans_num, False, True)
         else:
             expr, path = find_term(clause, expr_kind, self.trans_num, self.type.is_remove(), False)
-        assert not is_false(expr), 'Mutation subexpression not found'
+        assert not is_false(expr), 'Subexpression not found: ' + str(self.get_chain(format='log'))
         mut_expr = None
         mut_name = self.type.name
         children = expr.children()
