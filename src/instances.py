@@ -307,7 +307,7 @@ class Instance(object):
             else:
                 filename = group.filename
 
-            state, reason_unknown = eldarica_check(filename, timeout)
+            state, reason_unknown = eldarica_check(filename, timeout/MS_IN_SEC)
             self.satis = globals()[state]
 
         assert self.satis != unknown, reason_unknown

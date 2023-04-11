@@ -453,7 +453,7 @@ def fuzz(files: set):
                         trace_time = time.perf_counter()
                         get_trace_stats(mut_instance, trace_changed=trace_changed)
                         trace_time = time.perf_counter() - trace_time
-                    except AssertionError as err:
+                    except (AssertionError, TimeoutError) as err:
                         analyze_check_exception(instance,
                                                 err,
                                                 mut_instance=mut_instance)

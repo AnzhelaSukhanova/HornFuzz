@@ -17,11 +17,13 @@ and place them in the root directory of this repository.
 
 ## Use
 
+`python src/main.py all`
+
 By default HornFuzz tests the Spacer solver but it can also fuzz the Eldarica: use `-solver Eldarica`.  
 
 ### Seeds
 * `python src/main.py <seed-file1> [<seed-file2> ...]` — you can provide both single seeds and a directory with seeds.
-* `python src/main.py all` — to check all seeds from spacer-benchmarks, chc-comp21-benchmarks and sv-benchmarks.
+* `python src/main.py all` — to check all seeds from <em>spacer-benchmarks</em>, <em>chc-comp21-benchmarks</em> and <em>sv-benchmarks</em>.
 
 ### Heuristics
 Add `-heuristic <heuristic>` (or `-heur`) to change default instance selection to the selection based on:  
