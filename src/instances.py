@@ -75,13 +75,13 @@ class InstanceGroup(object):
         self.trace_number += new_trace_number
         self.mutation_number += 1
 
-        if self.upred_num == 0:
-            instance.find_pred_info()
+        group_len = len(self.instances)
+        is_seed = group_len == 0
+
+        if is_seed:
+            instance.find_pred_info(is_seed)
             if self.family == Family.UNKNOWN and instance.chc:
                 self.find_family(instance.chc)
-
-        group_len = len(self.instances)
-        if group_len == 0:
             self.dump_declarations()
         else:
             prev_instance = self[-1]
@@ -377,31 +377,29 @@ class Instance(object):
             if expr_num[kind]:
                 return i
 
-    def find_pred_info(self):
+    def find_pred_info(self, is_seed: bool):
         """
         Find whether the chc-system is linear, the number of
         uninterpreted predicates and their set.
         """
         if utils.heuristic not in {'difficulty', 'simplicity'}:
             return
-        group = self.get_group()
+        if self.chc is None:
+            self.restore(is_seed=is_seed)
         chc_system = self.chc
-        if chc_system is None:
-            return
+        group = self.get_group()
 
         for i, clause in enumerate(chc_system):
             body = get_chc_body(clause)
 
             if body is not None:
-                upred_num = count_expr(body,
-                                       [Z3_OP_UNINTERPRETED],
-                                       is_unique=True)[0]
+                stats = count_expr(body, [Z3_OP_UNINTERPRETED], is_unique=True)
+                upred_num = stats[Z3_OP_UNINTERPRETED]
                 if upred_num > 1:
                     group.is_linear = False
 
-        group.upred_num = count_expr(chc_system,
-                                     [Z3_OP_UNINTERPRETED],
-                                     is_unique=True)[0]
+        stats = count_expr(chc_system, [Z3_OP_UNINTERPRETED], is_unique=True)
+        group.upred_num = stats[Z3_OP_UNINTERPRETED]
 
     def restore(self, is_seed: bool = False):
         group = self.get_group()
