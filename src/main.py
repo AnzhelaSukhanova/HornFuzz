@@ -51,9 +51,9 @@ def calculate_weights() -> list:
                 group = instance.get_group()
                 is_nonlinear = not group.is_linear
                 upred_num = group.upred_num
-                weight = (is_nonlinear, upred_num)
+                weight += 10 * is_nonlinear + upred_num
         weights.append(weight)
-
+    
     if heuristic == 'transitions':
         weights = np.stack(weights)
         weights = np.matmul(weights, weighted_stats.toarray())
