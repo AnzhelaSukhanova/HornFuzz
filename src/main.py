@@ -436,10 +436,6 @@ def fuzz(files: set):
                 mut_time = time.perf_counter()
                 mut.apply(instance, mut_instance)
                 mut_time = time.perf_counter() - mut_time
-                # mut_instance.dump(output_dir + 'mutants/',
-                #                   group.filename,
-                #                   to_name=mut_instance.id,
-                #                   clear=False)
 
                 if mut.changed:
                     mut_types_exc = set()
@@ -521,7 +517,6 @@ def fuzz(files: set):
                                  mut_instance=mut_instance)
                     print_general_info(mut_time=mut_time,
                                        select_time=select_time)
-
                     mut_instance.reset_chc()
 
                 if problems_num == PROBLEMS_LIMIT:

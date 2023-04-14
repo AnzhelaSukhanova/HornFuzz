@@ -150,7 +150,6 @@ class InstanceGroup(object):
                 self.push(mut_instance)
                 instance = mut_instance
             except (AssertionError, Z3Exception):
-                print(self.filename)
                 message = traceback.format_exc()
                 print(message)
                 continue
