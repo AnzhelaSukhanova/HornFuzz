@@ -571,9 +571,9 @@ def main():
     parser.add_argument('-mutations', '-mut',
                         nargs='*',
                         choices=['simplifications', 'spacer_parameters',
-                                 'own'],
+                                 'own', 'eldarica_parameters'],
                         default=['simplifications', 'spacer_parameters',
-                                 'own'])
+                                 'own', 'eldarica_parameters'])
     parser.add_argument('-options', '-opt',
                         nargs='*',
                         choices=['without_mutation_weights'],

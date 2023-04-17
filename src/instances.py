@@ -179,8 +179,9 @@ class InstanceGroup(object):
 class MutTypeGroup(Enum):
     AUXILIARY = 0
     OWN = 1
-    PARAMETERS = 2
-    SIMPLIFICATIONS = 3
+    SIMPLIFICATIONS = 2
+    SPACER_PARAMETERS = 3
+    ELDARICA_PARAMETERS = 4
 
 
 class MutType(object):
@@ -193,8 +194,11 @@ class MutType(object):
         self.default_value = default_value
         self.upper_limit = upper_limit
 
-    def is_solving_param(self):
-        return self.group == MutTypeGroup.PARAMETERS
+    def is_spacer_param(self):
+        return self.group == MutTypeGroup.SPACER_PARAMETERS
+
+    def is_eldarica_param(self):
+        return self.group == MutTypeGroup.ELDARICA_PARAMETERS
 
     def is_simplification(self):
         return self.group == MutTypeGroup.SIMPLIFICATIONS
@@ -256,15 +260,17 @@ class Instance(object):
 
     def add_param(self, mut_type: MutType):
         mut_name = mut_type.name
-        param = mut_name.lower()
-        upper_limit = mut_type.upper_limit
-        if upper_limit is None:
-            value = self.params[param] \
-                if param in self.params \
-                else mut_type.default_value
-            self.params[param] = not value
+        if mut_type.is_spacer_param():
+            upper_limit = mut_type.upper_limit
+            if upper_limit is None:
+                value = self.params[mut_name] \
+                    if mut_name in self.params \
+                    else mut_type.default_value
+                self.params[mut_name] = not value
+            else:
+                self.params[mut_name] = random.randint(0, upper_limit + 1)
         else:
-            self.params[param] = random.randint(0, upper_limit + 1)
+            self.params[mut_name] = ' -' + mut_name
 
     def process_seed_info(self, info: dict):
         self.satis = CheckSatResult(info['satis'])
@@ -306,7 +312,9 @@ class Instance(object):
             else:
                 filename = group.filename
 
-            state, model, reason_unknown = eldarica_check(filename, timeout/MS_IN_SEC)
+            state, model, reason_unknown = eldarica_check(filename,
+                                                          timeout/MS_IN_SEC,
+                                                          self.params)
             self.satis = globals()[state]
             if model:
                 self.model = parse_smt2_string(model, ctx=ctx.current_ctx)
@@ -484,25 +492,42 @@ def init_mut_types(options: list = None, mutations: list = None):
                      'ADD_INEQ'}:
             mut_types[name] = MutType(name, MutTypeGroup.OWN)
 
+    if solver == 'eldarica' and 'eldarica_parameters' in mutations:
+        mut_groups.append(MutTypeGroup.ELDARICA_PARAMETERS)
+        """
+        Use disjunctive interpolation"""
+        name = 'disj'
+        mut_types[name] = MutType(name, MutTypeGroup.ELDARICA_PARAMETERS)
+        """
+        Disable preprocessor (e.g., clause inlining)"""
+        name = 'lbe'
+        mut_types[name] = MutType(name, MutTypeGroup.ELDARICA_PARAMETERS)
+        """
+        Disable slicing of clauses"""
+        name = 'noSlicing'
+        mut_types[name] = MutType(name, MutTypeGroup.ELDARICA_PARAMETERS)
+        """
+        Disable interval analysis"""
+        name = 'noIntervals'
+        mut_types[name] = MutType(name, MutTypeGroup.ELDARICA_PARAMETERS)
+
     if solver == 'spacer' and 'spacer_parameters' in mutations:
-        mut_groups.append(MutTypeGroup.PARAMETERS)
+        mut_groups.append(MutTypeGroup.SPACER_PARAMETERS)
         for name in DISABLED_SPACER_CORE_PARAMETERS | DISABLED_PARAMETERS:
-            upper_name = name.upper()
-            mut_types[upper_name] = MutType(upper_name, MutTypeGroup.PARAMETERS, default_value=False)
+            mut_types[name] = MutType(name, MutTypeGroup.SPACER_PARAMETERS, default_value=False)
 
         for name in ENABLED_SPACER_CORE_PARAMETERS | ENABLED_PARAMETERS:
-            upper_name = name.upper()
-            mut_types[upper_name] = MutType(upper_name, MutTypeGroup.PARAMETERS, default_value=True)
+            mut_types[name] = MutType(name, MutTypeGroup.SPACER_PARAMETERS, default_value=True)
 
-        mut_types['SPACER.ORDER_CHILDREN'] = \
-            MutType('SPACER.ORDER_CHILDREN',
-                    MutTypeGroup.PARAMETERS,
+        mut_types['spacer.order_children'] = \
+            MutType('spacer.order_children',
+                    MutTypeGroup.SPACER_PARAMETERS,
                     default_value=0,
                     upper_limit=2)
 
-        mut_types['SPACER.RANDOM_SEED'] = \
-            MutType('SPACER.RANDOM_SEED',
-                    MutTypeGroup.PARAMETERS,
+        mut_types['spacer.random_seed'] = \
+            MutType('spacer.random_seed',
+                    MutTypeGroup.SPACER_PARAMETERS,
                     default_value=0,
                     upper_limit=sys.maxsize)
 
@@ -728,7 +753,7 @@ class Mutation(object):
             print(mut_name)
         assert instance.chc is not None, "Empty chc-system"
 
-        if self.type.is_solving_param():
+        if self.type.is_spacer_param() or self.type.is_eldarica_param():
             new_instance.set_chc(instance.chc)
             new_instance.add_param(self.type)
 
