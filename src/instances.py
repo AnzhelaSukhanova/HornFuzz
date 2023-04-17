@@ -306,24 +306,25 @@ class Instance(object):
             else:
                 filename = group.filename
 
-            state, reason_unknown = eldarica_check(filename, timeout/MS_IN_SEC)
+            state, model, reason_unknown = eldarica_check(filename, timeout/MS_IN_SEC)
             self.satis = globals()[state]
+            parse_smt2_string(model, ctx=ctx.current_ctx)
 
         assert self.satis != unknown, reason_unknown
 
     def check_model(self):
         if self.satis != sat:
             return None
-        assert self.model is not None, "Empty model"
 
         solver = Solver(ctx=ctx.current_ctx)
         solver.set('timeout', MODEL_CHECK_TIME_LIMIT)
         for i, clause in enumerate(self.chc):
-            inter_clause = self.model.eval(clause)
+            inter_clause = self.model.eval(clause) if self.model else clause
             solver.add(inter_clause)
             model_state = solver.check()
             if model_state != sat:
                 self.model_info = (model_state, i)
+            if model_state == unsat:
                 break
 
         if self.model_info[0] == unknown:

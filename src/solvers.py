@@ -2,16 +2,26 @@ import subprocess
 
 
 def eldarica_check(filename, timeout) -> [str]:
+    model = None
     file = open('eldarica_output', 'w')
-    p = subprocess.Popen(['./eldarica/eld', '-horn', '-t:' + str(timeout), filename],
+    p = subprocess.Popen(['./eldarica/eld', '-horn', '-ssol', '-t:' + str(timeout), filename],
                          stdout=file, stderr=file)
+    output = ''
+    i = 0
     try:
         p.wait(timeout)
         file.close()
         with open('eldarica_output', 'r') as file:
-            state = file.readlines()[-1].rstrip()
+            output = file.readlines()
+            state = ''
+            while state not in {'sat', 'unsat', 'unknown'}:
+                state = output[i].rstrip()
+                i += 1
     except subprocess.TimeoutExpired:
         p.kill()
         raise TimeoutError('Eldarica timeout')
+    if state == 'sat':
+        model = output[i:]
+        model = " ".join(model) if len(model) > 1 else model[0]
     reason_unknown = '' if state == 'unknown' else ''
-    return state, reason_unknown
+    return state, model, reason_unknown

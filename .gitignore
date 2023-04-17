@@ -4,9 +4,10 @@ logfile
 output/*
 .collect_stats.json
 stats/*
+eldarica_output
 
 # Results
-logs-*/*
+logs*/*
 run-data/*
 
 # PyCharm files

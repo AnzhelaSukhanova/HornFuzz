@@ -171,7 +171,7 @@ def log_run_info(status: str, group: InstanceGroup, message: str = None,
                 log['mut_chain'] = instance.mutation.get_chain()
                 last_mutation = mut_instance.mutation
                 log['mut_chain'].append(last_mutation.get_name())
-                if status in {'bug', 'wrong_model',
+                if status in {'bug', 'wrong_model', 'model_unknown'
                               'mutant_unknown', 'error'}:
                     log['satis'] = mut_instance.satis.r
                     if status == 'wrong_model':
@@ -207,11 +207,6 @@ def analyze_check_exception(instance: Instance, err: Exception,
             counter['timeout'] += 1
             status = 'mutant_timeout' if mut_instance \
                 else 'timeout_before_check'
-            log_run_info(status,
-                         group,
-                         message,
-                         instance,
-                         mut_instance)
         else:
             if mut_instance:
                 counter['unknown'] += 1
@@ -219,11 +214,11 @@ def analyze_check_exception(instance: Instance, err: Exception,
             else:
                 counter['error'] += 1
                 status = 'error'
-            log_run_info(status,
-                         group,
-                         message,
-                         instance,
-                         mut_instance)
+        log_run_info(status,
+                     group,
+                     message,
+                     instance,
+                     mut_instance)
         if status == 'mutant_unknown':
             mut_instance.dump(output_dir + 'unknown/',
                               group.filename,
@@ -364,7 +359,7 @@ def handle_bug(instance: Instance, mut_instance: Instance = None,
     model_state = mut_instance.model_info[0] \
         if mut_instance \
         else instance.model_info[0]
-    status = 'bug' if model_state == sat else 'wrong_model'
+    status = 'bug' if model_state != unsat else 'wrong_model'
     log_run_info(status,
                  group,
                  message,
@@ -480,15 +475,20 @@ def fuzz(files: set):
 
                         mut_instance.reset_chc()
 
-                    elif instances.solver == 'spacer':
+                    else:
                         model_time = time.perf_counter()
                         message = mut_instance.check_model()
                         model_time = time.perf_counter() - model_time
-                        if mut_instance.model_info[0] != sat and message != 'timeout':
+                        if mut_instance.model_info[0] == unsat and message != 'timeout':
                             handle_bug(instance, mut_instance, message)
                             problems_num += 1
                         else:
-                            status = 'model_timeout' if message == 'timeout' else 'pass'
+                            if message == 'timeout':
+                                status = 'model_timeout'
+                            elif mut_instance.model_info[0] == unknown:
+                                status = 'model_unknown'
+                            else:
+                                status = 'pass'
                             group.push(mut_instance)
                             if heuristic != 'default':
                                 group.check_stats()
