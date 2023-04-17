@@ -309,13 +309,14 @@ class Instance(object):
             state, model, reason_unknown = eldarica_check(filename, timeout/MS_IN_SEC)
             self.satis = globals()[state]
             if model:
-                parse_smt2_string(model, ctx=ctx.current_ctx)
+                self.model = parse_smt2_string(model, ctx=ctx.current_ctx)
 
         assert self.satis != unknown, reason_unknown
 
     def check_model(self):
         if self.satis != sat:
             return None
+        assert self.model is not None, "Empty model"
 
         solver = Solver(ctx=ctx.current_ctx)
         solver.set('timeout', MODEL_CHECK_TIME_LIMIT)

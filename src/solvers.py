@@ -13,14 +13,15 @@ def eldarica_check(filename, timeout) -> [str]:
         file.close()
         with open('eldarica_output', 'r') as file:
             output = file.readlines()
+            out_len = len(output)
             state = ''
-            while state not in {'sat', 'unsat', 'unknown'}:
+            while state not in {'sat', 'unsat', 'unknown'} and i < out_len:
                 state = output[i].rstrip()
                 i += 1
     except subprocess.TimeoutExpired:
         p.kill()
         raise TimeoutError('Eldarica timeout')
-    if state == 'sat':
+    if state == 'sat' and i < out_len:
         model = output[i:]
         model = " ".join(model) if len(model) > 1 else model[0]
     reason_unknown = '' if state == 'unknown' else ''
