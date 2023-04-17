@@ -308,7 +308,8 @@ class Instance(object):
 
             state, model, reason_unknown = eldarica_check(filename, timeout/MS_IN_SEC)
             self.satis = globals()[state]
-            parse_smt2_string(model, ctx=ctx.current_ctx)
+            if model:
+                parse_smt2_string(model, ctx=ctx.current_ctx)
 
         assert self.satis != unknown, reason_unknown
 
