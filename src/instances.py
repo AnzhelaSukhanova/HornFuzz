@@ -270,7 +270,7 @@ class Instance(object):
             else:
                 self.params[mut_name] = random.randint(0, upper_limit + 1)
         else:
-            self.params[mut_name] = ' -' + mut_name
+            self.params[mut_name] = '-' + mut_name
 
     def process_seed_info(self, info: dict):
         self.satis = CheckSatResult(info['satis'])
@@ -327,7 +327,7 @@ class Instance(object):
         assert self.model is not None, "Empty model"
 
         solver = Solver(ctx=ctx.current_ctx)
-        solver.set('timeout', MODEL_CHECK_TIME_LIMIT)
+        solver.set('timeout', MODEL_CHECK_TIME_LIMIT_MS)
         for i, clause in enumerate(self.chc):
             inter_clause = self.model.eval(clause) if self.model else clause
             solver.add(inter_clause)

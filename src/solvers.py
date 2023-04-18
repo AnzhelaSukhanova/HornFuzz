@@ -4,12 +4,12 @@ import subprocess
 def eldarica_check(filename, timeout, parameters: dict = None) -> [str]:
     model = None
     file = open('eldarica_output', 'w')
-    param_string = ''
+    cmd_list = ['./eldarica/eld', '-horn', '-ssol', '-t:' + str(timeout)]
     if parameters:
         for mut_name in parameters:
-            param_string += parameters[mut_name]
-    p = subprocess.Popen(['./eldarica/eld', '-horn' + param_string, '-ssol', '-t:' + str(timeout), filename],
-                         stdout=file, stderr=file)
+            cmd_list.append(parameters[mut_name])
+    cmd_list.append(filename)
+    p = subprocess.Popen(cmd_list, stdout=file, stderr=file)
     i = 0
     try:
         p.wait(timeout)
