@@ -489,14 +489,15 @@ def fuzz(files: set):
                                 status = 'model_unknown'
                             else:
                                 status = 'pass'
-                            group.push(mut_instance)
+                                group.push(mut_instance)
                             if heuristic != 'default':
                                 group.check_stats()
                             log_run_info(status,
                                          group,
                                          instance=instance,
                                          mut_instance=mut_instance)
-                            instance = mut_instance
+                            if status == 'pass':
+                                instance = mut_instance
 
                     print_general_info(solve_time=solve_time,
                                        mut_time=mut_time,

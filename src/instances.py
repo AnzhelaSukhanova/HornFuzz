@@ -327,7 +327,8 @@ class Instance(object):
         assert self.model is not None, "Empty model"
 
         solver = Solver(ctx=ctx.current_ctx)
-        solver.set('timeout', MODEL_CHECK_TIME_LIMIT_MS)
+        if solver != 'eldarica':
+            solver.set('timeout', MODEL_CHECK_TIME_LIMIT_MS)
         for i, clause in enumerate(self.chc):
             inter_clause = self.model.eval(clause) if self.model else clause
             solver.add(inter_clause)
