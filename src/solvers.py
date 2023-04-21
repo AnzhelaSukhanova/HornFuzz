@@ -1,7 +1,7 @@
 import subprocess
 
 
-def eldarica_check(filename, timeout, parameters: dict = None) -> [str]:
+def eldarica_check(filename, timeout, parameters: dict = None):
     model = None
     file = open('eldarica_output', 'w')
     cmd_list = ['./eldarica/eld', '-horn', '-ssol', '-t:' + str(timeout)]

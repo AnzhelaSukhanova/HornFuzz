@@ -13,6 +13,8 @@ from constants import *
 import ctx
 from profilehooks import profile, timecall
 
+TRACE_FILE = '.z3-trace'
+
 trace_states = defaultdict(int)
 start_state_number = 50
 transition_matrix = np.zeros((start_state_number, start_state_number), dtype=int)
@@ -28,6 +30,12 @@ info_kinds = {Z3_OP_AND: '(declare-fun and *)',
               None: None}
 
 heuristic = 'default'
+
+
+def set_trace_name(solver: str):
+    global TRACE_FILE
+    if solver != 'spacer':
+        TRACE_FILE = f'.{solver}-trace'
 
 
 def set_heuristic(heur: str):

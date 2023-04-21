@@ -1,8 +1,8 @@
 # Run files
-.z3-trace
-logfile
-output/*
+.*-trace
 .collect_stats.json
+log*
+output/*
 stats/*
 eldarica_output
 
@@ -22,3 +22,4 @@ seed_info/*
 
 # Other solvers
 eldarica/
+

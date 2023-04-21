@@ -9,15 +9,11 @@ RUN pacman -Syy \
                     git \
                     python \
                     python-pip \
-                    python-setuptools \
                     make \
                     gcc \
                     libffi \
                     scala \
  && 1 | pacman --noconfirm -S sbt
-
-# install Eldarica
-RUN git clone https://github.com/uuverifiers/eldarica.git --depth 1 && cd eldarica && sbt assembly
 
 # download seeds
 RUN git clone https://github.com/dvvrd/spacer-benchmarks.git --depth 1 \
@@ -44,6 +40,12 @@ RUN git clone https://github.com/AnzhelaSukhanova/z3.git \
 # install Z3
 RUN cd z3/build && make -j$(nproc) && make install
 
+# install Eldarica
+RUN git clone https://github.com/AnzhelaSukhanova/eldarica.git --depth 1 \
+ && cd eldarica \
+ && git checkout 02f1719 \
+ && sbt assembly
+
 # add project-files
 ADD src src
 ADD seed_info seed_info
@@ -51,4 +53,4 @@ ADD false_formulas false_formulas
 ADD exclude_seed.json .
 
 # run fuzzing
-CMD ["python", "src/main.py", "all", "-heur", "transitions"]
+CMD ["python", "src/main.py", "all", "-solver", "eldarica"]

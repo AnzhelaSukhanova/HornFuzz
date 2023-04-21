@@ -223,12 +223,12 @@ class Stats:
             filename = entry['filename']
             num += 1
             # mutation = entry['mut_type'].split('(')[0]
-            add_to_count_dict(num_dict, filename)
+            add_to_count_dict(num_dict, entry['status'])
             if entry['status'] == status:
                 if status != 'wrong_model' or entry['model_state'] != -1:
                     continue
                 status_num += 1
-                add_to_count_dict(count_dict, filename)
+                add_to_count_dict(count_dict, entry['mut_type'])
         num_dict[''].append(num)
         count_dict[''].append(status_num)
 
@@ -303,9 +303,10 @@ def analyze(log_names: list, stats: list, select: list, options: list):
                            key=lambda item: item[1][0],
                            reverse=True))
     for key in num_dict:
-        # if num_dict[key][0] > 1:
-        if count_dict[key]:
-            print(key, count_dict[key])
+        if num_dict[key][0] > 1:
+            print(key, num_dict[key][0])
+        # if count_dict[key]:
+        #     print(key, count_dict[key])
 
 
 def main():

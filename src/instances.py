@@ -20,6 +20,7 @@ output_dir = 'output/'
 def set_solver(cur_solver: str):
     global solver
     solver = cur_solver
+    set_trace_name(cur_solver)
 
 
 def set_output_dir(cur_output_dir: str):
@@ -312,12 +313,10 @@ class Instance(object):
             else:
                 filename = group.filename
 
-            state, model, reason_unknown = eldarica_check(filename,
-                                                          timeout/MS_IN_SEC,
-                                                          self.params)
+            state, self.model, reason_unknown = eldarica_check(filename,
+                                                               timeout/MS_IN_SEC,
+                                                               self.params)
             self.satis = globals()[state]
-            if model:
-                self.model = parse_smt2_string(model, ctx=ctx.current_ctx)
 
         assert self.satis != unknown, reason_unknown
 
@@ -326,20 +325,23 @@ class Instance(object):
             return None
         assert self.model is not None, "Empty model"
 
-        solver = Solver(ctx=ctx.current_ctx)
-        if solver != 'eldarica':
-            solver.set('timeout', MODEL_CHECK_TIME_LIMIT_MS)
+        cur_solver = Solver(ctx=ctx.current_ctx)
+        cur_solver.set('timeout', MODEL_CHECK_TIME_LIMIT_MS)
         for i, clause in enumerate(self.chc):
-            inter_clause = self.model.eval(clause) if self.model else clause
-            solver.add(inter_clause)
-            model_state = solver.check()
+            if solver == 'eldarica':
+                clause_with_model = self.model + '\n(assert ' + clause.sexpr() + ')\n'
+                inter_clause = parse_smt2_string(clause_with_model, ctx=ctx.current_ctx)
+            else:
+                inter_clause = self.model.eval(clause)
+            cur_solver.add(inter_clause)
+            model_state = cur_solver.check()
             if model_state != sat:
                 self.model_info = (model_state, i)
             if model_state == unsat:
                 break
 
         if self.model_info[0] == unknown:
-            return solver.reason_unknown()
+            return cur_solver.reason_unknown()
         return None
 
     def update_traces_info(self, is_seed: bool = False):
