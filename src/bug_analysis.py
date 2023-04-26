@@ -30,12 +30,13 @@ def is_same_res(instance: Instance, result: bool = False) -> bool:
     return same_res
 
 
-def reduce_instance(seed: Instance, bug_instance: Instance) -> Tuple[Instance, bool]:
+def reduce_instance(seed: Instance, bug_instance: Instance, wrong_model: bool) \
+        -> Tuple[Instance, bool]:
     """Reduce the chc-system causing the problem."""
 
     print('Instance reducing')
-    start_instance = deepcopy(bug_instance)
     instance = deepcopy(bug_instance)
+    remove_clause_num = 0
 
     for i, clause in enumerate(instance.chc):
         print('Clause:', i)
@@ -49,30 +50,31 @@ def reduce_instance(seed: Instance, bug_instance: Instance) -> Tuple[Instance, b
             trans_number += 1
             expr_number += 1
             mutation = Mutation()
-            mutation.set_remove_mutation(trans_number)
+            mutation.set_remove_mutation(trans_number, i - remove_clause_num)
 
             try:
                 reduced_chc = mutation.transform(instance)
                 instance.set_chc(reduced_chc)
             except Exception:
-                # print(traceback.format_exc())
+                print(traceback.format_exc())
                 instance.set_chc(bug_instance.chc)
                 for child in cur_expr.children():
                     expr_queue.append(child)
                 continue
 
-            is_eq = equivalence_check(seed.chc,
-                                      instance.chc)
+            is_eq = equivalence_check(seed.chc, instance.chc) if not wrong_model else True
             if is_same_res(instance) and is_eq:
                 bug_instance.set_chc(instance.chc)
                 print('Reduced:', expr_number)
                 trans_number -= 1
+                if expr_number == 0:
+                    remove_clause_num += 1
+                is_reduced = True
             else:
                 instance.set_chc(bug_instance.chc)
                 for child in cur_expr.children():
                     expr_queue.append(child)
                 # print('Cannot be reduced:', trans_number)
-    is_reduced = start_instance.chc.sexpr() != bug_instance.chc.sexpr()
 
     return bug_instance, is_reduced
 
@@ -170,16 +172,18 @@ def reduce(filename: str = None, group_id: int = 0,
         mut_instance = reduce_mut_chain(group)
     if reduce_inst:
         group.restore({})
+        seed = group[0]
         mut_system = parse_smt2_file(filename,
                                      ctx=ctx.current_ctx)
-        mut_instance = Instance(group_id, mut_system)
+        mut_instance = Instance(mut_system, group.id)
         for entry in mutations:
             type_name = entry['type']
             type = mut_types[type_name]
-            if type.is_solving_param():
+            if type.is_spacer_param() or type.is_eldarica_param():
                 mut_instance.add_param(type)
 
         assert is_same_res(mut_instance), 'Incorrect mutant-restoration'
+        wrong_model = False if mut_instance.satis != seed.satis else True
 
     reduce_dir = output_dir + 'reduced/'
     if not os.path.exists(reduce_dir):
@@ -194,8 +198,9 @@ def reduce(filename: str = None, group_id: int = 0,
         try:
             is_reduced = True
             while is_reduced:
-                mut_instance, is_reduced = reduce_instance(group[0],
-                                                           mut_instance)
+                mut_instance, is_reduced = reduce_instance(seed,
+                                                           mut_instance,
+                                                           wrong_model)
                 declarations = reduce_declarations(mut_instance) \
                     if not is_reduced else None
                 mut_instance.dump(reduce_dir,
@@ -348,16 +353,16 @@ def main():
     parser.add_argument('-reproduce', action='store_true')
     argv = parser.parse_args()
     ctx.set_ctx(Context())
+    set_solver('eldarica')
 
-    init_mut_types([], ['simplifications', 'spacer_parameters', 'own'])
+    init_mut_types([], ['simplifications', 'eldarica_parameters', 'own'])
     if not argv.seed_file:
         filenames = files.get_filenames([argv.bug_file]) if argv.bug_file else None
         if argv.reduce_chain or argv.reduce_instance:
             for filename in filenames:
                 with_mutations = True if argv.reduce_chain else False
                 group = restore_group(filename, with_mutations)
-                reduce(filename, group.id,
-                       argv.reduce_chain, argv.reduce_instance)
+                reduce(filename, group.id, argv.reduce_chain, argv.reduce_instance)
         elif argv.reproduce:
             if argv.mut_chain:
                 entry = {'id': 0,

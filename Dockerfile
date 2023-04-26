@@ -33,7 +33,7 @@ RUN pip install -r requirements.txt
 # download and edit Z3-sourses
 RUN git clone https://github.com/AnzhelaSukhanova/z3.git \
  && cd z3 \
- && git checkout ff297a5 \
+ && git checkout e55f393 \
  && python scripts/mk_make.py --python \
  && sed -i -e 's, -D_MP_INTERNAL, -D_TRACE -D_MP_INTERNAL,g' build/config.mk
  
@@ -53,4 +53,5 @@ ADD false_formulas false_formulas
 ADD exclude_seed.json .
 
 # run fuzzing
-CMD ["python", "src/main.py", "all", "-solver", "eldarica"]
+CMD ["python", "src/main.py", "all", "-solver", "eldarica", "-heur", "transitions"]
+

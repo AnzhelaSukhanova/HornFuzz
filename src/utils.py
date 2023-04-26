@@ -201,28 +201,34 @@ class TraceStats(object):
         return weights
 
 
-def find_term(clause: QuantifierRef, term_kind: int, trans_num: int, is_removing: bool, is_quantifier: bool):
+def find_term(clause: QuantifierRef, term_kind: int, trans_num: int, remove: bool, is_quantifier: bool):
     ctx_ref = ctx.current_ctx.ref()
     path = ctypes.c_ulonglong(Z3_mk_int_vector(ctx_ref))
     term = to_expr_ref(Z3_find_term(ctx_ref,
                                     clause.as_ast(),
                                     term_kind,
                                     trans_num,
-                                    is_removing,
+                                    remove,
                                     is_quantifier,
                                     path),
                        ctx.current_ctx)
     return term, path
 
 
-def set_term(clause: QuantifierRef, new_term, path):
-    result = to_expr_ref(Z3_set_term(ctx.current_ctx.ref(),
-                                     clause.as_ast(),
-                                     new_term.as_ast(),
-                                     path),
-                         ctx.current_ctx)
+def set_term(clause: QuantifierRef, new_term, path, remove: bool):
+    applied = True
+    try:
+        result = to_expr_ref(Z3_set_term(ctx.current_ctx.ref(),
+                                         clause.as_ast(),
+                                         new_term.as_ast(),
+                                         path,
+                                         remove),
+                             ctx.current_ctx)
+    except z3types.Z3Exception:
+        result = clause
+        applied = False
     Z3_free_int_vector(ctx.current_ctx.ref(), path)
-    return result
+    return result, applied
 
 
 def update_quantifier(expr, children, vars: list = None):

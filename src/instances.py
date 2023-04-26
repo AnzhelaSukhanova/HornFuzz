@@ -205,7 +205,7 @@ class MutType(object):
         return self.group == MutTypeGroup.SIMPLIFICATIONS
 
     def is_remove(self):
-        return self.name == 'REMOVE'
+        return self.name == 'REMOVE_EXPR'
 
 
 def copy_chc(chc_system: AstVector) -> AstVector:
@@ -217,11 +217,11 @@ def copy_chc(chc_system: AstVector) -> AstVector:
 
 class Instance(object):
 
-    def __init__(self, chc: AstVector = None):
+    def __init__(self, chc: AstVector = None, group_id: int = -1):
         global instance_id
         self.id = instance_id
         instance_id += 1
-        self.group_id = -1
+        self.group_id = group_id
         self.chc = None
         if chc is not None:
             self.set_chc(chc)
@@ -313,9 +313,7 @@ class Instance(object):
             else:
                 filename = group.filename
 
-            state, self.model, reason_unknown = eldarica_check(filename,
-                                                               timeout/MS_IN_SEC,
-                                                               self.params)
+            state, self.model, reason_unknown = eldarica_check(filename, self.params)
             self.satis = globals()[state]
 
         assert self.satis != unknown, reason_unknown
@@ -776,9 +774,10 @@ class Mutation(object):
         if instance.chc.sexpr() != new_instance.chc.sexpr():
             self.changed = True
 
-    def set_remove_mutation(self, trans_num):
+    def set_remove_mutation(self, trans_num: int, clause_i : int):
         self.type = mut_types['REMOVE_EXPR']
         self.trans_num = trans_num
+        self.clause_i = clause_i
         self.kind = Z3_OP_TRUE
 
     def next_mutation(self, instance: Instance):
@@ -989,14 +988,21 @@ class Mutation(object):
     def transform_nth(self, clause):
         """Transform nth expression of the specific kind in dfs-order."""
         expr_kind = self.kind
+        if self.type.is_remove() and self.trans_num == 0:
+            self.applied = True
+            return None
         if expr_kind is Z3_QUANTIFIER_AST:
-            expr, path = find_term(clause, Z3_OP_TRUE, self.trans_num, False, True)
+            expr, path = find_term(clause, Z3_OP_TRUE, self.trans_num,
+                                   remove=False, is_quantifier=True)
         else:
-            expr, path = find_term(clause, expr_kind, self.trans_num, self.type.is_remove(), False)
+            expr, path = find_term(clause, expr_kind, self.trans_num,
+                                   remove=self.type.is_remove(), is_quantifier=False)
         assert not is_false(expr), 'Subexpression not found: ' + str(self.get_chain(format='log'))
-        mut_expr = None
+        mut_expr = expr
         mut_name = self.type.name
         children = expr.children()
+        # if self.type.is_remove() and expr.decl().arity() > len(children) - 1:
+        #     return None
 
         if mut_name in {'SWAP_AND', 'SWAP_OR'}:
             children = children[1:] + children[:1]
@@ -1022,8 +1028,8 @@ class Mutation(object):
         else:
             pass
 
-        mut_clause = set_term(clause, mut_expr, path)
-        self.applied = True
+        mut_clause, applied = set_term(clause, mut_expr, path, remove=self.type.is_remove())
+        self.applied = applied
         return mut_clause
 
     def get_chain(self, format='list'):

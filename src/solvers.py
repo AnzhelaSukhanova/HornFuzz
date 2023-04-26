@@ -1,10 +1,11 @@
 import subprocess
+from constants import *
 
 
-def eldarica_check(filename, timeout, parameters: dict = None):
+def eldarica_check(filename, parameters: dict = None):
     model = None
     file = open('eldarica_output', 'w')
-    cmd_list = ['./eldarica/eld', '-horn', '-ssol', '-t:' + str(timeout)]
+    cmd_list = ['./eldarica/eld', '-horn', '-ssol', '-t:' + str(ELDARICA_SOLVE_TIME_LIMIT)]
     if parameters:
         for mut_name in parameters:
             cmd_list.append(parameters[mut_name])
@@ -12,7 +13,7 @@ def eldarica_check(filename, timeout, parameters: dict = None):
     p = subprocess.Popen(cmd_list, stdout=file, stderr=file)
     i = 0
     try:
-        p.wait(timeout)
+        p.wait(ELDARICA_SOLVE_TIME_LIMIT)
         file.close()
     except subprocess.TimeoutExpired:
         p.kill()
