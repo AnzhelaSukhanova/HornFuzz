@@ -8,7 +8,6 @@ from typing import Optional
 import instances
 
 import z3_api_mods
-from instances import *
 from seed_info_utils import *
 from files import *
 
@@ -161,22 +160,24 @@ def log_run_info(status: str, group: InstanceGroup, message: str = None,
                 if instance.chc:
                     log['chc'] = instance.chc.sexpr()
                 log['mut_chain'] = instance.mutation.get_chain()
+            elif status == 'last_mutants':
+                log['mut_chain'] = instance.mutation.get_chain()
             else:
                 log['satis'] = instance.satis.r
 
-        else:
-            mutant_info = mut_instance.get_log(group)
-            log.update(mutant_info)
-            if status not in {'pass', 'without_change'}:
-                log['mut_chain'] = instance.mutation.get_chain()
-                last_mutation = mut_instance.mutation
-                log['mut_chain'].append(last_mutation.get_name())
-                if status in {'bug', 'wrong_model', 'model_unknown'
-                              'mutant_unknown', 'error'}:
-                    log['satis'] = mut_instance.satis.r
-                    if status == 'wrong_model':
-                        log['model_state'] = mut_instance.model_info[0].r
-                        log['bug_clause'] = str(mut_instance.model_info[1])
+    if mut_instance:
+        mutant_info = mut_instance.get_log(group)
+        log.update(mutant_info)
+        if status not in {'pass', 'without_change'}:
+            log['mut_chain'] = instance.mutation.get_chain()
+            last_mutation = mut_instance.mutation
+            log['mut_chain'].append(last_mutation.get_name())
+            if status in {'bug', 'wrong_model', 'model_unknown',
+                          'mutant_unknown', 'error'}:
+                log['satis'] = mut_instance.satis.r
+                if status == 'wrong_model':
+                    log['model_state'] = mut_instance.model_info[0].r
+                    log['bug_clause'] = str(mut_instance.model_info[1])
 
 
 def analyze_check_exception(instance: Instance, err: Exception,
@@ -328,23 +329,36 @@ def new_seeds_processor(files: set, base_idx: int, seed_info_index):
         store_seed_info(seed_info, seed_info_index)
 
 
-def run_seeds(files: set):
+def run_seeds(files, container_id: int = 0):
     """Read and solve the seeds."""
-    global queue, seed_number
+    global queue, seed_number, counter
 
     ctx.set_ctx(Context())
-    seed_info_index = build_seed_info_index()
-    known_seed_files = files & set(seed_info_index.keys())
-    other_seed_files = files - known_seed_files
-    known_seeds = known_seeds_processor(known_seed_files, 0, seed_info_index)
-    other_seeds = new_seeds_processor(other_seed_files, len(known_seed_files), seed_info_index)
+    if container_id:
+        for file in files:
+            group, mutations, _ = restore_group(file)
+            instance = group[-1]
+            solve_time = time.perf_counter()
+            check_satis(instance, group)
+            solve_time = time.perf_counter() - solve_time
+            counter['runs'] += 1
 
-    for i, (instance, solve_time) in enumerate(itertools.chain(known_seeds, other_seeds)):
-        queue.append(instance)
-        log_run_info('seed', instance.get_group(), instance=instance)
-        print_general_info(solve_time=solve_time)
+            log_run_info('last_mutant', group, instance=instance)
+            print_general_info(solve_time=solve_time)
+            queue.append(instance)
+    else:
+        seed_info_index = build_seed_info_index()
+        known_seed_files = files & set(seed_info_index.keys())
+        other_seed_files = files - known_seed_files
+        known_seeds = known_seeds_processor(known_seed_files, 0, seed_info_index)
+        other_seeds = new_seeds_processor(other_seed_files, len(known_seed_files), seed_info_index)
+
+        for i, (instance, solve_time) in enumerate(itertools.chain(known_seeds, other_seeds)):
+            queue.append(instance)
+            log_run_info('seed', instance.get_group(), instance=instance)
+            print_general_info(solve_time=solve_time)
+
     seed_number = len(queue)
-
     assert seed_number > 0, 'All seeds are unknown or ' \
                             'in the incorrect format'
 
@@ -377,10 +391,10 @@ def handle_bug(instance: Instance, mut_instance: Instance = None,
         group.reset()
 
 
-def fuzz(files: set):
+def fuzz(files, container_id: int = 0):
     global queue, counter
 
-    run_seeds(files)
+    run_seeds(files, container_id)
     logging.info(json.dumps({'seed_number': seed_number,
                              'heuristic': heuristic,
                              'mutations': mutations,
@@ -579,6 +593,10 @@ def main():
                         nargs='*',
                         choices=['without_mutation_weights'],
                         default=[])
+    parser.add_argument('-container_id',
+                        nargs='?',
+                        type=int,
+                        default=0)
     argv = parser.parse_args()
 
     # help_simplify()
@@ -599,13 +617,13 @@ def main():
     directory = os.path.dirname(os.path.dirname(parser.prog))
     if directory:
         directory += '/'
-    files = get_seeds(argv.seeds, directory)
+    files = get_seeds(argv.seeds, directory, argv.container_id)
     create_output_dirs()
 
     seed_number = len(files)
     assert seed_number > 0, 'Seeds not found'
 
-    fuzz(files)
+    fuzz(files, argv.container_id)
 
 
 if __name__ == '__main__':

@@ -33,7 +33,7 @@ RUN pip install -r requirements.txt
 # download and edit Z3-sourses
 RUN git clone https://github.com/AnzhelaSukhanova/z3.git \
  && cd z3 \
- && git checkout e55f393 \
+ && git checkout 417e35f \
  && python scripts/mk_make.py --python \
  && sed -i -e 's, -D_MP_INTERNAL, -D_TRACE -D_MP_INTERNAL,g' build/config.mk
  
@@ -43,7 +43,7 @@ RUN cd z3/build && make -j$(nproc) && make install
 # install Eldarica
 RUN git clone https://github.com/AnzhelaSukhanova/eldarica.git --depth 1 \
  && cd eldarica \
- && git checkout 02f1719 \
+ && git checkout b6931b6 \
  && sbt assembly
 
 # add project-files
@@ -52,6 +52,9 @@ ADD seed_info seed_info
 ADD false_formulas false_formulas
 ADD exclude_seed.json .
 
+# set container id
+ARG container_id=0
+
 # run fuzzing
-CMD ["python", "src/main.py", "all", "-solver", "eldarica", "-heur", "transitions"]
+CMD ["python", "src/main.py", "all", "-heur", "transitions", "-container_id", $container_id]
 

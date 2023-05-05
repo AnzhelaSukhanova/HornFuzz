@@ -13,7 +13,7 @@ mutations = {}
 message = ''
 
 
-def is_same_res(instance: Instance, result: bool = False) -> bool:
+def is_same_res(instance: Instance, result: bool = False, wrong_model: bool = False) -> bool:
     """
     Return True if solving an instance returns
     the expected result and False otherwise.
@@ -24,6 +24,8 @@ def is_same_res(instance: Instance, result: bool = False) -> bool:
         instance.check_model()
         if instance.model_info[0] == unsat:
             same_res = True
+        elif wrong_model:
+            same_res = False
         instance.model_info = (sat, 0)
     except AssertionError as err:
         same_res = repr(err) == message
@@ -35,6 +37,7 @@ def reduce_instance(seed: Instance, bug_instance: Instance, wrong_model: bool) \
     """Reduce the chc-system causing the problem."""
 
     print('Instance reducing')
+    start_instance = deepcopy(bug_instance)
     instance = deepcopy(bug_instance)
     remove_clause_num = 0
 
@@ -63,19 +66,19 @@ def reduce_instance(seed: Instance, bug_instance: Instance, wrong_model: bool) \
                 continue
 
             is_eq = equivalence_check(seed.chc, instance.chc) if not wrong_model else True
-            if is_same_res(instance) and is_eq:
+            if is_same_res(instance, wrong_model=wrong_model) and is_eq:
                 bug_instance.set_chc(instance.chc)
                 print('Reduced:', expr_number)
-                trans_number -= 1
+                # trans_number -= 1
                 if expr_number == 0:
                     remove_clause_num += 1
-                is_reduced = True
             else:
                 instance.set_chc(bug_instance.chc)
                 for child in cur_expr.children():
                     expr_queue.append(child)
                 # print('Cannot be reduced:', trans_number)
 
+    is_reduced = True if start_instance.chc.sexpr() != bug_instance.chc.sexpr() else False
     return bug_instance, is_reduced
 
 
@@ -214,40 +217,11 @@ def reduce(filename: str = None, group_id: int = 0,
     return mut_instance
 
 
-def get_bug_info(filename: str):
-    global message, mutations
-
-    with open(filename) as file:
-        mut_line = file.readline()
-        mut_line = mut_line[2:] if mut_line[0] == ';' else None
-        message = file.readline()
-        message = message[2:] if message[0] == ';' else None
-
-    mutations = []
-    if mut_line:
-        mutations = json.loads(mut_line)
-    out_dir = ''
-    if not filename.startswith(tuple(SEED_DIRS)):
-        chunks = filename.split('/')
-        counter = 1
-        for i, chunk in enumerate(chunks):
-            if chunks[i + 1] not in SEED_DIRS:
-                counter += 1
-                out_dir += chunk + '/'
-            else:
-                break
-        filename = '/'.join(chunks[counter:])
-        print(filename)
-        seed_name = '_'.join(filename.split('_')[:-1]) + '.smt2'
-    else:
-        seed_name = filename
-
-    return mutations, message, seed_name, out_dir
-
-
 def redo_mutations(file_info):
     """Reproduce the bug."""
-    group = restore_group(file_info)
+    global mutations, message
+
+    group, mutations, message = files.restore_group(file_info)
     instance = group[-1]
     if is_same_res(instance):
         instance.dump(output_dir + 'bugs/',
@@ -276,7 +250,7 @@ def deduplicate(bug_files=None, logfile: str = 'logfile') -> defaultdict:
                 bug_files.append(entry)
 
     for file in bug_files:
-        group = restore_group(file)
+        group, mutations, message = files.restore_group(file)
         instance = group[-1]
         if instance is None:
             continue
@@ -315,25 +289,6 @@ def deduplicate(bug_files=None, logfile: str = 'logfile') -> defaultdict:
     return bug_groups
 
 
-def restore_group(entry, with_mutations: bool = True) -> InstanceGroup:
-    global mutations, message
-    if isinstance(entry, str):
-        mutations, message, seed_name, out_dir = get_bug_info(entry)
-        set_output_dir(out_dir)
-    else:
-        mutations = entry['mut_chain']
-        if isinstance(mutations, str):
-            mutations = eval(mutations)
-        message = entry['message']
-        seed_name = entry['filename']
-        print(seed_name[:-5] + '_' + str(int(entry['id'])) + '.smt2')
-    group_id = len(instance_groups)
-    group = InstanceGroup(group_id, seed_name)
-    if with_mutations:
-        group.restore(mutations)
-    return group
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('bug_file',
@@ -361,8 +316,9 @@ def main():
         if argv.reduce_chain or argv.reduce_instance:
             for filename in filenames:
                 with_mutations = True if argv.reduce_chain else False
-                group = restore_group(filename, with_mutations)
+                group, mutations, message = files.restore_group(filename, with_mutations)
                 reduce(filename, group.id, argv.reduce_chain, argv.reduce_instance)
+
         elif argv.reproduce:
             if argv.mut_chain:
                 entry = {'id': 0,
@@ -373,6 +329,7 @@ def main():
             elif filenames:
                 for filename in filenames:
                     redo_mutations(filename)
+
         elif argv.logfiles:
             bug_groups = defaultdict()
             for log in argv.logfiles:
@@ -382,8 +339,10 @@ def main():
                 for key in bug_groups[log]:
                     print(key, len(bug_groups[log][key]))
                 print()
+
         else:
             deduplicate(filenames)
+
     else:
         seed = parse_smt2_file(argv.seed_file,
                                ctx=ctx.current_ctx)
