@@ -338,10 +338,18 @@ def run_seeds(files, container_id: int = 0):
         for file in files:
             group, mutations, _ = restore_group(file)
             instance = group[-1]
-            solve_time = time.perf_counter()
-            check_satis(instance, group)
-            solve_time = time.perf_counter() - solve_time
             counter['runs'] += 1
+            try:
+                solve_time = time.perf_counter()
+                check_satis(instance, group)
+                instance.solve_time = time.perf_counter() - solve_time
+                instance.trace_stats.read_from_trace(is_seed=True)
+                instance.update_traces_info(is_seed=True)
+            except Exception as err:
+                analyze_check_exception(instance,
+                                        err)
+                print_general_info()
+                continue
 
             log_run_info('last_mutant', group, instance=instance)
             print_general_info(solve_time=solve_time)
