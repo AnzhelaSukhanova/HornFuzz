@@ -15,6 +15,8 @@ SEC_IN_HOUR = 3600
 DAY = 24
 ROUND_NUM = 5
 
+LOG_NAME = 'logfile'
+
 SEED_DIRS = {'sv-benchmarks-clauses',
              'chc-comp21-benchmarks',
              'spacer-benchmarks'}

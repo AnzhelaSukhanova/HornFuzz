@@ -52,9 +52,6 @@ ADD seed_info seed_info
 ADD false_formulas false_formulas
 ADD exclude_seed.json .
 
-# set container id
-ARG container_id=0
-
 # run fuzzing
-CMD ["python", "src/main.py", "all", "-heur", "transitions", "-container_id", $container_id]
+CMD python src/main.py all -heur transitions
 

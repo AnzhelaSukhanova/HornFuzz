@@ -23,6 +23,12 @@ def set_solver(cur_solver: str):
     set_trace_name(cur_solver)
 
 
+def set_known_trace(traces: set):
+    global unique_traces
+    for hash in traces:
+        unique_traces.add(hash)
+
+
 def set_output_dir(cur_output_dir: str):
     global output_dir
     output_dir = cur_output_dir
@@ -48,6 +54,7 @@ class InstanceGroup(object):
         self.family = Family.UNKNOWN
         self.trace_number = 0
         self.mutation_number = 0
+        self.mutations = [] # for restoring
 
     def __getitem__(self, index: int):
         index = index % len(self.instances)
@@ -135,7 +142,9 @@ class InstanceGroup(object):
                 return 0
 
     def restore_seed(self):
-        seed = parse_smt2_file(self.filename, ctx=ctx.current_ctx)
+        parse_ctx = Context()
+        seed = parse_smt2_file(self.filename, ctx=parse_ctx)
+        seed = seed.translate(ctx.current_ctx)
         instance = Instance(seed)
         self.push(instance)
         return instance

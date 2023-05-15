@@ -1,5 +1,6 @@
 import json
 import os
+from typing import Tuple
 from instances import *
 
 
@@ -109,10 +110,17 @@ def get_mutant_info(filename: str):
     return mutations, message, seed_name, out_dir
 
 
-def get_seeds(argv, directory: str, container_id: int = 0) -> set:
-    if len(argv) == 0:
+def get_seeds(argv, directory: str) -> Tuple[set, Bool]:
+    mutant_path = output_dir + '/last_mutants'
+    mutant_num = 0
+    for root, dirs, files in os.walk(mutant_path):
+        mutant_num += len(files)
+
+    if mutant_num:
+        seeds = get_filenames([mutant_path])
+    elif len(argv) == 0:
         seeds = get_relational(directory)
-    elif argv[0] == 'all' and not container_id:
+    elif argv[0] == 'all':
         dir_path = directory + 'spacer-benchmarks/'
         seeds = get_instance_names(dir_path)
         dir_path = directory + 'chc-comp21-benchmarks/'
@@ -120,8 +128,6 @@ def get_seeds(argv, directory: str, container_id: int = 0) -> set:
         dir_path = directory + 'sv-benchmarks-clauses/'
         seeds.update(get_instance_names(dir_path))
         seeds = exclude_unknown_seed(seeds)
-    elif container_id:
-        seeds = get_filenames(['fuzzer_workdir' + str(container_id) + '/last_mutants'])
     else:
         if argv[0].endswith('.smt2'):
             seeds = set(argv)
@@ -129,7 +135,7 @@ def get_seeds(argv, directory: str, container_id: int = 0) -> set:
             dir_path = directory + argv[0] + '/'
             seeds = get_instance_names(dir_path)
             seeds = exclude_unknown_seed(seeds)
-    return seeds
+    return seeds, mutant_num > 0
 
 
 def create_output_dirs():

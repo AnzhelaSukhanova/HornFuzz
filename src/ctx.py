@@ -1,4 +1,5 @@
 import gc
+import objgraph
 
 current_ctx = None
 
@@ -14,11 +15,11 @@ def ensure_current_context_is_deletable():
     refs = gc.get_referrers(current_ctx)
     log_entry = ''
     if len(refs) > 1:
-        # dot_file = io.StringIO()
-        # objgraph.show_backrefs([current_ctx],
-        #                        max_depth=7,
-        #                        output=dot_file)
-        # dot_file.seek(0)
+        dot_file = open("ctx_tree.png", "w")
+        objgraph.show_backrefs([current_ctx],
+                               max_depth=7,
+                               output=dot_file)
+        dot_file.seek(0)
         log_entry = {'context_deletion_error': {'refs': str(refs)}} # 'grapf': dot_file.read()}
         current_ctx.__del__()
     return log_entry
