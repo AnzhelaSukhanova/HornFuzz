@@ -14,11 +14,24 @@ new_trace_number = 0
 unique_traces = set()
 instance_groups = defaultdict()
 solver = 'spacer'
+output_dir = 'output/'
 
 
 def set_solver(cur_solver: str):
     global solver
     solver = cur_solver
+    set_trace_name(cur_solver)
+
+
+def set_known_trace(traces: set):
+    global unique_traces
+    for hash in traces:
+        unique_traces.add(hash)
+
+
+def set_output_dir(cur_output_dir: str):
+    global output_dir
+    output_dir = cur_output_dir
 
 
 class Family(Enum):
@@ -41,6 +54,7 @@ class InstanceGroup(object):
         self.family = Family.UNKNOWN
         self.trace_number = 0
         self.mutation_number = 0
+        self.mutations = [] # for restoring
 
     def __getitem__(self, index: int):
         index = index % len(self.instances)
@@ -63,28 +77,28 @@ class InstanceGroup(object):
             if k not in {'id', 'filename', 'instances'}:
                 setattr(self, k, deepcopy(v))
 
-    def push(self, instance, output_dir: str = 'output'):
+    def push(self, instance):
         """Add an instance to the group."""
         instance.group_id = self.id
         self.trace_number += new_trace_number
         self.mutation_number += 1
 
-        if self.upred_num == 0:
-            instance.find_pred_info()
+        group_len = len(self.instances)
+        is_seed = group_len == 0
+
+        if is_seed:
+            instance.find_pred_info(is_seed)
             if self.family == Family.UNKNOWN and instance.chc:
                 self.find_family(instance.chc)
-
-        group_len = len(self.instances)
-        if group_len == 0:
-            self.dump_declarations(output_dir)
+            self.dump_declarations()
         else:
             prev_instance = self[-1]
             instance.mutation.add_after(prev_instance.mutation)
 
         self.instances[group_len] = instance
 
-    def dump_declarations(self, output_dir: str = 'output'):
-        filename = output_dir + '/decl/' + self.filename
+    def dump_declarations(self):
+        filename = output_dir + 'decl/' + self.filename
         with open(self.filename, 'r') as seed_file:
             file = seed_file.read()
             formula = re.sub(r"\(set-info.*\"\)", "",
@@ -127,21 +141,23 @@ class InstanceGroup(object):
                 self.roll_back()
                 return 0
 
-    def restore_seed(self,output_dir: str = 'output'):
-        seed = parse_smt2_file(self.filename, ctx=ctx.current_ctx)
+    def restore_seed(self):
+        parse_ctx = Context()
+        seed = parse_smt2_file(self.filename, ctx=parse_ctx)
+        seed = seed.translate(ctx.current_ctx)
         instance = Instance(seed)
-        self.push(instance, output_dir)
+        self.push(instance)
         return instance
 
-    def restore(self, mutations, output_dir: str = 'output'):
-        instance = self.restore_seed(output_dir)
+    def restore(self, mutations):
+        instance = self.restore_seed()
 
         for mut in mutations:
             mut_instance = Instance()
             mut_instance.mutation.restore(mut)
             try:
                 mut_instance.mutation.apply(instance, mut_instance)
-                self.push(mut_instance, output_dir)
+                self.push(mut_instance)
                 instance = mut_instance
             except (AssertionError, Z3Exception):
                 message = traceback.format_exc()
@@ -173,8 +189,9 @@ class InstanceGroup(object):
 class MutTypeGroup(Enum):
     AUXILIARY = 0
     OWN = 1
-    PARAMETERS = 2
-    SIMPLIFICATIONS = 3
+    SIMPLIFICATIONS = 2
+    SPACER_PARAMETERS = 3
+    ELDARICA_PARAMETERS = 4
 
 
 class MutType(object):
@@ -187,14 +204,17 @@ class MutType(object):
         self.default_value = default_value
         self.upper_limit = upper_limit
 
-    def is_solving_param(self):
-        return self.group == MutTypeGroup.PARAMETERS
+    def is_spacer_param(self):
+        return self.group == MutTypeGroup.SPACER_PARAMETERS
+
+    def is_eldarica_param(self):
+        return self.group == MutTypeGroup.ELDARICA_PARAMETERS
 
     def is_simplification(self):
         return self.group == MutTypeGroup.SIMPLIFICATIONS
 
     def is_remove(self):
-        return self.name == 'REMOVE'
+        return self.name == 'REMOVE_EXPR'
 
 
 def copy_chc(chc_system: AstVector) -> AstVector:
@@ -206,11 +226,11 @@ def copy_chc(chc_system: AstVector) -> AstVector:
 
 class Instance(object):
 
-    def __init__(self, chc: AstVector = None):
+    def __init__(self, chc: AstVector = None, group_id: int = -1):
         global instance_id
         self.id = instance_id
         instance_id += 1
-        self.group_id = -1
+        self.group_id = group_id
         self.chc = None
         if chc is not None:
             self.set_chc(chc)
@@ -250,15 +270,17 @@ class Instance(object):
 
     def add_param(self, mut_type: MutType):
         mut_name = mut_type.name
-        param = mut_name.lower()
-        upper_limit = mut_type.upper_limit
-        if upper_limit is None:
-            value = self.params[param] \
-                if param in self.params \
-                else mut_type.default_value
-            self.params[param] = not value
+        if mut_type.is_spacer_param():
+            upper_limit = mut_type.upper_limit
+            if upper_limit is None:
+                value = self.params[mut_name] \
+                    if mut_name in self.params \
+                    else mut_type.default_value
+                self.params[mut_name] = not value
+            else:
+                self.params[mut_name] = random.randint(0, upper_limit + 1)
         else:
-            self.params[param] = random.randint(0, upper_limit + 1)
+            self.params[mut_name] = '-' + mut_name
 
     def process_seed_info(self, info: dict):
         self.satis = CheckSatResult(info['satis'])
@@ -293,15 +315,15 @@ class Instance(object):
 
         elif solver == 'eldarica':
             if not is_seed:
-                self.dump('output/last_mutants/',
+                self.dump(output_dir + 'last_mutants/',
                           group.filename,
                           clear=False)
-                filename = 'output/last_mutants/' + group.filename
+                filename = output_dir + 'last_mutants/' + group.filename
             else:
                 filename = group.filename
 
-            state, reason_unknown = eldarica_check(filename, timeout)
-            self.satis = CheckSatResult(state)
+            state, self.model, reason_unknown = eldarica_check(filename, self.params)
+            self.satis = globals()[state]
 
         assert self.satis != unknown, reason_unknown
 
@@ -310,18 +332,23 @@ class Instance(object):
             return None
         assert self.model is not None, "Empty model"
 
-        solver = Solver(ctx=ctx.current_ctx)
-        solver.set('timeout', MODEL_CHECK_TIME_LIMIT)
+        cur_solver = Solver(ctx=ctx.current_ctx)
+        cur_solver.set('timeout', MODEL_CHECK_TIME_LIMIT_MS)
         for i, clause in enumerate(self.chc):
-            inter_clause = self.model.eval(clause)
-            solver.add(inter_clause)
-            model_state = solver.check()
+            if solver == 'eldarica':
+                clause_with_model = self.model + '\n(assert ' + clause.sexpr() + ')\n'
+                inter_clause = parse_smt2_string(clause_with_model, ctx=ctx.current_ctx)
+            else:
+                inter_clause = self.model.eval(clause)
+            cur_solver.add(inter_clause)
+            model_state = cur_solver.check()
             if model_state != sat:
                 self.model_info = (model_state, i)
+            if model_state == unsat:
                 break
 
         if self.model_info[0] == unknown:
-            return solver.reason_unknown()
+            return cur_solver.reason_unknown()
         return None
 
     def update_traces_info(self, is_seed: bool = False):
@@ -370,37 +397,34 @@ class Instance(object):
             if expr_num[kind]:
                 return i
 
-    def find_pred_info(self):
+    def find_pred_info(self, is_seed: bool):
         """
         Find whether the chc-system is linear, the number of
         uninterpreted predicates and their set.
         """
         if utils.heuristic not in {'difficulty', 'simplicity'}:
             return
-        group = self.get_group()
+        if self.chc is None:
+            self.restore(is_seed=is_seed)
         chc_system = self.chc
-        if chc_system is None:
-            return
+        group = self.get_group()
 
         for i, clause in enumerate(chc_system):
             body = get_chc_body(clause)
 
             if body is not None:
-                upred_num = count_expr(body,
-                                       [Z3_OP_UNINTERPRETED],
-                                       is_unique=True)[0]
+                stats = count_expr(body, [Z3_OP_UNINTERPRETED], is_unique=True)
+                upred_num = stats[Z3_OP_UNINTERPRETED]
                 if upred_num > 1:
                     group.is_linear = False
 
-        group.upred_num = count_expr(chc_system,
-                                     [Z3_OP_UNINTERPRETED],
-                                     is_unique=True)[0]
+        stats = count_expr(chc_system, [Z3_OP_UNINTERPRETED], is_unique=True)
+        group.upred_num = stats[Z3_OP_UNINTERPRETED]
 
     def restore(self, is_seed: bool = False):
-        """Restore the instance from output/last_mutants/."""
         group = self.get_group()
         filename = group.filename if is_seed else \
-            'output/last_mutants/' + group.filename
+            output_dir + 'last_mutants/' + group.filename
         self.set_chc(z3.parse_smt2_file(filename, ctx=ctx.current_ctx))
         assert len(self.chc) > 0, "Empty chc-system"
 
@@ -408,7 +432,7 @@ class Instance(object):
              declarations: str = None, to_name=None, clear: bool = True):
         """Dump the instance to the specified directory."""
         if not declarations:
-            decl_path = 'output/decl/' + filename
+            decl_path = output_dir + 'decl/' + filename
             with open(decl_path, 'r') as decl_file:
                 declarations = decl_file.read()
         cur_path = dir + '/' + filename
@@ -478,66 +502,42 @@ def init_mut_types(options: list = None, mutations: list = None):
                      'ADD_INEQ'}:
             mut_types[name] = MutType(name, MutTypeGroup.OWN)
 
+    if solver == 'eldarica' and 'eldarica_parameters' in mutations:
+        mut_groups.append(MutTypeGroup.ELDARICA_PARAMETERS)
+        """
+        Use disjunctive interpolation"""
+        name = 'disj'
+        mut_types[name] = MutType(name, MutTypeGroup.ELDARICA_PARAMETERS)
+        """
+        Disable preprocessor (e.g., clause inlining)"""
+        name = 'lbe'
+        mut_types[name] = MutType(name, MutTypeGroup.ELDARICA_PARAMETERS)
+        """
+        Disable slicing of clauses"""
+        name = 'noSlicing'
+        mut_types[name] = MutType(name, MutTypeGroup.ELDARICA_PARAMETERS)
+        """
+        Disable interval analysis"""
+        name = 'noIntervals'
+        mut_types[name] = MutType(name, MutTypeGroup.ELDARICA_PARAMETERS)
+
     if solver == 'spacer' and 'spacer_parameters' in mutations:
-        mut_groups.append(MutTypeGroup.PARAMETERS)
-        for name in {'SPACER.GLOBAL',
-                     'SPACER.P3.SHARE_INVARIANTS',
-                     'SPACER.P3.SHARE_LEMMAS',
-                     # 'SPACER.PUSH_POB', -- takes a long time
-                     'SPACER.USE_LIM_NUM_GEN',
-                     'SPACER.RESET_POB_QUEUE',
-                     'SPACER.SIMPLIFY_LEMMAS_POST',
-                     'SPACER.SIMPLIFY_LEMMAS_PRE',
-                     'SPACER.SIMPLIFY_POB',
-                     'SPACER.USE_BG_INVS',
-                     'SPACER.USE_EUF_GEN',
-                     'SPACER.USE_LEMMA_AS_CTI',
-                     'XFORM.ARRAY_BLAST_FULL',
-                     'XFORM.COALESCE_RULES',
-                     'XFORM.ELIM_TERM_ITE',
-                     # 'XFORM.FIX_UNBOUND_VARS', -- often causes unknown
-                     'XFORM.INLINE_LINEAR_BRANCH',
-                     'XFORM.INSTANTIATE_ARRAYS',
-                     'XFORM.INSTANTIATE_ARRAYS.ENFORCE',
-                     'XFORM.INSTANTIATE_QUANTIFIERS',
-                     # 'XFORM.MAGIC', -- often causes unknown
-                     # 'XFORM.SCALE', -- often causes unknown
-                     'XFORM.QUANTIFY_ARRAYS',
-                     'XFORM.TRANSFORM_ARRAYS'}:
-            mut_types[name] = MutType(name, MutTypeGroup.PARAMETERS, default_value=False)
+        mut_groups.append(MutTypeGroup.SPACER_PARAMETERS)
+        for name in DISABLED_SPACER_CORE_PARAMETERS | DISABLED_PARAMETERS:
+            mut_types[name] = MutType(name, MutTypeGroup.SPACER_PARAMETERS, default_value=False)
 
-        for name in {'SPACER.CTP',
-                     'SPACER.ELIM_AUX',
-                     'SPACER.EQ_PROP',
-                     'SPACER.GG.CONCRETIZE',
-                     'SPACER.GG.CONJECTURE',
-                     'SPACER.GG.SUBSUME',
-                     'SPACER.GROUND_POBS',
-                     'SPACER.KEEP_PROXY',
-                     'SPACER.MBQI',
-                     'SPACER.PROPAGATE',
-                     'SPACER.REACH_DNF',
-                     'SPACER.USE_ARRAY_EQ_GENERALIZER',
-                     'SPACER.USE_DERIVATIONS',
-                     'SPACER.USE_INC_CLAUSE',
-                     'SPACER.USE_INDUCTIVE_GENERALIZER',
-                     'XFORM.COI',
-                     'XFORM.COMPRESS_UNBOUND',
-                     'XFORM.INLINE_EAGER',
-                     'XFORM.INLINE_LINEAR',
-                     'XFORM.SLICE',
-                     'XFORM.TAIL_SIMPLIFIER_PVE'}:
-            mut_types[name] = MutType(name, MutTypeGroup.PARAMETERS, default_value=True)
+        for name in ENABLED_SPACER_CORE_PARAMETERS | ENABLED_PARAMETERS:
+            mut_types[name] = MutType(name, MutTypeGroup.SPACER_PARAMETERS, default_value=True)
 
-        mut_types['SPACER.ORDER_CHILDREN'] = \
-            MutType('SPACER.ORDER_CHILDREN',
-                    MutTypeGroup.PARAMETERS,
+        mut_types['spacer.order_children'] = \
+            MutType('spacer.order_children',
+                    MutTypeGroup.SPACER_PARAMETERS,
                     default_value=0,
                     upper_limit=2)
 
-        mut_types['SPACER.RANDOM_SEED'] = \
-            MutType('SPACER.RANDOM_SEED',
-                    MutTypeGroup.PARAMETERS,
+        mut_types['spacer.random_seed'] = \
+            MutType('spacer.random_seed',
+                    MutTypeGroup.SPACER_PARAMETERS,
                     default_value=0,
                     upper_limit=sys.maxsize)
 
@@ -763,7 +763,7 @@ class Mutation(object):
             print(mut_name)
         assert instance.chc is not None, "Empty chc-system"
 
-        if self.type.is_solving_param():
+        if self.type.is_spacer_param() or self.type.is_eldarica_param():
             new_instance.set_chc(instance.chc)
             new_instance.add_param(self.type)
 
@@ -783,9 +783,10 @@ class Mutation(object):
         if instance.chc.sexpr() != new_instance.chc.sexpr():
             self.changed = True
 
-    def set_remove_mutation(self, trans_num):
+    def set_remove_mutation(self, trans_num: int, clause_i : int):
         self.type = mut_types['REMOVE_EXPR']
         self.trans_num = trans_num
+        self.clause_i = clause_i
         self.kind = Z3_OP_TRUE
 
     def next_mutation(self, instance: Instance):
@@ -996,14 +997,21 @@ class Mutation(object):
     def transform_nth(self, clause):
         """Transform nth expression of the specific kind in dfs-order."""
         expr_kind = self.kind
+        if self.type.is_remove() and self.trans_num == 0:
+            self.applied = True
+            return None
         if expr_kind is Z3_QUANTIFIER_AST:
-            expr, path = find_term(clause, Z3_OP_TRUE, self.trans_num, False, True)
+            expr, path = find_term(clause, Z3_OP_TRUE, self.trans_num,
+                                   remove=False, is_quantifier=True)
         else:
-            expr, path = find_term(clause, expr_kind, self.trans_num, self.type.is_remove(), False)
-        assert not is_false(expr), 'Mutation subexpression not found'
-        mut_expr = None
+            expr, path = find_term(clause, expr_kind, self.trans_num,
+                                   remove=self.type.is_remove(), is_quantifier=False)
+        assert not is_false(expr), 'Subexpression not found: ' + str(self.get_chain(format='log'))
+        mut_expr = expr
         mut_name = self.type.name
         children = expr.children()
+        # if self.type.is_remove() and expr.decl().arity() > len(children) - 1:
+        #     return None
 
         if mut_name in {'SWAP_AND', 'SWAP_OR'}:
             children = children[1:] + children[:1]
@@ -1029,8 +1037,8 @@ class Mutation(object):
         else:
             pass
 
-        mut_clause = set_term(clause, mut_expr, path)
-        self.applied = True
+        mut_clause, applied = set_term(clause, mut_expr, path, remove=self.type.is_remove())
+        self.applied = applied
         return mut_clause
 
     def get_chain(self, format='list'):

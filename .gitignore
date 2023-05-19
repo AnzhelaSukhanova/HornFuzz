@@ -1,12 +1,13 @@
 # Run files
-.z3-trace
-logfile
-output/*
+.*-trace
 .collect_stats.json
+log*
+output/*
 stats/*
+eldarica_output
 
 # Results
-logs-*/*
+logs*/*
 run-data/*
 
 # PyCharm files
@@ -21,3 +22,4 @@ seed_info/*
 
 # Other solvers
 eldarica/
+

@@ -2,15 +2,16 @@ import argparse
 import faulthandler
 import itertools
 import logging
+import base64
 import os.path
 from typing import Optional
 
 import instances
 
 import z3_api_mods
-from instances import *
 from seed_info_utils import *
 from files import *
+from log_analysis import prepare_data
 
 faulthandler.enable()
 enable_trace('spacer')
@@ -51,9 +52,9 @@ def calculate_weights() -> list:
                 group = instance.get_group()
                 is_nonlinear = not group.is_linear
                 upred_num = group.upred_num
-                weight = (is_nonlinear, upred_num)
+                weight += 10 * is_nonlinear + upred_num
         weights.append(weight)
-
+    
     if heuristic == 'transitions':
         weights = np.stack(weights)
         weights = np.matmul(weights, weighted_stats.toarray())
@@ -101,18 +102,25 @@ def check_satis(instance: Instance, group: InstanceGroup = None,
 
 
 def next_instance() -> Instance:
-    global queue
+    global queue, log
     weights = calculate_weights()
     if heuristic == 'simplicity':
         weights = reversed(weights)
     next_instance = random.choices(queue, weights, k=1)[0]
     queue.remove(next_instance)
+
+    trace_hashes = []
+    for hash in unique_traces:
+        encoded = base64.b64encode(hash)
+        trace_hashes.append(encoded.decode('ascii'))
+    logging.info(json.dumps({'trace_hashes': trace_hashes},
+                            cls=MutTypeEncoder))
     return next_instance
 
 
 def update_mutation_weights():
     instances.update_mutation_weights()
-    logging.info(json.dumps(instances.get_mut_weights_dict(),
+    logging.info(json.dumps({'mutation_weights': get_mut_weights_dict()},
                             cls=MutTypeEncoder))
 
 
@@ -122,25 +130,29 @@ def print_general_info(solve_time: time = None, mut_time: time = None, trace_tim
     """Print and log information about runs."""
     global counter, log
 
-    traces_num = len(unique_traces)
-    log['runs'] = counter['runs']
-    log['current_time'] = time.perf_counter()
-    for time_name in {'solve_time', 'mut_time', 'trace_time',
-                      'model_time', 'select_time'}:
-        time_value = locals()[time_name]
-        if time_value:
-            log[time_name] = time_value
     if counter['runs']:
         print('Total:', counter['runs'],
               'Bugs:', counter['bug'],
               'Timeout:', counter['timeout'],
               'Unknown:', counter['unknown'],
               'Errors:', counter['error'])
+        for key in {'runs', 'bug', 'timeout', 'unknown', 'error'}:
+            log[key] = counter[key]
+
+    log['current_time'] = time.perf_counter()
+    for time_name in {'solve_time', 'mut_time', 'trace_time',
+                      'model_time', 'select_time'}:
+        time_value = locals()[time_name]
+        if time_value:
+            log[time_name] = time_value
+
+    traces_num = len(unique_traces)
     log['unique_traces'] = traces_num
     if traces_num:
         print('Unique traces:', traces_num, '\n')
     else:
         print()
+
     logging.info(json.dumps(log))
     log = defaultdict()
 
@@ -161,22 +173,24 @@ def log_run_info(status: str, group: InstanceGroup, message: str = None,
                 if instance.chc:
                     log['chc'] = instance.chc.sexpr()
                 log['mut_chain'] = instance.mutation.get_chain()
+            elif status == 'last_mutants':
+                log['mut_chain'] = instance.mutation.get_chain()
             else:
                 log['satis'] = instance.satis.r
 
-        else:
-            mutant_info = mut_instance.get_log(group)
-            log.update(mutant_info)
-            if status not in {'pass', 'without_change'}:
-                log['mut_chain'] = instance.mutation.get_chain()
-                last_mutation = mut_instance.mutation
-                log['mut_chain'].append(last_mutation.get_name())
-                if status in {'bug', 'wrong_model',
-                              'mutant_unknown', 'error'}:
-                    log['satis'] = mut_instance.satis.r
-                    if status == 'wrong_model':
-                        log['model_state'] = mut_instance.model_info[0].r
-                        log['bug_clause'] = str(mut_instance.model_info[1])
+    if mut_instance:
+        mutant_info = mut_instance.get_log(group)
+        log.update(mutant_info)
+        if status not in {'pass', 'without_change'}:
+            log['mut_chain'] = instance.mutation.get_chain()
+            last_mutation = mut_instance.mutation
+            log['mut_chain'].append(last_mutation.get_name())
+            if status in {'bug', 'wrong_model', 'model_unknown',
+                          'mutant_unknown', 'error'}:
+                log['satis'] = mut_instance.satis.r
+                if status == 'wrong_model':
+                    log['model_state'] = mut_instance.model_info[0].r
+                    log['bug_clause'] = str(mut_instance.model_info[1])
 
 
 def analyze_check_exception(instance: Instance, err: Exception,
@@ -207,11 +221,6 @@ def analyze_check_exception(instance: Instance, err: Exception,
             counter['timeout'] += 1
             status = 'mutant_timeout' if mut_instance \
                 else 'timeout_before_check'
-            log_run_info(status,
-                         group,
-                         message,
-                         instance,
-                         mut_instance)
         else:
             if mut_instance:
                 counter['unknown'] += 1
@@ -219,18 +228,18 @@ def analyze_check_exception(instance: Instance, err: Exception,
             else:
                 counter['error'] += 1
                 status = 'error'
-            log_run_info(status,
-                         group,
-                         message,
-                         instance,
-                         mut_instance)
+        log_run_info(status,
+                     group,
+                     message,
+                     instance,
+                     mut_instance)
         if status == 'mutant_unknown':
-            mut_instance.dump('output/unknown',
+            mut_instance.dump(output_dir + 'unknown/',
                               group.filename,
                               message=message,
                               to_name=mut_instance.id)
         elif status == 'timeout_before_check':
-            group[0].dump('output/last_mutants',
+            group[0].dump(output_dir + 'last_mutants/',
                           group.filename)
 
         if status != 'error':
@@ -333,9 +342,9 @@ def new_seeds_processor(files: set, base_idx: int, seed_info_index):
         store_seed_info(seed_info, seed_info_index)
 
 
-def run_seeds(files: set):
+def run_seeds(files):
     """Read and solve the seeds."""
-    global queue, seed_number
+    global queue, seed_number, counter
 
     ctx.set_ctx(Context())
     seed_info_index = build_seed_info_index()
@@ -348,10 +357,8 @@ def run_seeds(files: set):
         queue.append(instance)
         log_run_info('seed', instance.get_group(), instance=instance)
         print_general_info(solve_time=solve_time)
-    seed_number = len(queue)
 
-    assert seed_number > 0, 'All seeds are unknown or ' \
-                            'in the incorrect format'
+    set_seed_num()
 
 
 def handle_bug(instance: Instance, mut_instance: Instance = None,
@@ -364,7 +371,7 @@ def handle_bug(instance: Instance, mut_instance: Instance = None,
     model_state = mut_instance.model_info[0] \
         if mut_instance \
         else instance.model_info[0]
-    status = 'bug' if model_state == sat else 'wrong_model'
+    status = 'bug' if model_state != unsat else 'wrong_model'
     log_run_info(status,
                  group,
                  message,
@@ -372,20 +379,76 @@ def handle_bug(instance: Instance, mut_instance: Instance = None,
                  mut_instance)
 
     if mut_instance:
-        mut_instance.dump('output/bugs',
+        mut_instance.dump(output_dir + 'bugs/',
                           group.filename,
                           to_name=mut_instance.id)
     else:
-        instance.dump('output/bugs',
+        instance.dump(output_dir + 'bugs/',
                       group.filename,
                       to_name=0)
         group.reset()
 
 
-def fuzz(files: set):
+def set_seed_num():
+    global seed_number
+    seed_number = len(queue)
+    assert seed_number > 0, 'All seeds are unknown or in the incorrect format'
+
+
+def restore_data(files):
+    global counter, log
+    df = prepare_data(LOG_NAME).df
+    runs_df = df[df['runs'].notnull()]
+    last_row = runs_df.tail(1)
+    for key in {'runs', 'bug', 'timeout', 'unknown', 'error'}:
+        counter[key] = int(last_row[key])
+
+    trace_ind = df['trace_hashes'].notnull()
+    if trace_ind.any():
+        last_trace_row = df[trace_ind].iloc[-1]
+        trace_hashes = set()
+        for hash in (last_trace_row['trace_hashes']):
+            trace_hashes.add(base64.b64decode(hash))
+        set_known_trace(trace_hashes)
+        counter['unique_traces'] = len(trace_hashes)
+
+    ctx.set_ctx(Context())
+    for file in files:
+        group, mutations, _ = restore_group(file, with_mutations=False)
+        group.mutations = mutations
+        instance = Instance()
+        group.push(instance)
+        file_rows = df.loc[df['filename'] == group.filename]
+        last_row = file_rows.tail(1)
+        log.update(last_row.to_dict('records')[0])
+        try:
+            instance.restore(is_seed=False)
+        except AssertionError:
+            print(traceback.format_exc())
+            print_general_info()
+            continue
+        try:
+            solve_time = time.perf_counter()
+            check_satis(instance, is_seed=True)
+            solve_time = time.perf_counter() - solve_time
+            instance.solve_time = solve_time
+            get_trace_stats(instance, is_seed=True)
+        except Exception:
+            print_general_info()
+            continue
+
+        print_general_info(solve_time=solve_time)
+        queue.append(instance)
+    set_seed_num()
+
+
+def fuzz(files, restore: bool = False):
     global queue, counter
 
-    run_seeds(files)
+    if restore:
+        restore_data(files)
+    else:
+        run_seeds(files)
     logging.info(json.dumps({'seed_number': seed_number,
                              'heuristic': heuristic,
                              'mutations': mutations,
@@ -394,7 +457,6 @@ def fuzz(files: set):
         runs_before_weight_update = MUT_WEIGHT_UPDATE_RUNS
 
     while queue:
-        assert len(queue) == seed_number - counter['error']
 
         select_time = time.perf_counter()
         instance = next_instance()
@@ -409,7 +471,12 @@ def fuzz(files: set):
             ctx.set_ctx(Context())
 
             is_seed = len(group.instances) == 1
-            instance.restore(is_seed=is_seed)
+            if not restore:
+                instance.restore(is_seed=is_seed)
+            else:
+                group.pop()
+                group.restore(group.mutations)
+                instance = group[-1]
 
             if with_weights:
                 if runs_before_weight_update <= 0:
@@ -436,10 +503,6 @@ def fuzz(files: set):
                 mut_time = time.perf_counter()
                 mut.apply(instance, mut_instance)
                 mut_time = time.perf_counter() - mut_time
-                # mut_instance.dump('output/mutants',
-                #                   group.filename,
-                #                   to_name=mut_instance.id,
-                #                   clear=False)
 
                 if mut.changed:
                     mut_types_exc = set()
@@ -453,7 +516,7 @@ def fuzz(files: set):
                         trace_time = time.perf_counter()
                         get_trace_stats(mut_instance, trace_changed=trace_changed)
                         trace_time = time.perf_counter() - trace_time
-                    except AssertionError as err:
+                    except (AssertionError, TimeoutError) as err:
                         analyze_check_exception(instance,
                                                 err,
                                                 mut_instance=mut_instance)
@@ -488,19 +551,25 @@ def fuzz(files: set):
                         model_time = time.perf_counter()
                         message = mut_instance.check_model()
                         model_time = time.perf_counter() - model_time
-                        if mut_instance.model_info[0] != sat and message != 'timeout':
+                        if mut_instance.model_info[0] == unsat and message != 'timeout':
                             handle_bug(instance, mut_instance, message)
                             problems_num += 1
                         else:
-                            status = 'model_timeout' if message == 'timeout' else 'pass'
-                            group.push(mut_instance)
+                            if message == 'timeout':
+                                status = 'model_timeout'
+                            elif mut_instance.model_info[0] == unknown:
+                                status = 'model_unknown'
+                            else:
+                                status = 'pass'
+                                group.push(mut_instance)
                             if heuristic != 'default':
                                 group.check_stats()
                             log_run_info(status,
                                          group,
                                          instance=instance,
                                          mut_instance=mut_instance)
-                            instance = mut_instance
+                            if status == 'pass':
+                                instance = mut_instance
 
                     print_general_info(solve_time=solve_time,
                                        mut_time=mut_time,
@@ -521,13 +590,12 @@ def fuzz(files: set):
                                  mut_instance=mut_instance)
                     print_general_info(mut_time=mut_time,
                                        select_time=select_time)
-
                     mut_instance.reset_chc()
 
                 if problems_num == PROBLEMS_LIMIT:
                     i = ONE_INST_MUT_LIMIT
 
-            instance.dump('output/last_mutants',
+            instance.dump(output_dir + 'last_mutants/',
                           group.filename)
             group.reset()
             queue.append(instance)
@@ -576,9 +644,9 @@ def main():
     parser.add_argument('-mutations', '-mut',
                         nargs='*',
                         choices=['simplifications', 'spacer_parameters',
-                                 'own'],
+                                 'own', 'eldarica_parameters'],
                         default=['simplifications', 'spacer_parameters',
-                                 'own'])
+                                 'own', 'eldarica_parameters'])
     parser.add_argument('-options', '-opt',
                         nargs='*',
                         choices=['without_mutation_weights'],
@@ -586,10 +654,6 @@ def main():
     argv = parser.parse_args()
 
     # help_simplify()
-    logging.basicConfig(format='%(message)s',
-                        filename='logfile',
-                        filemode='w',
-                        level=logging.INFO)
 
     np.set_printoptions(suppress=True)
     set_option(max_args=int(1e6), max_lines=int(1e6),
@@ -603,13 +667,18 @@ def main():
     directory = os.path.dirname(os.path.dirname(parser.prog))
     if directory:
         directory += '/'
-    files = get_seeds(argv.seeds, directory)
     create_output_dirs()
+    files, restore = get_seeds(argv.seeds, directory)
+    mode = 'w' if not restore else 'a'
+    logging.basicConfig(format='%(message)s',
+                        filename=LOG_NAME,
+                        filemode=mode,
+                        level=logging.INFO)
 
     seed_number = len(files)
     assert seed_number > 0, 'Seeds not found'
 
-    fuzz(files)
+    fuzz(files, restore)
 
 
 if __name__ == '__main__':

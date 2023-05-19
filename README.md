@@ -2,28 +2,10 @@
 Fuzzer of the CHC solvers.
 
 ## Install
-Install Z3 with Python API according to the instructions given here: https://github.com/Z3Prover/z3.  
-Or you can use the Dockerfile (`docker build -t spacer-fuzzing .`).
+Install Z3 with Python API according to the instructions given in the branch https://github.com/AnzhelaSukhanova/z3.  
+You can also use the Dockerfile.
 
-## Use
-* `python src/main.py <seed-file1> [<seed-file2> ...]`  
-* `python src/main.py spacer-benchmarks[/<subdir>]` — to check all benchmarks from _/spacer-benchmarks_ or _/spacer-benchmarks/\<subdirectory\>_.  
-* `python src/main.py chc-comp<year>-benchmarks[/<subdir>]` — to check all benchmarks from _/chc-comp\<year\>-benchmarks_ or _/chc-comp\<year\>-benchmarks/\<subdirectory\>_.  
-* `python src/main.py all` — to check all benchmarks.  
-
-`docker run spacer-fuzzing` if you are using docker.  
-
-Add `-heuristic <heuristic>` (or `-heur`) to change default instance selection to the selection based on:  
-* the probability of transitions (`transitions`);  
-* the probability of states (`states`);  
-* chc-difficulty (`difficulty`).  
-
-You can add `-options without_mutation_weights` (or `-opt`) to choose mutations equiprobably.  
-
-To choose mutation groups add `-mutations <group1> <group2> ...` (or `-mut`). Available mutation groups:  
-* `own`;  
-* `simplifications`;  
-* `solving_parameters`.  
+Install Eldarica: https://github.com/uuverifiers/eldarica.git.
 
 ## Seeds
 Download benchmarks from
@@ -33,9 +15,27 @@ Download benchmarks from
 
 and place them in the root directory of this repository.  
 
-## Output analysis and reducing
-You can look at bugs in in the auto-generated directory _output/bugs/_.  
-Use `python src/bug_analysis.py [-reduce_chain]` to reduce bug-сausing examples and optionally the mutation chain (results of reducing are placed in _output/reduced/_). Also you can:  
-* specify the file and mutation chain to reproduce the bug: `python src/bug_analysis.py <bug_mutant_filename> -reproduce`;  
-* specify the seed and mutant files to check instances equivalence: `python src/bug_analysis.py <seed_filename> <mutant_filename>`.
+## Use
+
+`python src/main.py all`
+
+By default HornFuzz tests the Spacer solver but it can also fuzz the Eldarica: use `-solver Eldarica`.  
+
+### Seeds
+* `python src/main.py <seed-file1> [<seed-file2> ...]` — you can provide both single seeds and a directory with seeds.
+* `python src/main.py all` — to check all seeds from <em>spacer-benchmarks</em>, <em>chc-comp21-benchmarks</em> and <em>sv-benchmarks</em>.
+
+### Heuristics
+Add `-heuristic <heuristic>` (or `-heur`) to change default instance selection to the selection based on:  
+* the probability of transitions (`transitions`);  
+* the probability of states (`states`);  
+* chc-difficulty (`difficulty`).  
+
+### Other options
+You can add `-options without_mutation_weights` (or `-opt`) to choose mutations equiprobably.  
+
+To choose mutation groups add `-mutations <group1> <group2> ...` (or `-mut`). Available mutation groups:  
+* `own`;  
+* `simplifications`;  
+* `solving_parameters`.  
 
