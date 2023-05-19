@@ -416,10 +416,15 @@ def restore_data(files):
         group.mutations = mutations
         instance = Instance()
         group.push(instance)
-        instance.restore(is_seed=False)
         file_rows = df.loc[df['filename'] == group.filename]
         last_row = file_rows.tail(1)
         log.update(last_row.to_dict('records')[0])
+        try:
+            instance.restore(is_seed=False)
+        except AssertionError:
+            print(traceback.format_exc())
+            print_general_info()
+            continue
         try:
             solve_time = time.perf_counter()
             check_satis(instance, is_seed=True)
