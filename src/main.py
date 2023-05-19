@@ -398,17 +398,19 @@ def set_seed_num():
 def restore_data(files):
     global counter, log
     df = prepare_data(LOG_NAME).df
-    last_row = df.tail(1)
+    runs_df = df[df['runs'].notnull()]
+    last_row = runs_df.tail(1)
     for key in {'runs', 'bug', 'timeout', 'unknown', 'error'}:
         counter[key] = int(last_row[key])
 
     trace_ind = df['trace_hashes'].notnull()
-    last_trace_row = df[trace_ind].iloc[-1]
-    trace_hashes = set()
-    for hash in (last_trace_row['trace_hashes']):
-        trace_hashes.add(base64.b64decode(hash))
-    set_known_trace(trace_hashes)
-    counter['unique_traces'] = len(trace_hashes)
+    if trace_ind.any():
+        last_trace_row = df[trace_ind].iloc[-1]
+        trace_hashes = set()
+        for hash in (last_trace_row['trace_hashes']):
+            trace_hashes.add(base64.b64decode(hash))
+        set_known_trace(trace_hashes)
+        counter['unique_traces'] = len(trace_hashes)
 
     ctx.set_ctx(Context())
     for file in files:

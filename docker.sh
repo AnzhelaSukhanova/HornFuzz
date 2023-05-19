@@ -11,17 +11,19 @@ run_container() {
 		hornfuzz
 }
 
-if [[ $1 = "--create-net" ]]; then
+if [[ "$@" =~ "--create-net" ]]; then
    docker network create hornfuzz-net
 fi
-if [[ $1 = "--build-img" ]] || [[ $2 = "--build-img" ]]; then
+if [[ "$@" =~ "--build-img" ]]; then
    docker build . -t hornfuzz --build-arg arg=$i
 fi
 
 for i in `eval echo {1..$CONTAINER_NUM}`; do
-rm -rf "log$i" "hornfuzz-workdir$i"
-touch "log$i"
-run_container $i
+	if [[ "$@" =~ "--clean-last" ]]; then
+		rm -rf "log$i" "hornfuzz-workdir$i"
+		touch "log$i"
+	fi
+	run_container $i
 done
 
 while true
