@@ -1,13 +1,13 @@
 CONTAINER_NUM=1
 
 timestamp() {
-  return date + %F_%T
+  date +%Y-%m-%d_%H-%M-%S
 }
 
 run_container() {
 	docker container rm "hornfuzz$1"
 	log_dir="logs$1"
-	time=timestamp
+	time="`timestamp`.txt"
 	touch "$log_dir/$time"
 	docker run -it \
 		-v "$PWD/$log_dir/$time":/logfile \
