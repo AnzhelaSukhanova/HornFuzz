@@ -53,5 +53,5 @@ ADD false_formulas false_formulas
 ADD exclude_seed.json .
 
 # run fuzzing
-CMD python src/main.py all -heur transitions
+CMD python src/main.py all -heur transitions -opt restore
 

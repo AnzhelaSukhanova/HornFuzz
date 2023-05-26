@@ -1,6 +1,5 @@
 import json
 import os
-from typing import Tuple
 from instances import *
 
 
@@ -110,11 +109,18 @@ def get_mutant_info(filename: str):
     return mutations, message, seed_name, out_dir
 
 
-def get_seeds(argv, directory: str) -> Tuple[set, Bool]:
+def get_last_file(path):
+    files = os.listdir(path)
+    paths = [os.path.join(path, basename) for basename in files]
+    return max(paths, key=os.path.getctime)
+
+
+def get_seeds(argv, directory: str, restore: bool) -> set:
     mutant_path = output_dir + '/last_mutants'
     mutant_num = 0
-    for root, dirs, files in os.walk(mutant_path):
-        mutant_num += len(files)
+    if restore:
+        for root, dirs, files in os.walk(mutant_path):
+            mutant_num += len(files)
 
     if mutant_num:
         seeds = get_filenames([mutant_path])
@@ -135,7 +141,7 @@ def get_seeds(argv, directory: str) -> Tuple[set, Bool]:
             dir_path = directory + argv[0] + '/'
             seeds = get_instance_names(dir_path)
             seeds = exclude_unknown_seed(seeds)
-    return seeds, mutant_num > 0
+    return seeds
 
 
 def create_output_dirs():

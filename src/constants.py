@@ -16,6 +16,7 @@ DAY = 24
 ROUND_NUM = 5
 
 LOG_NAME = 'logfile'
+LAST_LOG_NAME = 'last_logfile'
 
 SEED_DIRS = {'sv-benchmarks-clauses',
              'chc-comp21-benchmarks',

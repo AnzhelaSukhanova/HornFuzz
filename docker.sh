@@ -8,8 +8,10 @@ run_container() {
 	docker container rm "hornfuzz$1"
 	log_dir="logs$1"
 	time="`timestamp`.txt"
+	last_log=`ls $log_dir | tail -1`
 	touch "$log_dir/$time"
 	docker run -it \
+		-v "$PWD/$last_log":/last_logfile \
 		-v "$PWD/$log_dir/$time":/logfile \
 		-v "$PWD/hornfuzz-workdir$1":/output \
 		--cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
