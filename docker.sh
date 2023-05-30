@@ -7,17 +7,21 @@ timestamp() {
 run_container() {
 	docker container rm "hornfuzz$1"
 	log_dir="logs$1"
-	time="`timestamp`.txt"
+	log="$log_dir/`timestamp`.txt"
 	last_log=`ls $log_dir | tail -1`
-	touch "$log_dir/$time"
+	if [ -z "$last_log" ]; then
+		last_log=$log
+	fi
+	touch "$log"
 	docker run -it \
 		-v "$PWD/$last_log":/last_logfile \
-		-v "$PWD/$log_dir/$time":/logfile \
+		-v "$PWD/$log":/logfile \
 		-v "$PWD/hornfuzz-workdir$1":/output \
 		--cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
 		--name "hornfuzz$1" \
 		--network hornfuzz-net \
 		hornfuzz
+	chmod 707 -R "hornfuzz-workdir$1"
 }
 
 if [[ "$@" =~ "--create-net" ]]; then
@@ -28,7 +32,7 @@ if [[ "$@" =~ "--build-img" ]]; then
 fi
 
 for i in `eval echo {1..$CONTAINER_NUM}`; do
-	if [[ "$@" =~ "--clean-last" ]]; then
+	if [[ "$@" =~ "--clear-last" ]]; then
 		rm -rf "logs$i" "hornfuzz-workdir$i"
 		mkdir "logs$i"
 	fi

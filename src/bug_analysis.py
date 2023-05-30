@@ -6,6 +6,7 @@ import log_analysis
 import files
 
 from main import check_satis
+import instances
 from instances import *
 
 sys.setrecursionlimit(1000)
@@ -117,12 +118,9 @@ def undo_mutations(group: InstanceGroup, ind: range) -> InstanceGroup:
     new_group.copy_info(group)
     for i in range(ind[0]):
         new_group.push(group[i])
-        # mut = group[i].mutation
-        # if i > 0:
-        #     print(i, mut.prev_mutation.get_name(), mut.get_name())
 
-    last_instance = new_group[ind[0] - 1]
     for i in range(ind[-1] + 1, group_len):
+        last_instance = new_group[-1]
         mut_instance = Instance()
         mut_instance.mutation = deepcopy(group[i].mutation)
         mut = mut_instance.mutation
@@ -131,7 +129,6 @@ def undo_mutations(group: InstanceGroup, ind: range) -> InstanceGroup:
         except AssertionError:
             return group
         new_group.push(mut_instance)
-        last_instance = mut_instance
 
     return new_group
 
@@ -143,7 +140,7 @@ def reduce_declarations(instance: Instance):
 
     group = instance.get_group()
     filename = group.filename
-    decl_path = output_dir + 'decl/' + filename
+    decl_path = instances.output_dir + 'decl/' + filename
     with open(decl_path, 'r') as decl_file:
         declarations = decl_file.read()
     predicates = get_predicates(instance.chc)
@@ -188,7 +185,7 @@ def reduce(filename: str = None, group_id: int = 0,
         assert is_same_res(mut_instance), 'Incorrect mutant-restoration'
         wrong_model = False if mut_instance.satis != seed.satis else True
 
-    reduce_dir = output_dir + 'reduced/'
+    reduce_dir = instances.output_dir + 'reduced/'
     if not os.path.exists(reduce_dir):
         os.mkdir(reduce_dir)
     for dir in map((lambda x: x + '/'), SEED_DIRS):
@@ -224,9 +221,8 @@ def redo_mutations(file_info):
     group, mutations, message = files.restore_group(file_info)
     instance = group[-1]
     if is_same_res(instance):
-        instance.dump(output_dir + 'bugs/',
+        instance.dump(instances.output_dir + 'bugs/',
                       group.filename,
-                      0,
                       to_name=instance.id)
     else:
         print('Bug not found')
@@ -308,9 +304,9 @@ def main():
     parser.add_argument('-reproduce', action='store_true')
     argv = parser.parse_args()
     ctx.set_ctx(Context())
-    set_solver('eldarica')
+    set_solver('spacer')
 
-    init_mut_types([], ['simplifications', 'eldarica_parameters', 'own'])
+    init_mut_types([], ['own', 'simplifications', 'spacer_parameters', 'eldarica_parameters'])
     if not argv.seed_file:
         filenames = files.get_filenames([argv.bug_file]) if argv.bug_file else None
         if argv.reduce_chain or argv.reduce_instance:
@@ -344,6 +340,7 @@ def main():
             deduplicate(filenames)
 
     else:
+        print(argv.seed_file)
         seed = parse_smt2_file(argv.seed_file,
                                ctx=ctx.current_ctx)
         mutant = parse_smt2_file(argv.bug_file,

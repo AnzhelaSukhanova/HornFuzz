@@ -221,7 +221,7 @@ class Stats:
         status_num = 0
         for i, entry in entries.iterrows():
             filename = entry['filename']
-            print(filename, entry['mut_chain'])
+            print(filename, int(entry['id']), entry['mut_chain'])
             print()
             status_num += 1
             add_to_count_dict(count_dict, filename)

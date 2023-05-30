@@ -4,14 +4,14 @@ import itertools
 import logging
 import base64
 import os.path
-import shutil
 from typing import Optional
 
 import instances
+from instances import *
+import files
 
 import z3_api_mods
 from seed_info_utils import *
-from files import *
 from log_analysis import prepare_data
 
 faulthandler.enable()
@@ -415,7 +415,7 @@ def restore_data(files):
 
     ctx.set_ctx(Context())
     for file in files:
-        group, mutations, _ = restore_group(file, with_mutations=False)
+        group, mutations, _ = files.restore_group(file, with_mutations=False)
         group.mutations = mutations
         instance = Instance()
         group.push(instance)
@@ -664,14 +664,10 @@ def main():
     set_arg_parameters(argv)
     if restore:
         if not os.path.exists(LAST_LOG_NAME) or os.stat(LAST_LOG_NAME).st_size == 0:
-            if not os.path.exists(LOG_NAME):
+            if not os.path.exists(LOG_NAME) or os.stat(LOG_NAME).st_size == 0:
                  restore = False
-            os.rename(LOG_NAME, LAST_LOG_NAME)
-    if not restore:
-        if os.path.exists(output_dir):
-            shutil.rmtree(output_dir)
-        if os.path.exists(LAST_LOG_NAME):
-            os.remove(LAST_LOG_NAME)
+            else:
+                os.rename(LOG_NAME, LAST_LOG_NAME)
 
     if heuristic in {'transitions', 'states'}:
         general_stats = TraceStats()
@@ -680,18 +676,18 @@ def main():
     directory = os.path.dirname(os.path.dirname(parser.prog))
     if directory:
         directory += '/'
-    create_output_dirs()
-    files = get_seeds(argv.seeds, directory, restore)
+    files.create_output_dirs()
+    seed_files = files.get_seeds(argv.seeds, directory, restore)
     mode = 'w' if not restore else 'a'
     logging.basicConfig(format='%(message)s',
                         filename=LOG_NAME,
                         filemode=mode,
                         level=logging.INFO)
 
-    seed_number = len(files)
+    seed_number = len(seed_files)
     assert seed_number > 0, 'Seeds not found'
 
-    fuzz(files)
+    fuzz(seed_files)
 
 
 if __name__ == '__main__':

@@ -1,6 +1,7 @@
 import json
 import os
-from instances import *
+import instances
+from constants import SEED_DIRS
 
 
 def get_relational(directory: str) -> set:
@@ -62,7 +63,7 @@ def exclude_unknown_seed(seeds: set) -> set:
 def restore_group(entry, with_mutations: bool = True):
     if isinstance(entry, str):
         mutations, message, seed_name, out_dir = get_mutant_info(entry)
-        set_output_dir(out_dir)
+        instances.set_output_dir(out_dir)
     else:
         mutations = entry['mut_chain']
         if isinstance(mutations, str):
@@ -70,8 +71,8 @@ def restore_group(entry, with_mutations: bool = True):
         message = entry['message']
         seed_name = entry['filename']
         print(seed_name[:-5] + '_' + str(int(entry['id'])) + '.smt2')
-    group_id = len(instance_groups)
-    group = InstanceGroup(group_id, seed_name)
+    group_id = len(instances.instance_groups)
+    group = instances.InstanceGroup(group_id, seed_name)
     if with_mutations:
         group.restore(mutations)
     return group, mutations, message
@@ -116,7 +117,7 @@ def get_last_file(path):
 
 
 def get_seeds(argv, directory: str, restore: bool) -> set:
-    mutant_path = output_dir + '/last_mutants'
+    mutant_path = instances.output_dir + '/last_mutants'
     mutant_num = 0
     if restore:
         for root, dirs, files in os.walk(mutant_path):
