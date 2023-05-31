@@ -8,7 +8,7 @@ from typing import Optional
 
 import instances
 from instances import *
-import files
+import file_handler
 
 import z3_api_mods
 from seed_info_utils import *
@@ -415,7 +415,7 @@ def restore_data(files):
 
     ctx.set_ctx(Context())
     for file in files:
-        group, mutations, _ = files.restore_group(file, with_mutations=False)
+        group, mutations, _ = file_handler.restore_group(file, with_mutations=False)
         group.mutations = mutations
         instance = Instance()
         group.push(instance)
@@ -676,8 +676,8 @@ def main():
     directory = os.path.dirname(os.path.dirname(parser.prog))
     if directory:
         directory += '/'
-    files.create_output_dirs()
-    seed_files = files.get_seeds(argv.seeds, directory, restore)
+    file_handler.create_output_dirs()
+    seed_files = file_handler.get_seeds(argv.seeds, directory, restore)
     mode = 'w' if not restore else 'a'
     logging.basicConfig(format='%(message)s',
                         filename=LOG_NAME,

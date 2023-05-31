@@ -3,7 +3,7 @@ import argparse
 from typing import Tuple
 
 import log_analysis
-import files
+import file_handler
 
 from main import check_satis
 import instances
@@ -218,7 +218,7 @@ def redo_mutations(file_info):
     """Reproduce the bug."""
     global mutations, message
 
-    group, mutations, message = files.restore_group(file_info)
+    group, mutations, message = file_handler.restore_group(file_info)
     instance = group[-1]
     if is_same_res(instance):
         instance.dump(instances.output_dir + 'bugs/',
@@ -246,7 +246,7 @@ def deduplicate(bug_files=None, logfile: str = 'logfile') -> defaultdict:
                 bug_files.append(entry)
 
     for file in bug_files:
-        group, mutations, message = files.restore_group(file)
+        group, mutations, message = file_handler.restore_group(file)
         instance = group[-1]
         if instance is None:
             continue
@@ -308,11 +308,11 @@ def main():
 
     init_mut_types([], ['own', 'simplifications', 'spacer_parameters', 'eldarica_parameters'])
     if not argv.seed_file:
-        filenames = files.get_filenames([argv.bug_file]) if argv.bug_file else None
+        filenames = file_handler.get_filenames([argv.bug_file]) if argv.bug_file else None
         if argv.reduce_chain or argv.reduce_instance:
             for filename in filenames:
                 with_mutations = True if argv.reduce_chain else False
-                group, mutations, message = files.restore_group(filename, with_mutations)
+                group, mutations, message = file_handler.restore_group(filename, with_mutations)
                 reduce(filename, group.id, argv.reduce_chain, argv.reduce_instance)
 
         elif argv.reproduce:

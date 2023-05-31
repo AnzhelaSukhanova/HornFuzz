@@ -3,7 +3,7 @@ import json
 import math
 import os
 from constants import *
-from files import get_filenames
+from file_handler import get_filenames
 from collections import defaultdict
 from statistics import mean
 

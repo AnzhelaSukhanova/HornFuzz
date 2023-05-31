@@ -207,7 +207,7 @@ def find_term(clause: QuantifierRef, term_kind: int, trans_num: int, remove: boo
     term = to_expr_ref(Z3_find_term(ctx_ref,
                                     clause.as_ast(),
                                     term_kind,
-                                    trans_num,
+                                    trans_num + 1,
                                     remove,
                                     is_quantifier,
                                     path),

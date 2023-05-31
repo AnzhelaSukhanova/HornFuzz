@@ -8,8 +8,8 @@ run_container() {
 	docker container rm "hornfuzz$1"
 	log_dir="logs$1"
 	log="$log_dir/`timestamp`.txt"
-	last_log=`ls $log_dir | tail -1`
-	if [ -z "$last_log" ]; then
+	last_log="$log_dir/`ls $log_dir | tail -1`"
+	if [[ $last_log == "$log_dir/" ]]; then
 		last_log=$log
 	fi
 	touch "$log"
