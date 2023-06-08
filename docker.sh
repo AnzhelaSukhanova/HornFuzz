@@ -39,14 +39,20 @@ for i in `eval echo {1..$CONTAINER_NUM}`; do
 	run_container $i
 done
 
+
 while true
 do
-	sleep 1h
+	for i in `eval echo {1..24}`; do
+		sleep 1h
+		for i in `eval echo {1..$CONTAINER_NUM}`; do
+			status=`docker inspect -f "{{.State.Status}}" "hornfuzz$i"`
+			if [[ $status = "exited" ]]; then
+				run_container $i
+			fi
+		done
+	done
 	for i in `eval echo {1..$CONTAINER_NUM}`; do
-		status=`docker inspect -f "{{.State.Status}}" "hornfuzz$i"`
-		if [[ $status = "exited" ]]; then
-			run_container $i
-		fi
+		docker stop "hornfuzz$i"
 	done
 done
 
