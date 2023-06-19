@@ -33,13 +33,11 @@ def is_same_res(instance: Instance, result: bool = False, wrong_model: bool = Fa
     return same_res
 
 
-def reduce_instance(seed: Instance, bug_instance: Instance, wrong_model: bool) \
-        -> Tuple[Instance, bool]:
-    """Reduce the chc-system causing the problem."""
-
+def reduce_instance(is_seed: bool, seed: Instance, instance: Instance = None,
+                    wrong_model: bool = False) -> bool:
     print('Instance reducing')
-    start_instance = deepcopy(bug_instance)
-    instance = deepcopy(bug_instance)
+    start_instance = deepcopy(instance)
+    cur_instance = deepcopy(instance)
     remove_clause_num = 0
 
     for i, clause in enumerate(instance.chc):
@@ -57,30 +55,40 @@ def reduce_instance(seed: Instance, bug_instance: Instance, wrong_model: bool) \
             mutation.set_remove_mutation(trans_number, i - remove_clause_num)
 
             try:
-                reduced_chc = mutation.transform(instance)
-                instance.set_chc(reduced_chc)
+                reduced_chc = mutation.transform(cur_instance)
+                cur_instance.set_chc(reduced_chc)
             except Exception:
                 print(traceback.format_exc())
-                instance.set_chc(bug_instance.chc)
+                cur_instance.set_chc(instance.chc)
                 for child in cur_expr.children():
                     expr_queue.append(child)
                 continue
 
-            is_eq = equivalence_check(seed.chc, instance.chc) if not wrong_model else True
-            if is_same_res(instance, wrong_model=wrong_model) and is_eq:
-                bug_instance.set_chc(instance.chc)
+            if is_seed:
+                entry = {'id': 0,
+                         'filename': seed.get_group().filename,
+                         'seed': cur_instance,
+                         'mut_chain': mutations,
+                         'message': ''}
+                bug_is_reproducible = reproducible(entry)
+            else:
+                is_eq = equivalence_check(seed.chc, cur_instance.chc) \
+                    if not wrong_model \
+                    else True
+                bug_is_reproducible = is_same_res(cur_instance, wrong_model=wrong_model) and is_eq
+
+            if bug_is_reproducible:
+                instance.set_chc(cur_instance.chc)
                 print('Reduced:', expr_number)
-                # trans_number -= 1
                 if expr_number == 0:
                     remove_clause_num += 1
             else:
-                instance.set_chc(bug_instance.chc)
+                cur_instance.set_chc(instance.chc)
                 for child in cur_expr.children():
                     expr_queue.append(child)
-                # print('Cannot be reduced:', trans_number)
 
-    is_reduced = True if start_instance.chc.sexpr() != bug_instance.chc.sexpr() else False
-    return bug_instance, is_reduced
+    is_reduced = True if start_instance.chc.sexpr() != instance.chc.sexpr() else False
+    return is_reduced
 
 
 def reduce_mut_chain(group: InstanceGroup) -> Instance:
@@ -103,6 +111,7 @@ def reduce_mut_chain(group: InstanceGroup) -> Instance:
                 group = new_group
                 initial_size -= chunk_size
                 print(f'{chunk_size} mutation can be removed.')
+                print(group[-1].mutation.get_chain())
         chunk_size //= 2
 
     instance = group.pop()
@@ -157,33 +166,9 @@ def reduce_declarations(instance: Instance):
     return new_declarations
 
 
-def reduce(filename: str = None, group_id: int = 0,
-           reduce_chain: bool = False, reduce_inst: bool = False) -> Instance:
-
-    group = instance_groups[group_id]
-    if reduce_chain:
-        mut_instance = group[-1]
-        try:
-            assert is_same_res(mut_instance)
-        except AssertionError:
-            print('Bug isn\'t reproduced:', filename)
-            print(mutations)
-            return None
-        mut_instance = reduce_mut_chain(group)
-    if reduce_inst:
-        group.restore({})
-        seed = group[0]
-        mut_system = parse_smt2_file(filename,
-                                     ctx=ctx.current_ctx)
-        mut_instance = Instance(mut_system, group.id)
-        for entry in mutations:
-            type_name = entry['type']
-            type = mut_types[type_name]
-            if type.is_spacer_param() or type.is_eldarica_param():
-                mut_instance.add_param(type)
-
-        assert is_same_res(mut_instance), 'Incorrect mutant-restoration'
-        wrong_model = False if mut_instance.satis != seed.satis else True
+def reduce(filename: str = None, group: InstanceGroup = None,
+           reduce_chain: bool = False, reduce_seed: bool = False,
+           reduce_mutant: bool = False):
 
     reduce_dir = instances.output_dir + 'reduced/'
     if not os.path.exists(reduce_dir):
@@ -194,28 +179,42 @@ def reduce(filename: str = None, group_id: int = 0,
             if not os.path.exists(dir_path):
                 os.mkdir(dir_path)
 
-    if reduce_inst:
+    mut_instance = group[-1]
+    seed = group[0]
+    wrong_model = False if mut_instance.satis != seed.satis else True
+
+    if reduce_chain:
         try:
+            assert is_same_res(mut_instance)
+        except AssertionError:
+            print('Bug isn\'t reproduced:', filename)
+            print(mutations)
+            return None
+        mut_instance = reduce_mut_chain(group)
+
+    if reduce_seed or reduce_mutant:
+        try:
+            cur_instance = seed if reduce_seed else mut_instance
+            is_seed = reduce_seed is True
             is_reduced = True
             while is_reduced:
-                mut_instance, is_reduced = reduce_instance(seed,
-                                                           mut_instance,
-                                                           wrong_model)
-                declarations = reduce_declarations(mut_instance) \
+                is_reduced = reduce_instance(is_seed=is_seed,
+                                             seed=seed,
+                                             instance=cur_instance,
+                                             wrong_model=wrong_model)
+                declarations = reduce_declarations(cur_instance) \
                     if not is_reduced else None
-                mut_instance.dump(reduce_dir,
+                cur_instance.dump(reduce_dir,
                                   group.filename,
                                   declarations=declarations,
                                   clear=False)
+                print(len(cur_instance.chc))
 
         except Exception:
             print(traceback.format_exc())
 
-    return mut_instance
 
-
-def redo_mutations(file_info):
-    """Reproduce the bug."""
+def reproducible(file_info) -> bool:
     global mutations, message
 
     group, mutations, message = file_handler.restore_group(file_info)
@@ -224,8 +223,10 @@ def redo_mutations(file_info):
         instance.dump(instances.output_dir + 'bugs/',
                       group.filename,
                       to_name=instance.id)
+        return True
     else:
         print('Bug not found')
+        return False
 
 
 def deduplicate(bug_files=None, logfile: str = 'logfile') -> defaultdict:
@@ -254,10 +255,8 @@ def deduplicate(bug_files=None, logfile: str = 'logfile') -> defaultdict:
         params = instance.params
         reproduce = True
         if instance.mutation.number == 1:
-            new_instance = reduce(file,
-                                  group.id,
-                                  reduce_chain=True,
-                                  reduce_inst=False)
+            reduce(file, group, reduce_chain=True)
+            new_instance = group[-1]
             if new_instance is not None:
                 instance = new_instance
             else:
@@ -286,6 +285,8 @@ def deduplicate(bug_files=None, logfile: str = 'logfile') -> defaultdict:
 
 
 def main():
+    global mutations, message
+
     parser = argparse.ArgumentParser()
     parser.add_argument('bug_file',
                         nargs='?',
@@ -300,7 +301,8 @@ def main():
                         nargs='?',
                         default=None)
     parser.add_argument('-reduce_chain', action='store_true')
-    parser.add_argument('-reduce_instance', action='store_true')
+    parser.add_argument('-reduce_seed', action='store_true')
+    parser.add_argument('-reduce_mutant', action='store_true')
     parser.add_argument('-reproduce', action='store_true')
     argv = parser.parse_args()
     ctx.set_ctx(Context())
@@ -309,11 +311,10 @@ def main():
     init_mut_types([], ['own', 'simplifications', 'spacer_parameters', 'eldarica_parameters'])
     if not argv.seed_file:
         filenames = file_handler.get_filenames([argv.bug_file]) if argv.bug_file else None
-        if argv.reduce_chain or argv.reduce_instance:
+        if argv.reduce_chain or argv.reduce_seed or argv.reduce_mutant:
             for filename in filenames:
-                with_mutations = True if argv.reduce_chain else False
-                group, mutations, message = file_handler.restore_group(filename, with_mutations)
-                reduce(filename, group.id, argv.reduce_chain, argv.reduce_instance)
+                group, mutations, message = file_handler.restore_group(filename)
+                reduce(filename, group, argv.reduce_chain, argv.reduce_seed, argv.reduce_mutant)
 
         elif argv.reproduce:
             if argv.mut_chain:
@@ -321,10 +322,10 @@ def main():
                          'filename': argv.bug_file,
                          'mut_chain': argv.mut_chain,
                          'message': ''}
-                redo_mutations(entry)
+                reproducible(entry)
             elif filenames:
                 for filename in filenames:
-                    redo_mutations(filename)
+                    reproducible(filename)
 
         elif argv.logfiles:
             bug_groups = defaultdict()

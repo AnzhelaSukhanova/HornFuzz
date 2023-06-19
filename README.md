@@ -2,7 +2,7 @@
 Fuzzer of the CHC solvers.
 
 ## Paper
-HornFuzz: Fuzzing CHC solvers https://dl.acm.org/doi/10.1145/3593434.3593455
+HornFuzz: Fuzzing CHC solvers https://dl.acm.org/doi/10.1145/3593434.3593455.
 
 ## Install
 Install Z3 with Python API according to the instructions given in the branch https://github.com/AnzhelaSukhanova/z3.  

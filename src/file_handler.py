@@ -61,6 +61,7 @@ def exclude_unknown_seed(seeds: set) -> set:
 
 
 def restore_group(entry, with_mutations: bool = True):
+    seed = None
     if isinstance(entry, str):
         mutations, message, seed_name, out_dir = get_mutant_info(entry)
         instances.set_output_dir(out_dir)
@@ -70,10 +71,13 @@ def restore_group(entry, with_mutations: bool = True):
             mutations = eval(mutations)
         message = entry['message']
         seed_name = entry['filename']
+        seed = entry['seed']
         print(seed_name[:-5] + '_' + str(int(entry['id'])) + '.smt2')
     group_id = len(instances.instance_groups)
     group = instances.InstanceGroup(group_id, seed_name)
     if with_mutations:
+        if seed:
+            group.push(seed)
         group.restore(mutations)
     return group, mutations, message
 

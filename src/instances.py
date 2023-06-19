@@ -150,7 +150,7 @@ class InstanceGroup(object):
         return instance
 
     def restore(self, mutations):
-        instance = self.restore_seed()
+        instance = self.restore_seed() if not len(self.instances) else self[0]
 
         for mut in mutations:
             mut_instance = Instance()
@@ -999,7 +999,8 @@ class Mutation(object):
         expr_kind = self.kind
         if self.type.is_remove() and self.trans_num == 0:
             self.applied = True
-            return None
+            true_clause = BoolRef(Z3_mk_true(ctx.current_ctx.ref()), ctx.current_ctx)
+            return true_clause
         if expr_kind is Z3_QUANTIFIER_AST:
             expr, path = find_term(clause, Z3_OP_TRUE, self.trans_num,
                                    remove=False, is_quantifier=True)
@@ -1010,8 +1011,6 @@ class Mutation(object):
         mut_expr = expr
         mut_name = self.type.name
         children = expr.children()
-        # if self.type.is_remove() and expr.decl().arity() > len(children) - 1:
-        #     return None
 
         if mut_name in {'SWAP_AND', 'SWAP_OR'}:
             children = children[1:] + children[:1]
