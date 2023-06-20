@@ -60,19 +60,40 @@ def exclude_unknown_seed(seeds: set) -> set:
     return seeds.difference(blacklist)
 
 
+def get_benchmark_name(filename: str) -> str:
+    is_bug = False
+    out_dir = ''
+    chunks = filename.split('/')
+    counter = 1
+    for i, chunk in enumerate(chunks):
+        if chunk == 'bugs':
+            is_bug = True
+        elif chunk in SEED_DIRS:
+            counter = 0
+            break
+        if chunks[i + 1] not in SEED_DIRS:
+            counter += 1
+            out_dir += chunk + '/'
+        else:
+            break
+    filename = '/'.join(chunks[counter:])
+    seed_name = '_'.join(filename.split('_')[:-1]) + '.smt2' \
+        if is_bug else filename
+    instances.set_output_dir(out_dir)
+    return seed_name
+
+
 def restore_group(entry, with_mutations: bool = True):
     seed = None
     if isinstance(entry, str):
-        mutations, message, seed_name, out_dir = get_mutant_info(entry)
-        instances.set_output_dir(out_dir)
+        mutations, message, seed_name = get_mutant_info(entry)
     else:
         mutations = entry['mut_chain']
         if isinstance(mutations, str):
             mutations = eval(mutations)
         message = entry['message']
-        seed_name = entry['filename']
+        seed_name = get_benchmark_name(entry['filename'])
         seed = entry['seed']
-        print(seed_name[:-5] + '_' + str(int(entry['id'])) + '.smt2')
     group_id = len(instances.instance_groups)
     group = instances.InstanceGroup(group_id, seed_name)
     if with_mutations:
@@ -90,28 +111,14 @@ def get_mutant_info(filename: str):
         message = message[2:] if message[0] == ';' else None
 
     mutations = []
-    is_bug = False
     if mut_line:
         mutations = json.loads(mut_line)
-    out_dir = ''
     if not filename.startswith(tuple(SEED_DIRS)):
-        chunks = filename.split('/')
-        counter = 1
-        for i, chunk in enumerate(chunks):
-            if chunk == 'bugs':
-                is_bug = True
-            if chunks[i + 1] not in SEED_DIRS:
-                counter += 1
-                out_dir += chunk + '/'
-            else:
-                break
-        filename = '/'.join(chunks[counter:])
-        seed_name = '_'.join(filename.split('_')[:-1]) + '.smt2'\
-            if is_bug else filename
+        seed_name = get_benchmark_name(filename)
     else:
         seed_name = filename
 
-    return mutations, message, seed_name, out_dir
+    return mutations, message, seed_name
 
 
 def get_last_file(path):

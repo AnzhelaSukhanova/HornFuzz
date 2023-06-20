@@ -12,6 +12,7 @@ from instances import *
 sys.setrecursionlimit(1000)
 mutations = {}
 message = ''
+reduced_clause_ind = set()
 
 
 def is_same_res(instance: Instance, result: bool = False, wrong_model: bool = False) -> bool:
@@ -35,13 +36,15 @@ def is_same_res(instance: Instance, result: bool = False, wrong_model: bool = Fa
 
 def reduce_instance(is_seed: bool, seed: Instance, instance: Instance = None,
                     wrong_model: bool = False) -> bool:
+    global reduced_clause_ind
     print('Instance reducing')
     start_instance = deepcopy(instance)
     cur_instance = deepcopy(instance)
-    remove_clause_num = 0
 
     for i, clause in enumerate(instance.chc):
         print('Clause:', i)
+        if i in reduced_clause_ind:
+            continue
         expr_queue = [clause]
         trans_number = -1
         expr_number = -1
@@ -52,7 +55,7 @@ def reduce_instance(is_seed: bool, seed: Instance, instance: Instance = None,
             trans_number += 1
             expr_number += 1
             mutation = Mutation()
-            mutation.set_remove_mutation(trans_number, i - remove_clause_num)
+            mutation.set_remove_mutation(trans_number, i)
 
             try:
                 reduced_chc = mutation.transform(cur_instance)
@@ -80,8 +83,8 @@ def reduce_instance(is_seed: bool, seed: Instance, instance: Instance = None,
             if bug_is_reproducible:
                 instance.set_chc(cur_instance.chc)
                 print('Reduced:', expr_number)
-                if expr_number == 0:
-                    remove_clause_num += 1
+                if trans_number == 0:
+                    reduced_clause_ind.add(i)
             else:
                 cur_instance.set_chc(instance.chc)
                 for child in cur_expr.children():
@@ -208,7 +211,6 @@ def reduce(filename: str = None, group: InstanceGroup = None,
                                   group.filename,
                                   declarations=declarations,
                                   clear=False)
-                print(len(cur_instance.chc))
 
         except Exception:
             print(traceback.format_exc())
@@ -221,8 +223,7 @@ def reproducible(file_info) -> bool:
     instance = group[-1]
     if is_same_res(instance):
         instance.dump(instances.output_dir + 'bugs/',
-                      group.filename,
-                      to_name=instance.id)
+                      group.filename)
         return True
     else:
         print('Bug not found')
@@ -299,6 +300,7 @@ def main():
                         default=None)
     parser.add_argument('-mut_chain',
                         nargs='?',
+                        type=json.loads,
                         default=None)
     parser.add_argument('-reduce_chain', action='store_true')
     parser.add_argument('-reduce_seed', action='store_true')
@@ -318,8 +320,10 @@ def main():
 
         elif argv.reproduce:
             if argv.mut_chain:
+                seed = restore_seed(argv.bug_file)
                 entry = {'id': 0,
                          'filename': argv.bug_file,
+                         'seed': seed,
                          'mut_chain': argv.mut_chain,
                          'message': ''}
                 reproducible(entry)
