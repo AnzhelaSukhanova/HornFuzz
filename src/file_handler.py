@@ -1,7 +1,7 @@
 import json
 import os
-from typing import Tuple
-from instances import *
+import instances
+from constants import SEED_DIRS
 
 
 def get_relational(directory: str) -> set:
@@ -60,20 +60,45 @@ def exclude_unknown_seed(seeds: set) -> set:
     return seeds.difference(blacklist)
 
 
+def get_benchmark_name(filename: str) -> str:
+    is_bug = False
+    out_dir = ''
+    chunks = filename.split('/')
+    counter = 1
+    for i, chunk in enumerate(chunks):
+        if chunk == 'bugs':
+            is_bug = True
+        elif chunk in SEED_DIRS:
+            counter = 0
+            break
+        if chunks[i + 1] not in SEED_DIRS:
+            counter += 1
+            out_dir += chunk + '/'
+        else:
+            break
+    filename = '/'.join(chunks[counter:])
+    seed_name = '_'.join(filename.split('_')[:-1]) + '.smt2' \
+        if is_bug else filename
+    instances.set_output_dir(out_dir)
+    return seed_name
+
+
 def restore_group(entry, with_mutations: bool = True):
+    seed = None
     if isinstance(entry, str):
-        mutations, message, seed_name, out_dir = get_mutant_info(entry)
-        set_output_dir(out_dir)
+        mutations, message, seed_name = get_mutant_info(entry)
     else:
         mutations = entry['mut_chain']
         if isinstance(mutations, str):
             mutations = eval(mutations)
         message = entry['message']
-        seed_name = entry['filename']
-        print(seed_name[:-5] + '_' + str(int(entry['id'])) + '.smt2')
-    group_id = len(instance_groups)
-    group = InstanceGroup(group_id, seed_name)
+        seed_name = get_benchmark_name(entry['filename'])
+        seed = entry['seed']
+    group_id = len(instances.instance_groups)
+    group = instances.InstanceGroup(group_id, seed_name)
     if with_mutations:
+        if seed:
+            group.push(seed)
         group.restore(mutations)
     return group, mutations, message
 
@@ -86,35 +111,28 @@ def get_mutant_info(filename: str):
         message = message[2:] if message[0] == ';' else None
 
     mutations = []
-    is_bug = False
     if mut_line:
         mutations = json.loads(mut_line)
-    out_dir = ''
     if not filename.startswith(tuple(SEED_DIRS)):
-        chunks = filename.split('/')
-        counter = 1
-        for i, chunk in enumerate(chunks):
-            if chunk == 'bugs':
-                is_bug = True
-            if chunks[i + 1] not in SEED_DIRS:
-                counter += 1
-                out_dir += chunk + '/'
-            else:
-                break
-        filename = '/'.join(chunks[counter:])
-        seed_name = '_'.join(filename.split('_')[:-1]) + '.smt2'\
-            if is_bug else filename
+        seed_name = get_benchmark_name(filename)
     else:
         seed_name = filename
 
-    return mutations, message, seed_name, out_dir
+    return mutations, message, seed_name
 
 
-def get_seeds(argv, directory: str) -> Tuple[set, Bool]:
-    mutant_path = output_dir + '/last_mutants'
+def get_last_file(path):
+    files = os.listdir(path)
+    paths = [os.path.join(path, basename) for basename in files]
+    return max(paths, key=os.path.getctime)
+
+
+def get_seeds(argv, directory: str, restore: bool) -> set:
+    mutant_path = instances.output_dir + '/last_mutants'
     mutant_num = 0
-    for root, dirs, files in os.walk(mutant_path):
-        mutant_num += len(files)
+    if restore:
+        for root, dirs, files in os.walk(mutant_path):
+            mutant_num += len(files)
 
     if mutant_num:
         seeds = get_filenames([mutant_path])
@@ -135,7 +153,7 @@ def get_seeds(argv, directory: str) -> Tuple[set, Bool]:
             dir_path = directory + argv[0] + '/'
             seeds = get_instance_names(dir_path)
             seeds = exclude_unknown_seed(seeds)
-    return seeds, mutant_num > 0
+    return seeds
 
 
 def create_output_dirs():

@@ -23,3 +23,6 @@ seed_info/*
 # Other solvers
 eldarica/
 
+# Helpers
+src/naive_reducer.py
+

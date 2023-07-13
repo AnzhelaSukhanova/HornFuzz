@@ -3,7 +3,7 @@ import json
 import math
 import os
 from constants import *
-from files import get_filenames
+from file_handler import get_filenames
 from collections import defaultdict
 from statistics import mean
 
@@ -27,6 +27,7 @@ class Stats:
         self.lines = file.readlines()
         file.close()
         self.df = None
+        self.trace_hashes = []
         self.seed_num = 0
 
     def create_time_graph(self, fig1: plt.Figure, fig2: plt.Figure, y: str = 'runs',
@@ -216,20 +217,14 @@ class Stats:
 
         global num_dict, count_dict, chain_lengths
 
-        ind = self.df['filename'].notnull()
-        num = 0
+        entries = self.df[self.df['status'] == status]
         status_num = 0
-        for i, entry in self.df.loc[ind].iterrows():
+        for i, entry in entries.iterrows():
             filename = entry['filename']
-            num += 1
-            # mutation = entry['mut_type'].split('(')[0]
-            add_to_count_dict(num_dict, entry['status'])
-            if entry['status'] == status:
-                if status != 'wrong_model' or entry['model_state'] != -1:
-                    continue
-                status_num += 1
-                add_to_count_dict(count_dict, entry['mut_type'])
-        num_dict[''].append(num)
+            print(filename, int(entry['id']), entry['mut_chain'])
+            print()
+            status_num += 1
+            add_to_count_dict(count_dict, filename)
         count_dict[''].append(status_num)
 
 
@@ -241,11 +236,11 @@ def prepare_data(name: str):
         try:
             entry = json.loads(line)
             if not stats.seed_num and 'seed_number' in entry:
-                info = entry
-                stats.seed_num = info['seed_number']
-            elif 'general_info' in entry or 'run_info' in entry \
-                    or 'update_mutation_weights' in entry:
+                stats.seed_num = entry['seed_number']
+            elif 'update_mutation_weights' in entry:
                 entries.append(list(entry.values())[0])
+            elif 'trace_hashes' in entry:
+                stats.trace_hashes = entry['trace_hashes']
             elif 'context_deletion_error' not in entry:
                 entries.append(entry)
 
@@ -302,11 +297,9 @@ def analyze(log_names: list, stats: list, select: list, options: list):
     num_dict = dict(sorted(num_dict.items(),
                            key=lambda item: item[1][0],
                            reverse=True))
-    for key in num_dict:
-        if num_dict[key][0] > 1:
-            print(key, num_dict[key][0])
-        # if count_dict[key]:
-        #     print(key, count_dict[key])
+    for key in count_dict:
+        if count_dict[key]:
+            print(key, count_dict[key])
 
 
 def main():

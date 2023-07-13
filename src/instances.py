@@ -31,7 +31,8 @@ def set_known_trace(traces: set):
 
 def set_output_dir(cur_output_dir: str):
     global output_dir
-    output_dir = cur_output_dir
+    if cur_output_dir:
+        output_dir = cur_output_dir
 
 
 class Family(Enum):
@@ -141,16 +142,9 @@ class InstanceGroup(object):
                 self.roll_back()
                 return 0
 
-    def restore_seed(self):
-        parse_ctx = Context()
-        seed = parse_smt2_file(self.filename, ctx=parse_ctx)
-        seed = seed.translate(ctx.current_ctx)
-        instance = Instance(seed)
-        self.push(instance)
-        return instance
-
     def restore(self, mutations):
-        instance = self.restore_seed()
+        instance = restore_seed(self.filename) if not len(self.instances) else self[0]
+        self.push(instance)
 
         for mut in mutations:
             mut_instance = Instance()
@@ -435,7 +429,7 @@ class Instance(object):
             decl_path = output_dir + 'decl/' + filename
             with open(decl_path, 'r') as decl_file:
                 declarations = decl_file.read()
-        cur_path = dir + '/' + filename
+        cur_path = dir + filename
         if to_name:
             cur_path = cur_path[:-5] + '_' + str(to_name) + '.smt2'
         with open(cur_path, 'w') as file:
@@ -895,61 +889,6 @@ class Mutation(object):
 
         return mut_system
 
-    def add_lin_rule(self, instance: Instance) -> AstVector:
-        mut_system = copy_chc(instance.chc)
-        _, clause = self.get_clause_info(instance)
-        head, vars = take_pred_from_clause(clause)
-
-        body_files = os.listdir('false_formulas')
-        body_files.remove('README.md')
-        filename = 'false_formulas/' + random.choice(body_files)
-        body = parse_smt2_file(filename, ctx=ctx.current_ctx)[0]
-        implication = Implies(body, head, ctx=ctx.current_ctx)
-        rule = ForAll(vars, implication) if vars else implication
-        mut_system.push(rule)
-
-        group = instance.get_group()
-        group.find_family(rule)
-
-        return mut_system
-
-    def add_nonlin_rule(self, instance: Instance) -> AstVector:
-        mut_system = copy_chc(instance.chc)
-        _, clause = self.get_clause_info(instance)
-        head_upred, head_vars, upred = take_pred_from_clause(clause, with_term=True)
-
-        body_vars = head_vars
-        pred_vars_num = len(body_vars)
-        num = random.randint(1, 10)
-        var = Int('v' + str(0), ctx=ctx.current_ctx)
-        body_vars.append(var)
-        vars = [var]
-        and_exprs = []
-        for i in range(1, num + 1):
-            var = FreshConst(IntSort(ctx=ctx.current_ctx), prefix='v')
-            vars.append(var)
-            body_vars.append(var)
-            shuffle_vars(body_vars)
-            upred_vars = body_vars[:pred_vars_num] \
-                if pred_vars_num else []
-            new_upred = upred.__call__(upred_vars)
-
-            expr = var < vars[i - 1]
-            and_exprs.append(And(new_upred, expr))
-
-        expr = vars[0] < vars[num]
-        and_exprs.append(And(head_upred, expr))
-        body = And(and_exprs)
-        body = Exists(vars, body)
-        implication = Implies(body, head_upred, ctx=ctx.current_ctx)
-        rule = ForAll(head_vars, implication) if head_vars else implication
-
-        mut_system.push(rule)
-        group = instance.get_group()
-        group.find_family(rule)
-
-        return mut_system
-
     def get_clause_info(self, instance: Instance) -> (int, AstVector):
         info = instance.info
         chc_system = instance.chc
@@ -999,7 +938,8 @@ class Mutation(object):
         expr_kind = self.kind
         if self.type.is_remove() and self.trans_num == 0:
             self.applied = True
-            return None
+            true_clause = BoolRef(Z3_mk_true(ctx.current_ctx.ref()), ctx.current_ctx)
+            return true_clause
         if expr_kind is Z3_QUANTIFIER_AST:
             expr, path = find_term(clause, Z3_OP_TRUE, self.trans_num,
                                    remove=False, is_quantifier=True)
@@ -1010,8 +950,6 @@ class Mutation(object):
         mut_expr = expr
         mut_name = self.type.name
         children = expr.children()
-        # if self.type.is_remove() and expr.decl().arity() > len(children) - 1:
-        #     return None
 
         if mut_name in {'SWAP_AND', 'SWAP_OR'}:
             children = children[1:] + children[:1]
@@ -1140,7 +1078,7 @@ def mut_break(children):
         mut_children = children[:-1]
     else:
         mut_children = children[:-2]
-    mut_children.append(And(children_part))
+    mut_children.append(And(children_part, ctx.current_ctx))
     return mut_children
 
 
@@ -1156,3 +1094,11 @@ def create_add_ineq(children, expr_kind: int) -> BoolRef:
     else:
         assert False, 'Incorrect kind of expression'
     return new_ineq
+
+
+def restore_seed(filename: str) -> Instance:
+    parse_ctx = Context()
+    seed = parse_smt2_file(filename, ctx=parse_ctx)
+    seed = seed.translate(ctx.current_ctx)
+    instance = Instance(seed)
+    return instance

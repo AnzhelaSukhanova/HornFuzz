@@ -1,6 +1,9 @@
 # HornFuzz
 Fuzzer of the CHC solvers.
 
+## Paper
+HornFuzz: Fuzzing CHC solvers https://dl.acm.org/doi/10.1145/3593434.3593455.
+
 ## Install
 Install Z3 with Python API according to the instructions given in the branch https://github.com/AnzhelaSukhanova/z3.  
 You can also use the Dockerfile.
@@ -32,10 +35,12 @@ Add `-heuristic <heuristic>` (or `-heur`) to change default instance selection t
 * chc-difficulty (`difficulty`).  
 
 ### Other options
-You can add `-options without_mutation_weights` (or `-opt`) to choose mutations equiprobably.  
+You can add `-options <option1> <option2>` (or `-opt`) to run fuzzer with some options.  
+* `without_mutation_weights` option to allows choose mutations equiprobably.
+* With `restore` option HornFuzz restores the last run and continues running.
 
 To choose mutation groups add `-mutations <group1> <group2> ...` (or `-mut`). Available mutation groups:  
 * `own`;  
 * `simplifications`;  
-* `solving_parameters`.  
+* `<solver>_parameters`.  
 

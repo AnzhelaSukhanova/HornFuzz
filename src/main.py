@@ -7,10 +7,11 @@ import os.path
 from typing import Optional
 
 import instances
+from instances import *
+import file_handler
 
 import z3_api_mods
 from seed_info_utils import *
-from files import *
 from log_analysis import prepare_data
 
 faulthandler.enable()
@@ -21,6 +22,7 @@ heuristic = 'default'
 mutations = []
 
 seed_number = 0
+restore = False
 queue = []
 general_stats = None
 counter = defaultdict(int)
@@ -397,24 +399,23 @@ def set_seed_num():
 
 def restore_data(files):
     global counter, log
-    df = prepare_data(LOG_NAME).df
+    stats = prepare_data(LAST_LOG_NAME)
+    df = stats.df
     runs_df = df[df['runs'].notnull()]
     last_row = runs_df.tail(1)
     for key in {'runs', 'bug', 'timeout', 'unknown', 'error'}:
         counter[key] = int(last_row[key])
 
-    trace_ind = df['trace_hashes'].notnull()
-    if trace_ind.any():
-        last_trace_row = df[trace_ind].iloc[-1]
+    if stats.trace_hashes:
         trace_hashes = set()
-        for hash in (last_trace_row['trace_hashes']):
+        for hash in stats.trace_hashes:
             trace_hashes.add(base64.b64decode(hash))
         set_known_trace(trace_hashes)
         counter['unique_traces'] = len(trace_hashes)
 
     ctx.set_ctx(Context())
     for file in files:
-        group, mutations, _ = restore_group(file, with_mutations=False)
+        group, mutations, _ = file_handler.restore_group(file, with_mutations=False)
         group.mutations = mutations
         instance = Instance()
         group.push(instance)
@@ -442,7 +443,7 @@ def restore_data(files):
     set_seed_num()
 
 
-def fuzz(files, restore: bool = False):
+def fuzz(files):
     global queue, counter
 
     if restore:
@@ -611,7 +612,7 @@ def fuzz(files, restore: bool = False):
 
 
 def set_arg_parameters(argv: argparse.Namespace):
-    global mutations, heuristic, options
+    global mutations, heuristic, options, restore
     set_solver(argv.solver)
 
     heuristic = argv.heuristic
@@ -619,11 +620,12 @@ def set_arg_parameters(argv: argparse.Namespace):
 
     mutations = argv.mutations
     options = argv.options
+    restore = 'restore' in options
     init_mut_types(options, mutations)
 
 
 def main():
-    global general_stats, seed_number
+    global general_stats, seed_number, restore
 
     parser = argparse.ArgumentParser()
     parser.add_argument('seeds',
@@ -649,7 +651,7 @@ def main():
                                  'own', 'eldarica_parameters'])
     parser.add_argument('-options', '-opt',
                         nargs='*',
-                        choices=['without_mutation_weights'],
+                        choices=['without_mutation_weights', 'restore'],
                         default=[])
     argv = parser.parse_args()
 
@@ -660,6 +662,13 @@ def main():
                max_depth=int(1e6), max_visited=int(1e6))
 
     set_arg_parameters(argv)
+    if restore:
+        if not os.path.exists(LAST_LOG_NAME) or os.stat(LAST_LOG_NAME).st_size == 0:
+            if not os.path.exists(LOG_NAME) or os.stat(LOG_NAME).st_size == 0:
+                 restore = False
+            else:
+                os.rename(LOG_NAME, LAST_LOG_NAME)
+
     if heuristic in {'transitions', 'states'}:
         general_stats = TraceStats()
         assert solver == 'spacer'
@@ -667,18 +676,18 @@ def main():
     directory = os.path.dirname(os.path.dirname(parser.prog))
     if directory:
         directory += '/'
-    create_output_dirs()
-    files, restore = get_seeds(argv.seeds, directory)
+    file_handler.create_output_dirs()
+    seed_files = file_handler.get_seeds(argv.seeds, directory, restore)
     mode = 'w' if not restore else 'a'
     logging.basicConfig(format='%(message)s',
                         filename=LOG_NAME,
                         filemode=mode,
                         level=logging.INFO)
 
-    seed_number = len(files)
+    seed_number = len(seed_files)
     assert seed_number > 0, 'Seeds not found'
 
-    fuzz(files, restore)
+    fuzz(seed_files)
 
 
 if __name__ == '__main__':
